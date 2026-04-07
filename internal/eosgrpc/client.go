@@ -121,6 +121,37 @@ type FileSystemRecord struct {
 	WriteRateMB   float64
 }
 
+type SpaceRecord struct {
+	Name          string
+	Type          string
+	Status        string
+	Groups        uint64
+	NumFiles      uint64
+	NumContainers uint64
+	CapacityBytes uint64
+	UsedBytes     uint64
+	FreeBytes     uint64
+}
+
+type NamespaceStats struct {
+	TotalFiles              uint64
+	TotalDirectories        uint64
+	CurrentFID              uint64
+	CurrentCID              uint64
+	GeneratedFID            uint64
+	GeneratedCID            uint64
+	ContentionRead          float64
+	ContentionWrite         float64
+	CacheFilesMax           uint64
+	CacheFilesOccup         uint64
+	CacheFilesRequests      uint64
+	CacheFilesHits          uint64
+	CacheContainersMax      uint64
+	CacheContainersOccup    uint64
+	CacheContainersRequests uint64
+	CacheContainersHits     uint64
+}
+
 func New(_ context.Context, cfg Config) (*Client, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -318,6 +349,133 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 	})
 
 	return fileSystems, nil
+}
+
+func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
+	_ = ctx
+
+	output, err := c.runCommand("eos", "-j", "-b", "space", "ls")
+	if err != nil {
+		return nil, fmt.Errorf("eos space ls: %w", err)
+	}
+
+	var payload struct {
+		Result []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+			Cfg  struct {
+				GroupSize uint64 `json:"groupsize"`
+			} `json:"cfg"`
+			Sum struct {
+				NRW  uint64 `json:"n_rw"`
+				Stat struct {
+					StatFS struct {
+						Capacity  uint64 `json:"capacity"`
+						UsedBytes uint64 `json:"usedbytes"`
+						FreeBytes uint64 `json:"freebytes"`
+						Files     uint64 `json:"files"`
+					} `json:"statfs"`
+				} `json:"stat"`
+			} `json:"sum"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return nil, err
+	}
+
+	spaces := make([]SpaceRecord, 0, len(payload.Result))
+	for _, item := range payload.Result {
+		spaces = append(spaces, SpaceRecord{
+			Name:          item.Name,
+			Type:          item.Type,
+			Status:        "active",
+			Groups:        item.Cfg.GroupSize,
+			NumFiles:      item.Sum.Stat.StatFS.Files,
+			NumContainers: item.Sum.NRW,
+			CapacityBytes: item.Sum.Stat.StatFS.Capacity,
+			UsedBytes:     item.Sum.Stat.StatFS.UsedBytes,
+			FreeBytes:     item.Sum.Stat.StatFS.FreeBytes,
+		})
+	}
+
+	sort.Slice(spaces, func(i, j int) bool {
+		return spaces[i].Name < spaces[j].Name
+	})
+
+	return spaces, nil
+}
+
+func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
+	_ = ctx
+
+	output, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
+	if err != nil {
+		return NamespaceStats{}, fmt.Errorf("eos ns stat: %w", err)
+	}
+
+	var payload struct {
+		Result []struct {
+			NS struct {
+				Total struct {
+					Files       uint64 `json:"files"`
+					Directories uint64 `json:"directories"`
+				} `json:"total"`
+				Current struct {
+					FID uint64 `json:"fid"`
+					CID uint64 `json:"cid"`
+				} `json:"current"`
+				Generated struct {
+					FID uint64 `json:"fid"`
+					CID uint64 `json:"cid"`
+				} `json:"generated"`
+				Contention struct {
+					Read  float64 `json:"read"`
+					Write float64 `json:"write"`
+				} `json:"contention"`
+				Cache struct {
+					Files struct {
+						MaxSize   uint64 `json:"maxsize"`
+						Occupancy uint64 `json:"occupancy"`
+						Requests  uint64 `json:"requests"`
+						Hits      uint64 `json:"hits"`
+					} `json:"files"`
+					Containers struct {
+						MaxSize   uint64 `json:"maxsize"`
+						Occupancy uint64 `json:"occupancy"`
+						Requests  uint64 `json:"requests"`
+						Hits      uint64 `json:"hits"`
+					} `json:"containers"`
+				} `json:"cache"`
+			} `json:"ns"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return NamespaceStats{}, err
+	}
+
+	stats := NamespaceStats{}
+	for _, item := range payload.Result {
+		stats.TotalFiles = item.NS.Total.Files
+		stats.TotalDirectories = item.NS.Total.Directories
+		stats.CurrentFID = item.NS.Current.FID
+		stats.CurrentCID = item.NS.Current.CID
+		stats.GeneratedFID = item.NS.Generated.FID
+		stats.GeneratedCID = item.NS.Generated.CID
+		stats.ContentionRead = item.NS.Contention.Read
+		stats.ContentionWrite = item.NS.Contention.Write
+		stats.CacheFilesMax = item.NS.Cache.Files.MaxSize
+		stats.CacheFilesOccup = item.NS.Cache.Files.Occupancy
+		stats.CacheFilesRequests = item.NS.Cache.Files.Requests
+		stats.CacheFilesHits = item.NS.Cache.Files.Hits
+		stats.CacheContainersMax = item.NS.Cache.Containers.MaxSize
+		stats.CacheContainersOccup = item.NS.Cache.Containers.Occupancy
+		stats.CacheContainersRequests = item.NS.Cache.Containers.Requests
+		stats.CacheContainersHits = item.NS.Cache.Containers.Hits
+	}
+
+	return stats, nil
 }
 
 func (c *Client) ListPath(ctx context.Context, rawPath string) (Directory, error) {

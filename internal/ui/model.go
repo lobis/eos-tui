@@ -25,6 +25,8 @@ const (
 	viewNodes viewID = iota
 	viewFileSystems
 	viewNamespace
+	viewSpaces
+	viewNamespaceStats
 )
 
 type infraLoadedMsg struct {
@@ -47,6 +49,16 @@ type nodesLoadedMsg struct {
 type fileSystemsLoadedMsg struct {
 	fs  []eosgrpc.FileSystemRecord
 	err error
+}
+
+type spacesLoadedMsg struct {
+	spaces []eosgrpc.SpaceRecord
+	err    error
+}
+
+type namespaceStatsLoadedMsg struct {
+	stats eosgrpc.NamespaceStats
+	err   error
 }
 
 type directoryLoadedMsg struct {
@@ -78,6 +90,16 @@ type model struct {
 	fileSystems        []eosgrpc.FileSystemRecord
 	fsSelected         int
 	fsColumnSelected   int
+
+	spaces               []eosgrpc.SpaceRecord
+	spacesLoading        bool
+	spacesErr            error
+	spacesSelected       int
+	spacesColumnSelected int
+
+	namespaceStats eosgrpc.NamespaceStats
+	nsStatsLoading bool
+	nsStatsErr     error
 
 	directory  eosgrpc.Directory
 	nsLoaded   bool
@@ -220,6 +242,8 @@ func NewModel(client *eosgrpc.Client, endpoint, rootPath string) tea.Model {
 		nodeStatsLoading:   true,
 		nodesLoading:       true,
 		fileSystemsLoading: true,
+		spacesLoading:      true,
+		nsStatsLoading:     true,
 		nsLoading:          false,
 		directory: eosgrpc.Directory{
 			Path: cleanPath(rootPath),
@@ -261,7 +285,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "tab":
-			m.activeView = (m.activeView + 1) % 3
+			m.activeView = (m.activeView + 1) % 5
 			if m.activeView == viewNamespace {
 				return m.maybeLoadNamespace()
 			}
@@ -272,6 +296,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			m.activeView = viewNamespace
 			return m.maybeLoadNamespace()
+		case "4":
+			m.activeView = viewSpaces
+		case "5":
+			m.activeView = viewNamespaceStats
 		case "r":
 			return m.refreshActiveView()
 		}
@@ -283,6 +311,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateFileSystemKeys(msg)
 		case viewNamespace:
 			return m.updateNamespaceKeys(msg)
+		case viewSpaces:
+			return m.updateSpacesKeys(msg)
+		case viewNamespaceStats:
+			// namespace stats view is read-only, just refresh on 'r'
 		}
 	case infraLoadedMsg:
 		m.nodeStatsLoading = false
@@ -328,6 +360,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.fileSystems = msg.fs
 			m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
+			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
+	case spacesLoadedMsg:
+		m.spacesLoading = false
+		m.spacesErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Spaces refresh failed: %v", msg.err)
+		} else {
+			m.spaces = msg.spaces
+			m.spacesSelected = clampIndex(m.spacesSelected, len(m.spaces))
+			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
+	case namespaceStatsLoadedMsg:
+		m.nsStatsLoading = false
+		m.nsStatsErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Namespace stats refresh failed: %v", msg.err)
+		} else {
+			m.namespaceStats = msg.stats
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case directoryLoadedMsg:
@@ -404,6 +455,16 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.nsErr = nil
 		m.status = fmt.Sprintf("Refreshing namespace %s...", m.directory.Path)
 		return m, loadDirectoryCmd(m.client, m.directory.Path)
+	case viewSpaces:
+		m.spacesLoading = true
+		m.spacesErr = nil
+		m.status = "Refreshing spaces..."
+		return m, loadSpacesCmd(m.client)
+	case viewNamespaceStats:
+		m.nsStatsLoading = true
+		m.nsStatsErr = nil
+		m.status = "Refreshing namespace stats..."
+		return m, loadNamespaceStatsCmd(m.client)
 	default:
 		m.nodeStatsLoading = true
 		m.nodesLoading = true
@@ -547,6 +608,29 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.spacesSelected > 0 {
+			m.spacesSelected--
+		}
+	case "down", "j":
+		if m.spacesSelected < len(m.spaces)-1 {
+			m.spacesSelected++
+		}
+	case "g":
+		m.spacesSelected = 0
+	case "G":
+		m.spacesSelected = max(0, len(m.spaces)-1)
+	case "left":
+		m.spacesColumnSelected = max(0, m.spacesColumnSelected-1)
+	case "right":
+		m.spacesColumnSelected = min(6, m.spacesColumnSelected+1)
+	}
+
+	return m, nil
+}
+
 func (m model) selectedNode() (eosgrpc.NodeRecord, bool) {
 	nodes := m.visibleNodes()
 	if len(nodes) == 0 || m.nodeSelected < 0 || m.nodeSelected >= len(nodes) {
@@ -577,6 +661,8 @@ func (m model) renderHeader() string {
 	tabNodes := m.styles.tab.Render("1 Nodes")
 	tabFS := m.styles.tab.Render("2 Filesystems")
 	tabNS := m.styles.tab.Render("3 Namespace")
+	tabSpaces := m.styles.tab.Render("4 Spaces")
+	tabNSStats := m.styles.tab.Render("5 NS Stats")
 
 	switch m.activeView {
 	case viewNodes:
@@ -585,6 +671,10 @@ func (m model) renderHeader() string {
 		tabFS = m.styles.tabActive.Render("2 Filesystems")
 	case viewNamespace:
 		tabNS = m.styles.tabActive.Render("3 Namespace")
+	case viewSpaces:
+		tabSpaces = m.styles.tabActive.Render("4 Spaces")
+	case viewNamespaceStats:
+		tabNSStats = m.styles.tabActive.Render("5 NS Stats")
 	}
 
 	left := lipgloss.JoinHorizontal(
@@ -596,6 +686,10 @@ func (m model) renderHeader() string {
 		tabFS,
 		" ",
 		tabNS,
+		" ",
+		tabSpaces,
+		" ",
+		tabNSStats,
 	)
 	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
 	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
@@ -609,6 +703,10 @@ func (m model) renderBody(availableHeight int) string {
 		return m.renderFileSystemsView(availableHeight)
 	case viewNamespace:
 		return m.renderNamespaceView(availableHeight)
+	case viewSpaces:
+		return m.renderSpacesView(availableHeight)
+	case viewNamespaceStats:
+		return m.renderNamespaceStatsView(availableHeight)
 	default:
 		return m.renderNodesView(availableHeight)
 	}
@@ -805,6 +903,136 @@ func (m model) renderFileSystemDetails(width, height int) string {
 	}
 
 	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderSpacesView(height int) string {
+	listHeight, detailHeight := splitViewHeights(height)
+	width := m.contentWidth()
+
+	list := m.renderSpacesList(width, listHeight)
+	details := m.renderSpaceDetails(width, detailHeight)
+	return lipgloss.JoinVertical(lipgloss.Left, list, details)
+}
+
+func (m model) renderSpacesList(width, height int) string {
+	contentWidth := panelContentWidth(width)
+	columns := allocateTableColumns(contentWidth, []tableColumn{
+		{title: "name", min: 16, weight: 3},
+		{title: "type", min: 10, weight: 2},
+		{title: "status", min: 10, weight: 2},
+		{title: "groups", min: 8, weight: 1, right: true},
+		{title: "files", min: 10, weight: 1, right: true},
+		{title: "dirs", min: 10, weight: 1, right: true},
+		{title: "usage %", min: 8, weight: 1, right: true},
+	})
+
+	title := m.styles.label.Render("EOS Spaces")
+	lines := []string{
+		title,
+		"",
+		m.renderSpaceHeaderRow(columns),
+	}
+
+	if m.spacesLoading {
+		lines = append(lines, "Loading spaces...")
+	} else if m.spacesErr != nil {
+		lines = append(lines, m.styles.error.Render(m.spacesErr.Error()))
+	} else if len(m.spaces) == 0 {
+		lines = append(lines, "(no spaces)")
+	} else {
+		start, end := visibleWindow(len(m.spaces), m.spacesSelected, max(1, panelContentHeight(height)-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(m.spaces))
+		for i := start; i < end; i++ {
+			space := m.spaces[i]
+			line := formatTableRow(columns, []string{
+				space.Name,
+				space.Type,
+				space.Status,
+				fmt.Sprintf("%d", space.Groups),
+				fmt.Sprintf("%d", space.NumFiles),
+				fmt.Sprintf("%d", space.NumContainers),
+				fmt.Sprintf("%.2f", usagePercent(space.UsedBytes, space.CapacityBytes)),
+			})
+			if i == m.spacesSelected {
+				line = m.styles.selected.Width(contentWidth).Render(line)
+			}
+			lines = append(lines, line)
+		}
+	}
+
+	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderSpaceHeaderRow(columns []tableColumn) string {
+	labels := []string{"name", "type", "status", "groups", "files", "dirs", "usage %"}
+	cells := make([]string, 0, len(columns))
+	for i, column := range columns {
+		label := ""
+		if i < len(labels) {
+			label = labels[i]
+		}
+		cell := padRight(label, column.min)
+		cell = m.styles.label.Render(cell)
+		cells = append(cells, cell)
+	}
+	return strings.Join(cells, " ")
+}
+
+func (m model) renderSpaceDetails(width, height int) string {
+	if len(m.spaces) == 0 || m.spacesSelected >= len(m.spaces) {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{"No space selected"}, panelContentHeight(height)))
+	}
+
+	space := m.spaces[m.spacesSelected]
+
+	lines := []string{
+		m.styles.label.Render("Selected Space"),
+		truncate(space.Name, max(10, width-4)),
+		"",
+		m.metricLine("Type", space.Type, "Status", space.Status),
+		m.metricLine("Groups", fmt.Sprintf("%d", space.Groups), "Files", fmt.Sprintf("%d", space.NumFiles)),
+		m.metricLine("Directories", fmt.Sprintf("%d", space.NumContainers), "", ""),
+		m.metricLine("Capacity", humanBytes(space.CapacityBytes), "Used", humanBytes(space.UsedBytes)),
+		m.metricLine("Free", humanBytes(space.FreeBytes), "", ""),
+	}
+
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderNamespaceStatsView(height int) string {
+	if m.nsStatsLoading {
+		return m.styles.panelDim.Render("Loading namespace statistics...")
+	}
+	if m.nsStatsErr != nil {
+		return m.styles.panelDim.Render(fmt.Sprintf("Error loading namespace stats: %v", m.nsStatsErr))
+	}
+
+	width := m.contentWidth()
+	contentWidth := panelContentWidth(width)
+
+	stats := m.namespaceStats
+	lines := []string{
+		m.styles.label.Render("Namespace Statistics"),
+		"",
+		m.metricLine("Total Files", fmt.Sprintf("%d", stats.TotalFiles), "Total Directories", fmt.Sprintf("%d", stats.TotalDirectories)),
+		"",
+		m.styles.label.Render("IDs"),
+		m.metricLine("Current File ID", fmt.Sprintf("%d", stats.CurrentFID), "Current Container ID", fmt.Sprintf("%d", stats.CurrentCID)),
+		m.metricLine("Generated File IDs", fmt.Sprintf("%d", stats.GeneratedFID), "Generated Container IDs", fmt.Sprintf("%d", stats.GeneratedCID)),
+		"",
+		m.styles.label.Render("Lock Contention"),
+		m.metricLine("Read Contention", fmt.Sprintf("%.2f", stats.ContentionRead), "Write Contention", fmt.Sprintf("%.2f", stats.ContentionWrite)),
+		"",
+		m.styles.label.Render("File Cache"),
+		m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheFilesMax), "Occupancy", fmt.Sprintf("%d", stats.CacheFilesOccup)),
+		m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheFilesRequests), "Hits", fmt.Sprintf("%d", stats.CacheFilesHits)),
+		"",
+		m.styles.label.Render("Container Cache"),
+		m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheContainersMax), "Occupancy", fmt.Sprintf("%d", stats.CacheContainersOccup)),
+		m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheContainersRequests), "Hits", fmt.Sprintf("%d", stats.CacheContainersHits)),
+	}
+
+	return m.styles.panelDim.Width(contentWidth).Render(fitLines(lines, height))
 }
 
 func (m model) renderNamespaceView(height int) string {
@@ -1547,6 +1775,8 @@ func loadInfraCmd(client *eosgrpc.Client) tea.Cmd {
 		loadNodeStatsCmd(client),
 		loadNodesCmd(client),
 		loadFileSystemsCmd(client),
+		loadSpacesCmd(client),
+		loadNamespaceStatsCmd(client),
 	)
 }
 
@@ -1568,6 +1798,20 @@ func loadFileSystemsCmd(client *eosgrpc.Client) tea.Cmd {
 	return func() tea.Msg {
 		fileSystems, err := client.FileSystems(context.Background())
 		return fileSystemsLoadedMsg{fs: fileSystems, err: err}
+	}
+}
+
+func loadSpacesCmd(client *eosgrpc.Client) tea.Cmd {
+	return func() tea.Msg {
+		spaces, err := client.Spaces(context.Background())
+		return spacesLoadedMsg{spaces: spaces, err: err}
+	}
+}
+
+func loadNamespaceStatsCmd(client *eosgrpc.Client) tea.Cmd {
+	return func() tea.Msg {
+		stats, err := client.NamespaceStats(context.Background())
+		return namespaceStatsLoadedMsg{stats: stats, err: err}
 	}
 }
 

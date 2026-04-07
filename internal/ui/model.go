@@ -330,23 +330,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			m.activeView = (m.activeView + 1) % 6
-			if m.activeView == viewNamespace {
-				return m.maybeLoadNamespace()
-			}
+			return m.onViewChanged()
+		case "shift+tab":
+			m.activeView = (m.activeView + 5) % 6
+			return m.onViewChanged()
 		case "1":
 			m.activeView = viewNodes
+			return m.onViewChanged()
 		case "2":
 			m.activeView = viewFileSystems
+			return m.onViewChanged()
 		case "3":
 			m.activeView = viewNamespace
-			return m.maybeLoadNamespace()
+			return m.onViewChanged()
 		case "4":
 			m.activeView = viewSpaces
+			return m.onViewChanged()
 		case "5":
 			m.activeView = viewNamespaceStats
+			return m.onViewChanged()
 		case "6":
 			m.activeView = viewSpaceStatus
-			return m.maybeLoadSpaceStatus()
+			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
 		}
@@ -482,8 +487,7 @@ func (m model) View() string {
 		body = m.renderBodyWithEditPopup(body, bodyHeight)
 	}
 
-	return m.styles.app.
-		Render(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+	return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 }
 
 func (m model) renderBodyWithPopup(body string, height int) string {
@@ -530,6 +534,17 @@ func (m model) renderOverlay(body string, popup string, height int) string {
 		bodyLines = bodyLines[:height]
 	}
 	return strings.Join(bodyLines, "\n")
+}
+
+func (m model) onViewChanged() (tea.Model, tea.Cmd) {
+	switch m.activeView {
+	case viewNamespace:
+		return m.maybeLoadNamespace()
+	case viewSpaceStatus:
+		return m.maybeLoadSpaceStatus()
+	default:
+		return m, nil
+	}
 }
 
 func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
@@ -931,7 +946,9 @@ func (m model) renderBody(availableHeight int) string {
 }
 
 func (m model) renderNodesView(height int) string {
-	listHeight, detailHeight := splitViewHeights(height)
+	const fixedHeaderLines = 6 // title+controls, 3 metric lines, blank, column headers
+	naturalListContent := fixedHeaderLines + len(m.visibleNodes())
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
 	width := m.contentWidth()
 
 	list := m.renderNodesList(width, listHeight)
@@ -941,18 +958,33 @@ func (m model) renderNodesView(height int) string {
 
 func (m model) renderNodesList(width, height int) string {
 	contentWidth := panelContentWidth(width)
-	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "type", min: 10, weight: 2},
-		{title: "hostport", min: 28, weight: 6},
-		{title: "geotag", min: 20, weight: 4},
-		{title: "status", min: 8, weight: 1},
-		{title: "activated", min: 10, weight: 1},
-		{title: "heartbeatdelta", min: 16, weight: 1, right: true},
-		{title: "nofs", min: 4, weight: 1, right: true},
-	})
+	nodes := m.visibleNodes()
+
+	// Build data rows first so column widths can be fitted to content.
+	dataRows := make([][]string, len(nodes))
+	for i, node := range nodes {
+		dataRows[i] = []string{
+			node.Type,
+			node.HostPort,
+			node.Geotag,
+			node.Status,
+			node.Activated,
+			fmt.Sprintf("%d", node.HeartbeatDelta),
+			fmt.Sprintf("%d", node.FileSystemCount),
+		}
+	}
+	columnDefs := contentAwareColumns([]tableColumn{
+		{title: "type", min: 4, weight: 1},
+		{title: "hostport", min: 8, weight: 5},
+		{title: "geotag", min: 6, weight: 3},
+		{title: "status", min: 6, weight: 0},
+		{title: "activated", min: 9, weight: 0},
+		{title: "heartbeatdelta", min: 14, weight: 0, right: true},
+		{title: "nofs", min: 4, weight: 0, right: true},
+	}, dataRows)
+	columns := allocateTableColumns(contentWidth, columnDefs)
 
 	title := m.styles.label.Render("Cluster Summary")
-	nodes := m.visibleNodes()
 	lines := []string{
 		title + m.renderNodeControls(),
 		m.metricLine("Health", fallback(m.nodeStats.State, "-"), "Threads", fmt.Sprintf("%d", m.nodeStats.ThreadCount)),
@@ -978,16 +1010,7 @@ func (m model) renderNodesList(width, height int) string {
 		start, end := visibleWindow(len(nodes), m.nodeSelected, max(1, panelContentHeight(height)-len(lines)))
 		lines[0] = title + m.renderNodeControls() + renderScrollSummary(start, end, len(nodes))
 		for i := start; i < end; i++ {
-			node := nodes[i]
-			line := formatTableRow(columns, []string{
-				node.Type,
-				node.HostPort,
-				node.Geotag,
-				node.Status,
-				node.Activated,
-				fmt.Sprintf("%d", node.HeartbeatDelta),
-				fmt.Sprintf("%d", node.FileSystemCount),
-			})
+			line := formatTableRow(columns, dataRows[i])
 			if i == m.nodeSelected {
 				line = m.styles.selected.Width(contentWidth).Render(line)
 			}
@@ -1029,7 +1052,9 @@ func (m model) renderNodeDetails(width, height int) string {
 }
 
 func (m model) renderFileSystemsView(height int) string {
-	listHeight, detailHeight := splitViewHeights(height)
+	const fixedHeaderLines = 3 // title+controls, blank, column headers
+	naturalListContent := fixedHeaderLines + len(m.visibleFileSystems())
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
 	width := m.contentWidth()
 
 	list := m.renderFileSystemsList(width, listHeight)
@@ -1039,23 +1064,43 @@ func (m model) renderFileSystemsView(height int) string {
 
 func (m model) renderFileSystemsList(width, height int) string {
 	contentWidth := panelContentWidth(width)
-	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "host", min: 22, weight: 4},
-		{title: "port", min: 5, weight: 1, right: true},
-		{title: "id", min: 4, weight: 1, right: true},
-		{title: "path", min: 18, weight: 4},
-		{title: "schedgroup", min: 12, weight: 2},
-		{title: "geotag", min: 12, weight: 2},
-		{title: "boot", min: 8, weight: 1},
-		{title: "configstatus", min: 12, weight: 1},
-		{title: "drain", min: 8, weight: 1},
-		{title: "usage %", min: 8, weight: 1, right: true},
-		{title: "active", min: 8, weight: 1},
-		{title: "health", min: 12, weight: 2},
-	})
+	fileSystems := m.visibleFileSystems()
+
+	// Pre-build data rows so column widths can be fitted to actual content.
+	dataRows := make([][]string, len(fileSystems))
+	for i, fs := range fileSystems {
+		dataRows[i] = []string{
+			fs.Host,
+			fmt.Sprintf("%d", fs.Port),
+			fmt.Sprintf("%d", fs.ID),
+			fs.Path,
+			fs.SchedGroup,
+			fs.Geotag,
+			fs.Boot,
+			fs.ConfigStatus,
+			fs.DrainStatus,
+			fmt.Sprintf("%.2f", usagePercent(fs.UsedBytes, fs.CapacityBytes)),
+			fs.Active,
+			fs.Health,
+		}
+	}
+	columnDefs := contentAwareColumns([]tableColumn{
+		{title: "host", min: 4, weight: 4},
+		{title: "port", min: 4, weight: 0, right: true},
+		{title: "id", min: 2, weight: 0, right: true},
+		{title: "path", min: 4, weight: 3},
+		{title: "schedgroup", min: 10, weight: 1},
+		{title: "geotag", min: 6, weight: 1},
+		{title: "boot", min: 4, weight: 0},
+		{title: "configstatus", min: 12, weight: 0},
+		{title: "drain", min: 5, weight: 0},
+		{title: "usage %", min: 7, weight: 0, right: true},
+		{title: "active", min: 6, weight: 0},
+		{title: "health", min: 4, weight: 1},
+	}, dataRows)
+	columns := allocateTableColumns(contentWidth, columnDefs)
 
 	title := m.styles.label.Render("EOS Filesystems")
-	fileSystems := m.visibleFileSystems()
 	lines := []string{
 		title + m.renderFileSystemControls(),
 		"",
@@ -1072,21 +1117,7 @@ func (m model) renderFileSystemsList(width, height int) string {
 		start, end := visibleWindow(len(fileSystems), m.fsSelected, max(1, panelContentHeight(height)-len(lines)))
 		lines[0] = title + m.renderFileSystemControls() + renderScrollSummary(start, end, len(fileSystems))
 		for i := start; i < end; i++ {
-			fs := fileSystems[i]
-			line := formatTableRow(columns, []string{
-				fs.Host,
-				fmt.Sprintf("%d", fs.Port),
-				fmt.Sprintf("%d", fs.ID),
-				fs.Path,
-				fs.SchedGroup,
-				fs.Geotag,
-				fs.Boot,
-				fs.ConfigStatus,
-				fs.DrainStatus,
-				fmt.Sprintf("%.2f", usagePercent(fs.UsedBytes, fs.CapacityBytes)),
-				fs.Active,
-				fs.Health,
-			})
+			line := formatTableRow(columns, dataRows[i])
 			if i == m.fsSelected {
 				line = m.styles.selected.Width(contentWidth).Render(line)
 			}
@@ -1124,7 +1155,9 @@ func (m model) renderFileSystemDetails(width, height int) string {
 }
 
 func (m model) renderSpacesView(height int) string {
-	listHeight, detailHeight := splitViewHeights(height)
+	const fixedHeaderLines = 3 // title, blank, column headers
+	naturalListContent := fixedHeaderLines + len(m.spaces)
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
 	width := m.contentWidth()
 
 	list := m.renderSpacesList(width, listHeight)
@@ -1134,15 +1167,29 @@ func (m model) renderSpacesView(height int) string {
 
 func (m model) renderSpacesList(width, height int) string {
 	contentWidth := panelContentWidth(width)
-	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "name", min: 16, weight: 3},
-		{title: "type", min: 10, weight: 2},
-		{title: "status", min: 10, weight: 2},
-		{title: "groups", min: 8, weight: 1, right: true},
-		{title: "files", min: 10, weight: 1, right: true},
-		{title: "dirs", min: 10, weight: 1, right: true},
-		{title: "usage %", min: 8, weight: 1, right: true},
-	})
+
+	dataRows := make([][]string, len(m.spaces))
+	for i, space := range m.spaces {
+		dataRows[i] = []string{
+			space.Name,
+			space.Type,
+			space.Status,
+			fmt.Sprintf("%d", space.Groups),
+			fmt.Sprintf("%d", space.NumFiles),
+			fmt.Sprintf("%d", space.NumContainers),
+			fmt.Sprintf("%.2f", usagePercent(space.UsedBytes, space.CapacityBytes)),
+		}
+	}
+	columnDefs := contentAwareColumns([]tableColumn{
+		{title: "name", min: 4, weight: 3},
+		{title: "type", min: 4, weight: 1},
+		{title: "status", min: 6, weight: 1},
+		{title: "groups", min: 6, weight: 0, right: true},
+		{title: "files", min: 5, weight: 0, right: true},
+		{title: "dirs", min: 4, weight: 0, right: true},
+		{title: "usage %", min: 7, weight: 0, right: true},
+	}, dataRows)
+	columns := allocateTableColumns(contentWidth, columnDefs)
 
 	title := m.styles.label.Render("EOS Spaces")
 	lines := []string{
@@ -1161,16 +1208,7 @@ func (m model) renderSpacesList(width, height int) string {
 		start, end := visibleWindow(len(m.spaces), m.spacesSelected, max(1, panelContentHeight(height)-len(lines)))
 		lines[0] = title + renderScrollSummary(start, end, len(m.spaces))
 		for i := start; i < end; i++ {
-			space := m.spaces[i]
-			line := formatTableRow(columns, []string{
-				space.Name,
-				space.Type,
-				space.Status,
-				fmt.Sprintf("%d", space.Groups),
-				fmt.Sprintf("%d", space.NumFiles),
-				fmt.Sprintf("%d", space.NumContainers),
-				fmt.Sprintf("%.2f", usagePercent(space.UsedBytes, space.CapacityBytes)),
-			})
+			line := formatTableRow(columns, dataRows[i])
 			if i == m.spacesSelected {
 				line = m.styles.selected.Width(contentWidth).Render(line)
 			}
@@ -1218,15 +1256,15 @@ func (m model) renderSpaceDetails(width, height int) string {
 }
 
 func (m model) renderNamespaceStatsView(height int) string {
-	if m.nsStatsLoading {
-		return m.styles.panelDim.Render("Loading namespace statistics...")
-	}
-	if m.nsStatsErr != nil {
-		return m.styles.panelDim.Render(fmt.Sprintf("Error loading namespace stats: %v", m.nsStatsErr))
-	}
-
 	width := m.contentWidth()
 	contentWidth := panelContentWidth(width)
+
+	if m.nsStatsLoading {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{"Loading namespace statistics..."}, height))
+	}
+	if m.nsStatsErr != nil {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{m.styles.error.Render(m.nsStatsErr.Error())}, height))
+	}
 
 	stats := m.namespaceStats
 	lines := []string{
@@ -1254,27 +1292,29 @@ func (m model) renderNamespaceStatsView(height int) string {
 }
 
 func (m model) renderSpaceStatusView(height int) string {
-	if m.spaceStatusLoading {
-		return m.styles.panelDim.Render("Loading space status...")
-	}
-	if m.spaceStatusErr != nil {
-		return m.styles.panelDim.Render(fmt.Sprintf("Error loading space status: %v", m.spaceStatusErr))
-	}
-
 	width := m.contentWidth()
 	contentWidth := panelContentWidth(width)
-	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "KEY", min: 36, weight: 1},
-		{title: "VALUE", min: 40, weight: 2},
-	})
 
-	lines := []string{
-		m.styles.label.Render("Space Status (default)"),
-		"",
-		formatTableRow(columns, []string{"KEY", "VALUE"}),
+	if m.spaceStatusLoading {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{"Loading space status..."}, height))
+	}
+	if m.spaceStatusErr != nil {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{m.styles.error.Render(m.spaceStatusErr.Error())}, height))
 	}
 
-	start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, panelContentHeight(height)-len(lines)))
+	columns := allocateTableColumns(contentWidth, []tableColumn{
+		{title: "parameter", min: 36, weight: 1},
+		{title: "value", min: 40, weight: 2},
+	})
+
+	title := m.styles.label.Render("EOS Space Status (default)")
+	lines := []string{
+		title,
+		"",
+		m.styles.header.Render(formatTableRow(columns, []string{"parameter", "value"})),
+	}
+
+	start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, height-len(lines)))
 	for i := start; i < end; i++ {
 		record := m.spaceStatus[i]
 		line := formatTableRow(columns, []string{record.Key, record.Value})
@@ -1284,7 +1324,7 @@ func (m model) renderSpaceStatusView(height int) string {
 		lines = append(lines, line)
 	}
 
-	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+	return m.styles.panel.Width(width).Render(fitLines(lines, height))
 }
 
 func (m model) renderSpaceStatusEditPopup() string {
@@ -1346,7 +1386,9 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 }
 
 func (m model) renderNamespaceView(height int) string {
-	listHeight, detailHeight := splitViewHeights(height)
+	// splitViewHeights(n) returns sum = n-1; pass height+3 so sum = height+2,
+	// which is what the body needs to fill the screen correctly.
+	listHeight, detailHeight := splitViewHeights(height + 3)
 	width := m.contentWidth()
 
 	list := m.renderNamespaceList(width, listHeight)
@@ -1436,11 +1478,25 @@ func (m model) renderNamespaceDetails(width, height int) string {
 }
 
 func (m model) renderFooter() string {
-	keys := "tab switch view • r refresh • j/k move • ←/→ column • s sort asc/desc/off • f filter • c clear filter • / search values • 1/2/3 jump • q quit"
+	keys := "tab/1-6 switch view  •  r refresh  •  j/k scroll  •  ←/→ column  •  s sort  •  f filter  •  c clear  •  / search  •  q quit"
 	if m.activeView == viewNamespace {
-		keys = "tab switch view • r refresh • j/k move • 1/2/3 jump • namespace: enter open, h/backspace up, g root • q quit"
+		keys = "tab/1-6 switch view  •  r refresh  •  j/k scroll  •  enter open  •  h back  •  g root  •  q quit"
 	}
-	lines := []string{keys, m.status}
+
+	var summary string
+	if m.nodeStatsLoading {
+		summary = "health: loading..."
+	} else {
+		summary = fmt.Sprintf("health: %s  files: %d  dirs: %d", m.nodeStats.State, m.nodeStats.FileCount, m.nodeStats.DirCount)
+	}
+	if !m.spacesLoading && len(m.spaces) > 0 {
+		summary += fmt.Sprintf("  spaces: %d", len(m.spaces))
+	}
+	if m.status != "" {
+		summary += "  │  " + m.status
+	}
+
+	lines := []string{keys, summary}
 	return m.styles.status.Width(m.contentWidth()).Render(strings.Join(lines, "\n"))
 }
 
@@ -2087,6 +2143,7 @@ func loadInfraCmd(client *eosgrpc.Client) tea.Cmd {
 		loadFileSystemsCmd(client),
 		loadSpacesCmd(client),
 		loadNamespaceStatsCmd(client),
+		loadSpaceStatusCmd(client),
 	)
 }
 
@@ -2441,6 +2498,51 @@ func splitViewHeights(total int) (int, int) {
 	}
 
 	return listHeight, detailHeight
+}
+
+// adaptiveSplitHeights is like splitViewHeights but shrinks the list panel when
+// its content is smaller than the default 2/3 allocation, giving the surplus to
+// the detail panel.  naturalListContent is the number of content lines the list
+// actually needs (excluding the 2-line border).
+//
+// The two panel borders together account for 4 lines (2 each), but because the
+// body must fill height+2 rendered lines (to offset the -2 in View's bodyHeight
+// formula), the net target is height+2.
+func adaptiveSplitHeights(height, naturalListContent int) (int, int) {
+	target := height + 2
+	// Default 2/3 split within the target space.
+	defaultList := max(4, (target*2)/3)
+	// Natural list height = content + 2 for its own border.
+	naturalList := naturalListContent + 2
+	listHeight := max(4, min(naturalList, defaultList))
+	detailHeight := max(4, target-listHeight)
+	// If both minimums exceed target, shrink the list.
+	if listHeight+detailHeight > target {
+		listHeight = max(4, target-detailHeight)
+	}
+	return listHeight, detailHeight
+}
+
+// contentAwareColumns adjusts the min width of each column to be at least as
+// wide as the widest value in rows (or the column title, whichever is larger).
+// This prevents short-content columns from consuming extra space via weight.
+func contentAwareColumns(columns []tableColumn, rows [][]string) []tableColumn {
+	result := make([]tableColumn, len(columns))
+	copy(result, columns)
+	for i := range result {
+		w := lipgloss.Width(result[i].title)
+		for _, row := range rows {
+			if i < len(row) {
+				if cw := lipgloss.Width(row[i]); cw > w {
+					w = cw
+				}
+			}
+		}
+		if w > result[i].min {
+			result[i].min = w
+		}
+	}
+	return result
 }
 
 func entryTypeLabel(entry eosgrpc.Entry) string {

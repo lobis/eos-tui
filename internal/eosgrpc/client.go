@@ -157,6 +157,24 @@ type NamespaceStats struct {
 	CacheContainersHits     uint64
 }
 
+type IOShapingMode int
+
+const (
+	IOShapingApps IOShapingMode = iota
+	IOShapingUsers
+	IOShapingGroups
+)
+
+type IOShapingRecord struct {
+	ID        string
+	Type      string
+	WindowSec int
+	ReadBps   float64
+	WriteBps  float64
+	ReadIOPS  float64
+	WriteIOPS float64
+}
+
 func New(_ context.Context, cfg Config) (*Client, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -581,6 +599,47 @@ func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
 	}
 
 	return stats, nil
+}
+
+func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShapingRecord, error) {
+	flag := "--apps"
+	switch mode {
+	case IOShapingUsers:
+		flag = "--users"
+	case IOShapingGroups:
+		flag = "--groups"
+	}
+	output, err := c.runCommand("eos", "io", "shaping", "ls", flag, "--json", "--window", "5")
+	if err != nil {
+		return nil, fmt.Errorf("io shaping ls: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	var raw []struct {
+		ID        string  `json:"id"`
+		Type      string  `json:"type"`
+		WindowSec int     `json:"window_sec"`
+		ReadBps   float64 `json:"read_rate_bps"`
+		WriteBps  float64 `json:"write_rate_bps"`
+		ReadIOPS  float64 `json:"read_iops"`
+		WriteIOPS float64 `json:"write_iops"`
+	}
+	if err := json.Unmarshal(output, &raw); err != nil {
+		return nil, fmt.Errorf("parse io shaping: %w", err)
+	}
+
+	records := make([]IOShapingRecord, len(raw))
+	for i, r := range raw {
+		records[i] = IOShapingRecord{
+			ID:        r.ID,
+			Type:      r.Type,
+			WindowSec: r.WindowSec,
+			ReadBps:   r.ReadBps,
+			WriteBps:  r.WriteBps,
+			ReadIOPS:  r.ReadIOPS,
+			WriteIOPS: r.WriteIOPS,
+		}
+	}
+	return records, nil
 }
 
 func (c *Client) runCommand(args ...string) ([]byte, error) {

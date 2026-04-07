@@ -28,6 +28,7 @@ const (
 	viewSpaces
 	viewNamespaceStats
 	viewSpaceStatus
+	viewIOShaping
 )
 
 type infraLoadedMsg struct {
@@ -76,6 +77,14 @@ type spaceConfigResultMsg struct {
 	err error
 }
 
+type ioShapingLoadedMsg struct {
+	records []eosgrpc.IOShapingRecord
+	mode    eosgrpc.IOShapingMode
+	err     error
+}
+
+type ioShapingTickMsg struct{}
+
 type tickMsg time.Time
 
 type model struct {
@@ -121,6 +130,12 @@ type model struct {
 	spaceStatusLoading  bool
 	spaceStatusErr      error
 	spaceStatusSelected int
+
+	ioShaping         []eosgrpc.IOShapingRecord
+	ioShapingMode     eosgrpc.IOShapingMode
+	ioShapingLoading  bool
+	ioShapingErr      error
+	ioShapingSelected int
 
 	status string
 
@@ -255,6 +270,7 @@ type styles struct {
 type tableColumn struct {
 	title  string
 	min    int
+	maxw   int // 0 = no max
 	weight int
 	right  bool
 }
@@ -328,11 +344,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "esc":
+			switch m.activeView {
+			case viewNodes:
+				if len(m.nodeFilter.filters) > 0 {
+					m.nodeFilter.filters = map[int]string{}
+					m.status = "Node filters cleared"
+				}
+			case viewFileSystems:
+				if len(m.fsFilter.filters) > 0 {
+					m.fsFilter.filters = map[int]string{}
+					m.status = "Filesystem filters cleared"
+				}
+			}
+			return m, nil
 		case "tab":
-			m.activeView = (m.activeView + 1) % 6
+			m.activeView = (m.activeView + 1) % 7
 			return m.onViewChanged()
 		case "shift+tab":
-			m.activeView = (m.activeView + 5) % 6
+			m.activeView = (m.activeView + 6) % 7
 			return m.onViewChanged()
 		case "1":
 			m.activeView = viewNodes
@@ -351,6 +381,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.onViewChanged()
 		case "6":
 			m.activeView = viewSpaceStatus
+			return m.onViewChanged()
+		case "7":
+			m.activeView = viewIOShaping
 			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
@@ -372,6 +405,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.startSpaceStatusEdit()
 			}
 			return m.updateSpaceStatusKeys(msg)
+		case viewIOShaping:
+			return m.updateIOShapingKeys(msg)
 		}
 	case infraLoadedMsg:
 		m.nodeStatsLoading = false
@@ -469,6 +504,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Space configuration updated successfully"
 			return m, loadSpaceStatusCmd(m.client)
 		}
+	case ioShapingLoadedMsg:
+		m.ioShapingLoading = false
+		if msg.err != nil {
+			m.ioShapingErr = msg.err
+		} else if msg.mode == m.ioShapingMode {
+			m.ioShaping = msg.records
+			m.ioShapingErr = nil
+			m.ioShapingSelected = clampIndex(m.ioShapingSelected, len(m.ioShaping))
+		}
+	case ioShapingTickMsg:
+		if m.activeView == viewIOShaping && !m.ioShapingLoading {
+			m.ioShapingLoading = true
+			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), ioShapingTickCmd())
+		} else if m.activeView == viewIOShaping {
+			return m, ioShapingTickCmd()
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -542,6 +593,10 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 		return m.maybeLoadNamespace()
 	case viewSpaceStatus:
 		return m.maybeLoadSpaceStatus()
+	case viewIOShaping:
+		m.ioShapingLoading = true
+		m.ioShapingErr = nil
+		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), ioShapingTickCmd())
 	default:
 		return m, nil
 	}
@@ -570,6 +625,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.spaceStatusErr = nil
 		m.status = "Refreshing space status..."
 		return m, loadSpaceStatusCmd(m.client)
+	case viewIOShaping:
+		m.ioShapingLoading = true
+		m.ioShapingErr = nil
+		m.status = "Refreshing IO shaping..."
+		return m, loadIOShapingCmd(m.client, m.ioShapingMode)
 	default:
 		m.nodeStatsLoading = true
 		m.nodesLoading = true
@@ -606,6 +666,7 @@ func (m model) maybeLoadSpaceStatus() (tea.Model, tea.Cmd) {
 
 func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	nodes := m.visibleNodes()
+	half := max(1, m.height/6)
 	switch msg.String() {
 	case "f":
 		m.nodeFilter.column = m.nodeColumnSelected
@@ -615,10 +676,10 @@ func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nodeFilter.column = m.nodeColumnSelected
 		m.openFilterPopup()
 		return m, nil
-	case "left":
+	case "left", "h":
 		m.nodeColumnSelected = max(0, m.nodeColumnSelected-1)
 		m.status = fmt.Sprintf("Selected node column: %s", m.nodeSelectedColumnLabel())
-	case "right":
+	case "right", "l":
 		m.nodeColumnSelected = min(nodeColumnCount()-1, m.nodeColumnSelected+1)
 		m.status = fmt.Sprintf("Selected node column: %s", m.nodeSelectedColumnLabel())
 	case "s", "enter":
@@ -637,6 +698,10 @@ func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.nodeSelected < len(nodes)-1 {
 			m.nodeSelected++
 		}
+	case "ctrl+u":
+		m.nodeSelected = max(0, m.nodeSelected-half)
+	case "ctrl+d":
+		m.nodeSelected = min(len(nodes)-1, m.nodeSelected+half)
 	case "g":
 		m.nodeSelected = 0
 	case "G":
@@ -648,6 +713,7 @@ func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fileSystems := m.visibleFileSystems()
+	half := max(1, m.height/6)
 	switch msg.String() {
 	case "f":
 		m.fsFilter.column = m.fsColumnSelected
@@ -657,10 +723,10 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fsFilter.column = m.fsColumnSelected
 		m.openFilterPopup()
 		return m, nil
-	case "left":
+	case "left", "h":
 		m.fsColumnSelected = max(0, m.fsColumnSelected-1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
-	case "right":
+	case "right", "l":
 		m.fsColumnSelected = min(fsColumnCount()-1, m.fsColumnSelected+1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
 	case "s", "enter":
@@ -679,6 +745,10 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.fsSelected < len(fileSystems)-1 {
 			m.fsSelected++
 		}
+	case "ctrl+u":
+		m.fsSelected = max(0, m.fsSelected-half)
+	case "ctrl+d":
+		m.fsSelected = min(len(fileSystems)-1, m.fsSelected+half)
 	case "g":
 		m.fsSelected = 0
 	case "G":
@@ -689,6 +759,7 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	half := max(1, m.height/6)
 	switch msg.String() {
 	case "up", "k":
 		if m.nsSelected > 0 {
@@ -698,6 +769,15 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.nsSelected < len(m.directory.Entries)-1 {
 			m.nsSelected++
 		}
+	case "ctrl+u":
+		m.nsSelected = max(0, m.nsSelected-half)
+		return m, nil
+	case "ctrl+d":
+		m.nsSelected = min(len(m.directory.Entries)-1, m.nsSelected+half)
+		return m, nil
+	case "G":
+		m.nsSelected = max(0, len(m.directory.Entries)-1)
+		return m, nil
 	case "g":
 		m.nsSelected = 0
 		m.nsLoading = true
@@ -725,6 +805,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	half := max(1, m.height/6)
 	switch msg.String() {
 	case "up", "k":
 		if m.spacesSelected > 0 {
@@ -734,13 +815,17 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.spacesSelected < len(m.spaces)-1 {
 			m.spacesSelected++
 		}
+	case "ctrl+u":
+		m.spacesSelected = max(0, m.spacesSelected-half)
+	case "ctrl+d":
+		m.spacesSelected = min(len(m.spaces)-1, m.spacesSelected+half)
 	case "g":
 		m.spacesSelected = 0
 	case "G":
 		m.spacesSelected = max(0, len(m.spaces)-1)
-	case "left":
+	case "left", "h":
 		m.spacesColumnSelected = max(0, m.spacesColumnSelected-1)
-	case "right":
+	case "right", "l":
 		m.spacesColumnSelected = min(6, m.spacesColumnSelected+1)
 	}
 
@@ -748,6 +833,7 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateSpaceStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	half := max(1, m.height/6)
 	switch msg.String() {
 	case "up", "k":
 		if m.spaceStatusSelected > 0 {
@@ -757,12 +843,60 @@ func (m model) updateSpaceStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.spaceStatusSelected < len(m.spaceStatus)-1 {
 			m.spaceStatusSelected++
 		}
+	case "ctrl+u":
+		m.spaceStatusSelected = max(0, m.spaceStatusSelected-half)
+	case "ctrl+d":
+		m.spaceStatusSelected = min(len(m.spaceStatus)-1, m.spaceStatusSelected+half)
 	case "g":
 		m.spaceStatusSelected = 0
 	case "G":
 		m.spaceStatusSelected = max(0, len(m.spaceStatus)-1)
 	}
 
+	return m, nil
+}
+
+func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	half := max(1, m.height/6)
+	n := len(m.ioShaping)
+	switch msg.String() {
+	case "a":
+		if m.ioShapingMode != eosgrpc.IOShapingApps {
+			m.ioShapingMode = eosgrpc.IOShapingApps
+			m.ioShapingSelected = 0
+			m.ioShapingLoading = true
+			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+		}
+	case "u":
+		if m.ioShapingMode != eosgrpc.IOShapingUsers {
+			m.ioShapingMode = eosgrpc.IOShapingUsers
+			m.ioShapingSelected = 0
+			m.ioShapingLoading = true
+			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+		}
+	case "g":
+		if m.ioShapingMode != eosgrpc.IOShapingGroups {
+			m.ioShapingMode = eosgrpc.IOShapingGroups
+			m.ioShapingSelected = 0
+			m.ioShapingLoading = true
+			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+		}
+	case "up", "k":
+		if m.ioShapingSelected > 0 {
+			m.ioShapingSelected--
+		}
+	case "down", "j":
+		if m.ioShapingSelected < n-1 {
+			m.ioShapingSelected++
+		}
+	case "ctrl+u":
+		m.ioShapingSelected = max(0, m.ioShapingSelected-half)
+	case "ctrl+d":
+		m.ioShapingSelected = min(n-1, m.ioShapingSelected+half)
+	case "G":
+		m.ioShapingSelected = max(0, n-1)
+	}
+	m.ioShapingSelected = clampIndex(m.ioShapingSelected, n)
 	return m, nil
 }
 
@@ -890,6 +1024,7 @@ func (m model) renderHeader() string {
 	tabSpaces := m.styles.tab.Render("4 Spaces")
 	tabNSStats := m.styles.tab.Render("5 NS Stats")
 	tabSpaceStatus := m.styles.tab.Render("6 Space Status")
+	tabIO := m.styles.tab.Render("7 IO Traffic")
 
 	switch m.activeView {
 	case viewNodes:
@@ -904,6 +1039,8 @@ func (m model) renderHeader() string {
 		tabNSStats = m.styles.tabActive.Render("5 NS Stats")
 	case viewSpaceStatus:
 		tabSpaceStatus = m.styles.tabActive.Render("6 Space Status")
+	case viewIOShaping:
+		tabIO = m.styles.tabActive.Render("7 IO Traffic")
 	}
 
 	left := lipgloss.JoinHorizontal(
@@ -921,6 +1058,8 @@ func (m model) renderHeader() string {
 		tabNSStats,
 		" ",
 		tabSpaceStatus,
+		" ",
+		tabIO,
 	)
 	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
 	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
@@ -940,13 +1079,19 @@ func (m model) renderBody(availableHeight int) string {
 		return m.renderNamespaceStatsView(availableHeight)
 	case viewSpaceStatus:
 		return m.renderSpaceStatusView(availableHeight)
+	case viewIOShaping:
+		return m.renderIOShapingView(availableHeight)
 	default:
 		return m.renderNodesView(availableHeight)
 	}
 }
 
 func (m model) renderNodesView(height int) string {
-	const fixedHeaderLines = 6 // title+controls, 3 metric lines, blank, column headers
+	filterLines := 0
+	if len(m.nodeFilter.filters) > 0 {
+		filterLines = 1
+	}
+	fixedHeaderLines := 6 + filterLines // title+controls, 3 metric lines, blank, col headers [, filters]
 	naturalListContent := fixedHeaderLines + len(m.visibleNodes())
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
 	width := m.contentWidth()
@@ -998,6 +1143,15 @@ func (m model) renderNodesList(width, height int) string {
 		lines[1] = m.styles.value.Render("Loading cluster summary...")
 		lines[2] = ""
 		lines[3] = ""
+	}
+	if summary := m.renderFilterSummary(m.nodeFilter.filters, func(col int) string {
+		old := m.nodeFilter.column
+		m.nodeFilter.column = col
+		label := m.nodeFilterColumnLabel()
+		m.nodeFilter.column = old
+		return label
+	}); summary != "" {
+		lines = append(lines, summary)
 	}
 
 	if m.nodesLoading {
@@ -1052,7 +1206,11 @@ func (m model) renderNodeDetails(width, height int) string {
 }
 
 func (m model) renderFileSystemsView(height int) string {
-	const fixedHeaderLines = 3 // title+controls, blank, column headers
+	filterLines := 0
+	if len(m.fsFilter.filters) > 0 {
+		filterLines = 1
+	}
+	fixedHeaderLines := 3 + filterLines // title+controls, blank, col headers [, filters]
 	naturalListContent := fixedHeaderLines + len(m.visibleFileSystems())
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
 	width := m.contentWidth()
@@ -1088,7 +1246,7 @@ func (m model) renderFileSystemsList(width, height int) string {
 		{title: "host", min: 4, weight: 4},
 		{title: "port", min: 4, weight: 0, right: true},
 		{title: "id", min: 2, weight: 0, right: true},
-		{title: "path", min: 4, weight: 3},
+		{title: "path", min: 4, maxw: 28, weight: 3},
 		{title: "schedgroup", min: 10, weight: 1},
 		{title: "geotag", min: 6, weight: 1},
 		{title: "boot", min: 4, weight: 0},
@@ -1105,6 +1263,15 @@ func (m model) renderFileSystemsList(width, height int) string {
 		title + m.renderFileSystemControls(),
 		"",
 		m.renderFileSystemHeaderRow(columns),
+	}
+	if summary := m.renderFilterSummary(m.fsFilter.filters, func(col int) string {
+		old := m.fsFilter.column
+		m.fsFilter.column = col
+		label := m.fsFilterColumnLabel()
+		m.fsFilter.column = old
+		return label
+	}); summary != "" {
+		lines = append(lines, summary)
 	}
 
 	if m.fileSystemsLoading {
@@ -1327,6 +1494,117 @@ func (m model) renderSpaceStatusView(height int) string {
 	return m.styles.panel.Width(width).Render(fitLines(lines, height))
 }
 
+func (m model) renderIOShapingView(height int) string {
+	width := m.contentWidth()
+	contentWidth := panelContentWidth(width)
+
+	idLabel := "application"
+	switch m.ioShapingMode {
+	case eosgrpc.IOShapingUsers:
+		idLabel = "uid"
+	case eosgrpc.IOShapingGroups:
+		idLabel = "gid"
+	}
+
+	indicator := ""
+	if m.ioShapingLoading {
+		indicator = m.styles.status.Render("  ↻")
+	}
+
+	if m.ioShapingErr != nil {
+		lines := []string{
+			m.styles.label.Render("IO Traffic Shaping") + indicator,
+			"",
+			m.styles.error.Render(m.ioShapingErr.Error()),
+		}
+		return m.styles.panelDim.Width(width).Render(fitLines(lines, height))
+	}
+
+	records := m.ioShaping
+
+	dataRows := make([][]string, len(records))
+	for i, r := range records {
+		dataRows[i] = []string{
+			r.ID,
+			humanBytesRate(r.ReadBps),
+			humanBytesRate(r.WriteBps),
+			fmt.Sprintf("%.1f", r.ReadIOPS),
+			fmt.Sprintf("%.1f", r.WriteIOPS),
+		}
+	}
+	columns := allocateTableColumns(contentWidth, contentAwareColumns([]tableColumn{
+		{title: idLabel, min: 10, weight: 4},
+		{title: "read rate", min: 10, weight: 1, right: true},
+		{title: "write rate", min: 10, weight: 1, right: true},
+		{title: "read iops", min: 9, weight: 0, right: true},
+		{title: "write iops", min: 10, weight: 0, right: true},
+	}, dataRows))
+
+	headerRow := func() string {
+		labels := []string{idLabel, "read rate", "write rate", "read iops", "write iops"}
+		cells := make([]string, len(columns))
+		for i, col := range columns {
+			label := ""
+			if i < len(labels) {
+				label = labels[i]
+			}
+			cell := padRight(label, col.min)
+			if col.right {
+				cell = padLeft(label, col.min)
+			}
+			cells[i] = m.styles.label.Render(cell)
+		}
+		return strings.Join(cells, " ")
+	}
+
+	title := m.styles.label.Render("IO Traffic  ") +
+		m.styles.label.Render("5s window  ") +
+		modeTabLabel(m.ioShapingMode, eosgrpc.IOShapingApps, "a apps", m.styles) + "  " +
+		modeTabLabel(m.ioShapingMode, eosgrpc.IOShapingUsers, "u users", m.styles) + "  " +
+		modeTabLabel(m.ioShapingMode, eosgrpc.IOShapingGroups, "g groups", m.styles) +
+		indicator
+
+	lines := []string{title, "", headerRow()}
+
+	if m.ioShapingLoading && len(records) == 0 {
+		lines = append(lines, "Loading...")
+	} else if len(records) == 0 {
+		lines = append(lines, "(no data)")
+	} else {
+		start, end := visibleWindow(len(records), m.ioShapingSelected, max(1, height-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(records))
+		for i := start; i < end; i++ {
+			line := formatTableRow(columns, dataRows[i])
+			if i == m.ioShapingSelected {
+				line = m.styles.selected.Width(contentWidth).Render(line)
+			}
+			lines = append(lines, line)
+		}
+	}
+
+	return m.styles.panel.Width(width).Render(fitLines(lines, height))
+}
+
+func modeTabLabel(current, target eosgrpc.IOShapingMode, label string, s styles) string {
+	if current == target {
+		return s.tabActive.Render(label)
+	}
+	return s.tab.Render(label)
+}
+
+func humanBytesRate(bps float64) string {
+	switch {
+	case bps >= 1e9:
+		return fmt.Sprintf("%.2f GB/s", bps/1e9)
+	case bps >= 1e6:
+		return fmt.Sprintf("%.2f MB/s", bps/1e6)
+	case bps >= 1e3:
+		return fmt.Sprintf("%.2f KB/s", bps/1e3)
+	default:
+		return fmt.Sprintf("%.0f B/s", bps)
+	}
+}
+
 func (m model) renderSpaceStatusEditPopup() string {
 	cancelBtn := "[ Cancel ]"
 	continueBtn := "[ Continue ]"
@@ -1399,19 +1677,19 @@ func (m model) renderNamespaceView(height int) string {
 func (m model) renderNamespaceList(width, height int) string {
 	contentWidth := panelContentWidth(width)
 	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "TYPE", min: 4, weight: 1},
-		{title: "NAME", min: 24, weight: 6},
-		{title: "SIZE", min: 10, weight: 2, right: true},
-		{title: "UID", min: 6, weight: 1, right: true},
-		{title: "GID", min: 6, weight: 1, right: true},
-		{title: "MODIFIED", min: 16, weight: 2},
+		{title: "type", min: 4, weight: 1},
+		{title: "name", min: 24, weight: 6},
+		{title: "size", min: 10, weight: 2, right: true},
+		{title: "uid", min: 6, weight: 1, right: true},
+		{title: "gid", min: 6, weight: 1, right: true},
+		{title: "modified", min: 16, weight: 2},
 	})
 
 	title := m.styles.label.Render("Namespace Path ") + m.styles.value.Render(m.directory.Path)
 	lines := []string{
 		title,
 		"",
-		formatTableRow(columns, []string{"TYPE", "NAME", "SIZE", "UID", "GID", "MODIFIED"}),
+		m.renderNamespaceHeaderRow(columns),
 	}
 
 	if m.nsLoading {
@@ -1478,9 +1756,12 @@ func (m model) renderNamespaceDetails(width, height int) string {
 }
 
 func (m model) renderFooter() string {
-	keys := "tab/1-6 switch view  •  r refresh  •  j/k scroll  •  ←/→ column  •  s sort  •  f filter  •  c clear  •  / search  •  q quit"
-	if m.activeView == viewNamespace {
-		keys = "tab/1-6 switch view  •  r refresh  •  j/k scroll  •  enter open  •  h back  •  g root  •  q quit"
+	keys := "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→/hl column  •  s sort  •  f filter  •  c clear col  •  esc clear all  •  q quit"
+	switch m.activeView {
+	case viewNamespace:
+		keys = "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  h← back  •  g root  •  q quit"
+	case viewIOShaping:
+		keys = "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  q quit"
 	}
 
 	var summary string
@@ -1776,6 +2057,20 @@ func (m model) renderFileSystemHeaderRow(columns []tableColumn) string {
 	return m.renderSelectableHeaderRow(columns, labels, m.fsColumnSelected, m.fsSort, m.fsFilter)
 }
 
+func (m model) renderNamespaceHeaderRow(columns []tableColumn) string {
+	labels := []string{"type", "name", "size", "uid", "gid", "modified"}
+	cells := make([]string, 0, len(columns))
+	for i, col := range columns {
+		label := ""
+		if i < len(labels) {
+			label = labels[i]
+		}
+		cell := padRight(label, col.min)
+		cells = append(cells, m.styles.label.Render(cell))
+	}
+	return strings.Join(cells, " ")
+}
+
 func (m model) renderSelectableHeaderRow(columns []tableColumn, labels []string, selected int, sortState sortState, filterState filterState) string {
 	cells := make([]string, 0, len(columns))
 	for i, column := range columns {
@@ -1805,6 +2100,26 @@ func (m model) renderSelectableHeaderRow(columns []tableColumn, labels []string,
 		cells = append(cells, cell)
 	}
 	return strings.Join(cells, " ")
+}
+
+// renderFilterSummary returns a line showing all active filters (for display
+// below the column header row).  labelFn maps column index → label string.
+func (m model) renderFilterSummary(filters map[int]string, labelFn func(int) string) string {
+	cols := make([]int, 0, len(filters))
+	for col, v := range filters {
+		if v != "" {
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 {
+		return ""
+	}
+	sort.Ints(cols)
+	parts := make([]string, 0, len(cols))
+	for _, col := range cols {
+		parts = append(parts, m.styles.label.Render(labelFn(col)+"=")+m.styles.value.Render(filters[col]))
+	}
+	return m.styles.label.Render("active filters: ") + strings.Join(parts, m.styles.status.Render("  •  "))
 }
 
 func (m model) renderFilterPopup() string {
@@ -2036,9 +2351,14 @@ func (m *model) updatePopupRows() {
 func (m model) popupValues() []string {
 	values := []string{""}
 	seen := map[string]bool{"": true}
+	// Only show values that pass all *other* active filters so the list stays
+	// consistent with what the user would actually see after applying the filter.
 	switch m.popup.view {
 	case viewFileSystems:
 		for _, fs := range m.fileSystems {
+			if !m.matchesFileSystemFiltersExcept(fs, m.popup.column) {
+				continue
+			}
 			value := m.fsFilterValueForColumn(fs, m.popup.column)
 			if !seen[value] {
 				seen[value] = true
@@ -2047,6 +2367,9 @@ func (m model) popupValues() []string {
 		}
 	default:
 		for _, node := range m.nodes {
+			if !m.matchesNodeFiltersExcept(node, m.popup.column) {
+				continue
+			}
 			value := m.nodeFilterValueForColumn(node, m.popup.column)
 			if !seen[value] {
 				seen[value] = true
@@ -2056,6 +2379,30 @@ func (m model) popupValues() []string {
 	}
 	sort.Strings(values[1:])
 	return values
+}
+
+func (m model) matchesNodeFiltersExcept(node eosgrpc.NodeRecord, excludeColumn int) bool {
+	for col, query := range m.nodeFilter.filters {
+		if col == excludeColumn || query == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(m.nodeFilterValueForColumn(node, col)), strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesFileSystemFiltersExcept(fs eosgrpc.FileSystemRecord, excludeColumn int) bool {
+	for col, query := range m.fsFilter.filters {
+		if col == excludeColumn || query == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(m.fsFilterValueForColumn(fs, col)), strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
 }
 
 func nodeColumnCount() int {
@@ -2360,7 +2707,14 @@ func allocateTableColumns(width int, columns []tableColumn) []tableColumn {
 	totalWeight := 0
 	for i := range allocated {
 		allocated[i].min = max(1, max(allocated[i].min, lipgloss.Width(allocated[i].title)))
+		if allocated[i].maxw > 0 {
+			allocated[i].min = min(allocated[i].min, allocated[i].maxw)
+		}
 		totalMin += allocated[i].min
+		// Columns already at their max don't participate in extra-space distribution.
+		if allocated[i].maxw > 0 && allocated[i].min >= allocated[i].maxw {
+			allocated[i].weight = 0
+		}
 		totalWeight += max(allocated[i].weight, 0)
 	}
 
@@ -2389,7 +2743,9 @@ func allocateTableColumns(width int, columns []tableColumn) []tableColumn {
 	if totalWeight == 0 {
 		totalWeight = len(allocated)
 		for i := range allocated {
-			allocated[i].weight = 1
+			if allocated[i].maxw == 0 || allocated[i].min < allocated[i].maxw {
+				allocated[i].weight = 1
+			}
 		}
 	}
 
@@ -2398,6 +2754,9 @@ func allocateTableColumns(width int, columns []tableColumn) []tableColumn {
 			break
 		}
 		share := (extra * max(allocated[i].weight, 0)) / totalWeight
+		if allocated[i].maxw > 0 {
+			share = min(share, max(0, allocated[i].maxw-allocated[i].min))
+		}
 		allocated[i].min += share
 		extra -= share
 		totalWeight -= max(allocated[i].weight, 0)
@@ -2407,8 +2766,10 @@ func allocateTableColumns(width int, columns []tableColumn) []tableColumn {
 		if extra == 0 {
 			break
 		}
-		allocated[i].min++
-		extra--
+		if allocated[i].maxw == 0 || allocated[i].min < allocated[i].maxw {
+			allocated[i].min++
+			extra--
+		}
 	}
 
 	return allocated
@@ -2538,6 +2899,9 @@ func contentAwareColumns(columns []tableColumn, rows [][]string) []tableColumn {
 				}
 			}
 		}
+		if result[i].maxw > 0 && w > result[i].maxw {
+			w = result[i].maxw
+		}
 		if w > result[i].min {
 			result[i].min = w
 		}
@@ -2663,6 +3027,21 @@ func loadSpaceStatusCmd(client *eosgrpc.Client) tea.Cmd {
 		records, err := client.SpaceStatus(context.Background(), "default")
 		return spaceStatusLoadedMsg{records: records, err: err}
 	}
+}
+
+func loadIOShapingCmd(client *eosgrpc.Client, mode eosgrpc.IOShapingMode) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		records, err := client.IOShaping(ctx, mode)
+		return ioShapingLoadedMsg{records: records, mode: mode, err: err}
+	}
+}
+
+func ioShapingTickCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+		return ioShapingTickMsg{}
+	})
 }
 
 func runSpaceConfigCmd(client *eosgrpc.Client, key, value string) tea.Cmd {

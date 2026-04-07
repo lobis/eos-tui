@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/internal/eosgrpc"
 )
@@ -365,39 +366,34 @@ func (m model) View() string {
 func (m model) renderBodyWithPopup(body string, height int) string {
 	popup := m.renderFilterPopup()
 	bodyLines := strings.Split(body, "\n")
-	popupHeight := lipgloss.Height(popup)
+	popupLines := strings.Split(popup, "\n")
+	width := m.contentWidth()
+
+	for len(bodyLines) < height {
+		bodyLines = append(bodyLines, strings.Repeat(" ", width))
+	}
+
+	popupHeight := len(popupLines)
+	popupWidth := 0
+	for _, line := range popupLines {
+		popupWidth = max(popupWidth, lipgloss.Width(line))
+	}
+	popupWidth = min(popupWidth, width)
 	topPad := max(0, (height-popupHeight)/2)
-	bottomStart := min(len(bodyLines), topPad+popupHeight)
+	leftPad := max(0, (width-popupWidth)/2)
 
-	top := ""
-	if topPad > 0 && topPad <= len(bodyLines) {
-		top = strings.Join(bodyLines[:topPad], "\n")
+	for i := 0; i < popupHeight && topPad+i < len(bodyLines); i++ {
+		bodyLine := padVisibleWidth(bodyLines[topPad+i], width)
+		popupLine := padVisibleWidth(popupLines[i], popupWidth)
+		left := ansi.Cut(bodyLine, 0, leftPad)
+		right := ansi.Cut(bodyLine, leftPad+popupWidth, width)
+		bodyLines[topPad+i] = left + popupLine + right
 	}
 
-	popupBlock := lipgloss.Place(
-		m.contentWidth(),
-		popupHeight,
-		lipgloss.Center,
-		lipgloss.Center,
-		popup,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("236")),
-	)
-
-	bottom := ""
-	if bottomStart < len(bodyLines) {
-		bottom = strings.Join(bodyLines[bottomStart:], "\n")
+	if len(bodyLines) > height {
+		bodyLines = bodyLines[:height]
 	}
-
-	parts := make([]string, 0, 3)
-	if top != "" {
-		parts = append(parts, top)
-	}
-	parts = append(parts, popupBlock)
-	if bottom != "" {
-		parts = append(parts, bottom)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return strings.Join(bodyLines, "\n")
 }
 
 func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
@@ -1156,6 +1152,17 @@ func filterValueLabel(current string, active bool, input string) string {
 		return "\"\""
 	}
 	return fmt.Sprintf("%q", current)
+}
+
+func padVisibleWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	w := lipgloss.Width(s)
+	if w >= width {
+		return ansi.Cut(s, 0, width)
+	}
+	return s + strings.Repeat(" ", width-w)
 }
 
 func sortDirectionLabel(desc bool) string {

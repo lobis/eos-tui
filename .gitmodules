@@ -1,0 +1,6 @@
+[submodule "eos/grpc-proto"]
+	path = eos/grpc-proto
+	url = https://gitlab.cern.ch:8443/eos/grpc-proto.git
+[submodule "eos/eos-protobuf-spec"]
+	path = eos/eos-protobuf-spec
+	url = https://gitlab.cern.ch:8443/eos/eos-protobuf-spec.git

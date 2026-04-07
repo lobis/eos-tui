@@ -27,6 +27,7 @@ const (
 	viewNamespace
 	viewSpaces
 	viewNamespaceStats
+	viewSpaceStatus
 )
 
 type infraLoadedMsg struct {
@@ -64,6 +65,11 @@ type namespaceStatsLoadedMsg struct {
 type directoryLoadedMsg struct {
 	directory eosgrpc.Directory
 	err       error
+}
+
+type spaceStatusLoadedMsg struct {
+	records []eosgrpc.SpaceStatusRecord
+	err     error
 }
 
 type tickMsg time.Time
@@ -106,6 +112,11 @@ type model struct {
 	nsLoading  bool
 	nsErr      error
 	nsSelected int
+
+	spaceStatus         []eosgrpc.SpaceStatusRecord
+	spaceStatusLoading  bool
+	spaceStatusErr      error
+	spaceStatusSelected int
 
 	status string
 
@@ -245,6 +256,7 @@ func NewModel(client *eosgrpc.Client, endpoint, rootPath string) tea.Model {
 		spacesLoading:      true,
 		nsStatsLoading:     true,
 		nsLoading:          false,
+		spaceStatusLoading: true,
 		directory: eosgrpc.Directory{
 			Path: cleanPath(rootPath),
 		},
@@ -285,7 +297,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "tab":
-			m.activeView = (m.activeView + 1) % 5
+			m.activeView = (m.activeView + 1) % 6
 			if m.activeView == viewNamespace {
 				return m.maybeLoadNamespace()
 			}
@@ -300,6 +312,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = viewSpaces
 		case "5":
 			m.activeView = viewNamespaceStats
+		case "6":
+			m.activeView = viewSpaceStatus
+			return m.maybeLoadSpaceStatus()
 		case "r":
 			return m.refreshActiveView()
 		}
@@ -315,6 +330,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSpacesKeys(msg)
 		case viewNamespaceStats:
 			// namespace stats view is read-only, just refresh on 'r'
+		case viewSpaceStatus:
+			return m.updateSpaceStatusKeys(msg)
 		}
 	case infraLoadedMsg:
 		m.nodeStatsLoading = false
@@ -394,6 +411,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = fmt.Sprintf("Browsing namespace %s", m.directory.Path)
 		}
+	case spaceStatusLoadedMsg:
+		m.spaceStatusLoading = false
+		m.spaceStatusErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Space status refresh failed: %v", msg.err)
+		} else {
+			m.spaceStatus = msg.records
+			m.spaceStatusSelected = clampIndex(m.spaceStatusSelected, len(m.spaceStatus))
+			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -465,6 +492,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.nsStatsErr = nil
 		m.status = "Refreshing namespace stats..."
 		return m, loadNamespaceStatsCmd(m.client)
+	case viewSpaceStatus:
+		m.spaceStatusLoading = true
+		m.spaceStatusErr = nil
+		m.status = "Refreshing space status..."
+		return m, loadSpaceStatusCmd(m.client)
 	default:
 		m.nodeStatsLoading = true
 		m.nodesLoading = true
@@ -486,6 +518,17 @@ func (m model) maybeLoadNamespace() (tea.Model, tea.Cmd) {
 	m.nsErr = nil
 	m.status = fmt.Sprintf("Loading namespace %s...", m.directory.Path)
 	return m, loadDirectoryCmd(m.client, m.directory.Path)
+}
+
+func (m model) maybeLoadSpaceStatus() (tea.Model, tea.Cmd) {
+	if !m.spaceStatusLoading && len(m.spaceStatus) > 0 {
+		return m, nil
+	}
+
+	m.spaceStatusLoading = true
+	m.spaceStatusErr = nil
+	m.status = "Loading space status..."
+	return m, loadSpaceStatusCmd(m.client)
 }
 
 func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -631,6 +674,25 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateSpaceStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.spaceStatusSelected > 0 {
+			m.spaceStatusSelected--
+		}
+	case "down", "j":
+		if m.spaceStatusSelected < len(m.spaceStatus)-1 {
+			m.spaceStatusSelected++
+		}
+	case "g":
+		m.spaceStatusSelected = 0
+	case "G":
+		m.spaceStatusSelected = max(0, len(m.spaceStatus)-1)
+	}
+
+	return m, nil
+}
+
 func (m model) selectedNode() (eosgrpc.NodeRecord, bool) {
 	nodes := m.visibleNodes()
 	if len(nodes) == 0 || m.nodeSelected < 0 || m.nodeSelected >= len(nodes) {
@@ -663,6 +725,7 @@ func (m model) renderHeader() string {
 	tabNS := m.styles.tab.Render("3 Namespace")
 	tabSpaces := m.styles.tab.Render("4 Spaces")
 	tabNSStats := m.styles.tab.Render("5 NS Stats")
+	tabSpaceStatus := m.styles.tab.Render("6 Space Status")
 
 	switch m.activeView {
 	case viewNodes:
@@ -675,6 +738,8 @@ func (m model) renderHeader() string {
 		tabSpaces = m.styles.tabActive.Render("4 Spaces")
 	case viewNamespaceStats:
 		tabNSStats = m.styles.tabActive.Render("5 NS Stats")
+	case viewSpaceStatus:
+		tabSpaceStatus = m.styles.tabActive.Render("6 Space Status")
 	}
 
 	left := lipgloss.JoinHorizontal(
@@ -690,6 +755,8 @@ func (m model) renderHeader() string {
 		tabSpaces,
 		" ",
 		tabNSStats,
+		" ",
+		tabSpaceStatus,
 	)
 	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
 	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
@@ -707,6 +774,8 @@ func (m model) renderBody(availableHeight int) string {
 		return m.renderSpacesView(availableHeight)
 	case viewNamespaceStats:
 		return m.renderNamespaceStatsView(availableHeight)
+	case viewSpaceStatus:
+		return m.renderSpaceStatusView(availableHeight)
 	default:
 		return m.renderNodesView(availableHeight)
 	}
@@ -1033,6 +1102,40 @@ func (m model) renderNamespaceStatsView(height int) string {
 	}
 
 	return m.styles.panelDim.Width(contentWidth).Render(fitLines(lines, height))
+}
+
+func (m model) renderSpaceStatusView(height int) string {
+	if m.spaceStatusLoading {
+		return m.styles.panelDim.Render("Loading space status...")
+	}
+	if m.spaceStatusErr != nil {
+		return m.styles.panelDim.Render(fmt.Sprintf("Error loading space status: %v", m.spaceStatusErr))
+	}
+
+	width := m.contentWidth()
+	contentWidth := panelContentWidth(width)
+	columns := allocateTableColumns(contentWidth, []tableColumn{
+		{title: "KEY", min: 36, weight: 1},
+		{title: "VALUE", min: 40, weight: 2},
+	})
+
+	lines := []string{
+		m.styles.label.Render("Space Status (default)"),
+		"",
+		formatTableRow(columns, []string{"KEY", "VALUE"}),
+	}
+
+	start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, panelContentHeight(height)-len(lines)))
+	for i := start; i < end; i++ {
+		record := m.spaceStatus[i]
+		line := formatTableRow(columns, []string{record.Key, record.Value})
+		if i == m.spaceStatusSelected {
+			line = m.styles.selected.Width(contentWidth).Render(line)
+		}
+		lines = append(lines, line)
+	}
+
+	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
 }
 
 func (m model) renderNamespaceView(height int) string {
@@ -2244,4 +2347,11 @@ func max64(a int64, b int64) int64 {
 	}
 
 	return b
+}
+
+func loadSpaceStatusCmd(client *eosgrpc.Client) tea.Cmd {
+	return func() tea.Msg {
+		records, err := client.SpaceStatus(context.Background(), "default")
+		return spaceStatusLoadedMsg{records: records, err: err}
+	}
 }

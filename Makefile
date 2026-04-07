@@ -43,11 +43,6 @@ deploy-both: build
 	scp $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)
 	ssh $(REMOTE_HOST_SECONDARY) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
 
-deploy-remote-eospilot: build
-	test -n "$(EOSPILOT)"
-	$(EOSPILOT) $(LINUX_BIN) $(REMOTE_HOST):$(REMOTE_TMP)
-	ssh $(REMOTE_HOST) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
-
 deploy-eospilot: build
 	ssh $(REMOTE_HOST_SECONDARY) 'mkdir -p $(REMOTE_DIR)'
 	scp $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)

@@ -1,6 +1,9 @@
 package eosgrpc
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseStatusHealth(t *testing.T) {
 	input := "instance: eosdev\n          health:     OK       \n"
@@ -77,5 +80,100 @@ func TestEntryFromCLIFile(t *testing.T) {
 	}
 	if entry.Size != 12 || entry.Locations != 1 {
 		t.Fatalf("unexpected file metadata: size=%d locations=%d", entry.Size, entry.Locations)
+	}
+}
+
+func TestParseSpaceStatus(t *testing.T) {
+	input := `
+groupbalancer.threshold          := 5
+groupmod                         := 24
+lru                              := on
+tgc.totalbytes                   := 1000000000000000000
+`
+	records := parseSpaceStatus([]byte(input))
+
+	if len(records) != 4 {
+		t.Fatalf("expected 4 records, got %d", len(records))
+	}
+
+	if records[0].Key != "groupbalancer.threshold" || records[0].Value != "5" {
+		t.Fatalf("unexpected record 0: %+v", records[0])
+	}
+	if records[3].Key != "tgc.totalbytes" || records[3].Value != "1000000000000000000" {
+		t.Fatalf("unexpected record 3: %+v", records[3])
+	}
+}
+
+func TestNamespaceStatsJSONConflict(t *testing.T) {
+	// Simulated JSON with conflicting types for 'files' and 'directories'
+	input := `
+{
+	"result": [
+		{
+			"ns": {
+				"total": {
+					"files": 78,
+					"directories": 19
+				}
+			}
+		},
+		{
+			"ns": {
+				"total": {
+					"files": {
+						"changelog": { "size": 0 }
+					}
+				}
+			}
+		}
+	],
+	"retc": "0"
+}
+`
+	var payload struct {
+		Result []struct {
+			NS struct {
+				Total struct {
+					Files       any `json:"files"`
+					Directories any `json:"directories"`
+				} `json:"total"`
+			} `json:"ns"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if len(payload.Result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(payload.Result))
+	}
+
+	if val := toUint64(payload.Result[0].NS.Total.Files); val != 78 {
+		t.Fatalf("expected result[0] files=78, got %v", val)
+	}
+
+	if val := toUint64(payload.Result[1].NS.Total.Files); val != 0 {
+		t.Fatalf("expected result[1] files=0 (ignored object), got %v", val)
+	}
+}
+
+func TestToUint64(t *testing.T) {
+	tests := []struct {
+		input any
+		want  uint64
+	}{
+		{float64(78), 78},
+		{uint64(100), 100},
+		{int64(50), 50},
+		{int(10), 10},
+		{"not a number", 0},
+		{map[string]any{"foo": "bar"}, 0},
+	}
+
+	for _, tt := range tests {
+		if got := toUint64(tt.input); got != tt.want {
+			t.Errorf("toUint64(%v) = %v, want %v", tt.input, got, tt.want)
+		}
 	}
 }

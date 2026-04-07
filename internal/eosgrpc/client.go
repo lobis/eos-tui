@@ -133,6 +133,11 @@ type SpaceRecord struct {
 	FreeBytes     uint64
 }
 
+type SpaceStatusRecord struct {
+	Key   string
+	Value string
+}
+
 type NamespaceStats struct {
 	TotalFiles              uint64
 	TotalDirectories        uint64
@@ -406,6 +411,42 @@ func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
 	return spaces, nil
 }
 
+func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRecord, error) {
+	_ = ctx
+
+	// TODO: use JSON output once it is reliable.
+	// output, err := c.runCommand("eos", "-j", "-b", "space", "status", name)
+	output, err := c.runCommand("eos", "-b", "space", "status", name)
+	if err != nil {
+		return nil, fmt.Errorf("eos space status %s: %w", name, err)
+	}
+
+	return parseSpaceStatus(output), nil
+}
+
+func parseSpaceStatus(output []byte) []SpaceStatusRecord {
+	lines := strings.Split(string(output), "\n")
+	records := make([]SpaceStatusRecord, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, ":=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		records = append(records, SpaceStatusRecord{
+			Key:   strings.TrimSpace(parts[0]),
+			Value: strings.TrimSpace(parts[1]),
+		})
+	}
+
+	return records
+}
+
 func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 	_ = ctx
 
@@ -418,8 +459,8 @@ func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 		Result []struct {
 			NS struct {
 				Total struct {
-					Files       uint64 `json:"files"`
-					Directories uint64 `json:"directories"`
+					Files       any `json:"files"`
+					Directories any `json:"directories"`
 				} `json:"total"`
 				Current struct {
 					FID uint64 `json:"fid"`
@@ -457,8 +498,12 @@ func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 
 	stats := NamespaceStats{}
 	for _, item := range payload.Result {
-		stats.TotalFiles = item.NS.Total.Files
-		stats.TotalDirectories = item.NS.Total.Directories
+		if val := toUint64(item.NS.Total.Files); val > 0 {
+			stats.TotalFiles = val
+		}
+		if val := toUint64(item.NS.Total.Directories); val > 0 {
+			stats.TotalDirectories = val
+		}
 		stats.CurrentFID = item.NS.Current.FID
 		stats.CurrentCID = item.NS.Current.CID
 		stats.GeneratedFID = item.NS.Generated.FID
@@ -540,6 +585,21 @@ func parseStatusHealth(output string) string {
 	}
 
 	return "-"
+}
+
+func toUint64(v any) uint64 {
+	switch val := v.(type) {
+	case float64:
+		return uint64(val)
+	case uint64:
+		return val
+	case int64:
+		return uint64(val)
+	case int:
+		return uint64(val)
+	default:
+		return 0
+	}
 }
 
 var nsStatLinePattern = regexp.MustCompile(`^ALL\s+(.+?)\s{2,}(.+)$`)

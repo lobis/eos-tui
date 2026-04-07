@@ -11,7 +11,7 @@ GO_BUILD_FLAGS ?= -a
 
 REMOTE_HOST ?= lobis-eos-dev
 REMOTE_HOST_SECONDARY ?= eospilot
-REMOTE_DIR ?= /root/lobisapa
+REMOTE_DIR ?= /root
 REMOTE_BIN ?= $(REMOTE_DIR)/$(APP_NAME)
 REMOTE_TMP ?= $(REMOTE_BIN).new
 REMOTE_ARGS ?=

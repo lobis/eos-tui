@@ -19,7 +19,7 @@ This repository contains a Go TUI for EOS, inspired by k9s.
 
 - Default deploy target is `lobis-eos-dev`
 - Secondary deploy target is `eospilot`
-- Remote binary path is `/root/lobisapa/eos-tui`
+- Remote binary path is `/root/eos-tui`
 
 ## UI Guidance
 

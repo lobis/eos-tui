@@ -233,7 +233,7 @@ func TestVisibleNodesFilterByStatus(t *testing.T) {
 		{HostPort: "c:1095", Status: "online", FileSystemCount: 3},
 	}
 	m.nodeFilter.column = int(nodeFilterStatus)
-	m.nodeFilter.query = "online"
+	m.nodeFilter.filters[int(nodeFilterStatus)] = "online"
 
 	nodes := m.visibleNodes()
 	if len(nodes) != 2 {
@@ -276,16 +276,22 @@ func TestVisibleFileSystemsSortByUsedDesc(t *testing.T) {
 	}
 }
 
-func TestFilterInputAppliesToNodes(t *testing.T) {
+func TestFilterPopupAppliesToNodes(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.nodes = []eosgrpc.NodeRecord{
 		{HostPort: "alpha:1095", Status: "online"},
 		{HostPort: "beta:1095", Status: "offline"},
 	}
+	m.nodeColumnSelected = int(nodeFilterHostPort)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m = updated.(model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	if !m.popup.active {
+		t.Fatalf("expected filter popup to open")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
@@ -339,6 +345,85 @@ func TestSwitchingToNamespaceStartsLazyLoad(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected namespace switch to return a load command")
+	}
+}
+
+func TestNodeSortCyclesOnSelectedColumn(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.nodeColumnSelected = int(nodeFilterNoFS)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if m.nodeSort.column != int(nodeSortNoFS) || m.nodeSort.desc {
+		t.Fatalf("expected first sort press to set ascending nofs sort, got %+v", m.nodeSort)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if m.nodeSort.column != int(nodeSortNoFS) || !m.nodeSort.desc {
+		t.Fatalf("expected second sort press to set descending nofs sort, got %+v", m.nodeSort)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if m.nodeSort.column != int(nodeSortNone) {
+		t.Fatalf("expected third sort press to clear sort, got %+v", m.nodeSort)
+	}
+}
+
+func TestNodeEnumFilterCyclesOnSelectedColumn(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.nodes = []eosgrpc.NodeRecord{
+		{HostPort: "a:1095", Status: "online"},
+		{HostPort: "b:1095", Status: "offline"},
+	}
+	m.nodeColumnSelected = int(nodeFilterStatus)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if !m.popup.active {
+		t.Fatalf("expected popup to open for enum filter")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o', 'f', 'f'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.nodeFilter.column != int(nodeFilterStatus) || m.nodeFilter.filters[int(nodeFilterStatus)] != "offline" {
+		t.Fatalf("expected enum popup selection to apply offline filter, got %+v", m.nodeFilter)
+	}
+}
+
+func TestHeaderShowsSelectedAndSortedColumn(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.nodesLoading = false
+	m.nodeColumnSelected = int(nodeFilterHostPort)
+	m.nodeSort = sortState{column: int(nodeSortHostPort)}
+	m.nodes = []eosgrpc.NodeRecord{{HostPort: "a:1095"}}
+
+	view := m.renderNodesList(m.contentWidth(), 10)
+	if !strings.Contains(view, "[hostport") || !strings.Contains(view, "hostport↑") {
+		t.Fatalf("expected header to show selected sorted column, got:\n%s", view)
+	}
+}
+
+func TestFilterPopupCanBeCancelled(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.nodes = []eosgrpc.NodeRecord{{HostPort: "alpha:1095"}}
+	m.nodeColumnSelected = int(nodeFilterHostPort)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if !m.popup.active {
+		t.Fatalf("expected popup to open")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.popup.active {
+		t.Fatalf("expected popup to close on escape")
+	}
+	if m.nodeFilter.filters[int(nodeFilterHostPort)] != "" {
+		t.Fatalf("expected filter to remain unchanged after cancel, got %+v", m.nodeFilter)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -72,8 +73,10 @@ type model struct {
 	nodeStats          eosgrpc.NodeStats
 	nodes              []eosgrpc.NodeRecord
 	nodeSelected       int
+	nodeColumnSelected int
 	fileSystems        []eosgrpc.FileSystemRecord
 	fsSelected         int
+	fsColumnSelected   int
 
 	directory  eosgrpc.Directory
 	nsLoaded   bool
@@ -81,21 +84,29 @@ type model struct {
 	nsErr      error
 	nsSelected int
 
-	status      string
-	input       textinput.Model
-	inputActive bool
+	status string
 
 	nodeFilter filterState
 	nodeSort   sortState
 	fsFilter   filterState
 	fsSort     sortState
+	popup      filterPopup
 
 	styles styles
 }
 
-type filterState struct {
+type filterPopup struct {
+	active bool
+	view   viewID
 	column int
-	query  string
+	input  textinput.Model
+	table  table.Model
+	values []string
+}
+
+type filterState struct {
+	column  int
+	filters map[int]string
 }
 
 type sortState struct {
@@ -109,32 +120,59 @@ type fsFilterColumn int
 type fsSortColumn int
 
 const (
-	nodeFilterHostPort nodeFilterColumn = iota
-	nodeFilterStatus
+	nodeFilterType nodeFilterColumn = iota
+	nodeFilterHostPort
 	nodeFilterGeotag
+	nodeFilterStatus
 	nodeFilterActivated
+	nodeFilterHeartbeatDelta
+	nodeFilterNoFS
 )
 
+const nodeSortNone nodeSortColumn = -1
+
 const (
-	nodeSortHostPort nodeSortColumn = iota
+	nodeSortType nodeSortColumn = iota
+	nodeSortHostPort
+	nodeSortGeotag
 	nodeSortStatus
-	nodeSortFileSystems
+	nodeSortActivated
 	nodeSortHeartbeat
+	nodeSortNoFS
 )
+
+const nodeSortFileSystems = nodeSortNoFS
 
 const (
 	fsFilterHost fsFilterColumn = iota
+	fsFilterPort
+	fsFilterID
 	fsFilterPath
 	fsFilterGroup
+	fsFilterGeotag
+	fsFilterBoot
+	fsFilterConfigStatus
+	fsFilterDrain
+	fsFilterUsage
 	fsFilterStatus
+	fsFilterHealth
 )
 
+const fsSortNone fsSortColumn = -1
+
 const (
-	fsSortID fsSortColumn = iota
-	fsSortHost
+	fsSortHost fsSortColumn = iota
+	fsSortPort
+	fsSortID
 	fsSortPath
+	fsSortGroup
+	fsSortGeotag
+	fsSortBoot
+	fsSortConfigStatus
+	fsSortDrain
 	fsSortUsed
 	fsSortStatus
+	fsSortHealth
 )
 
 type styles struct {
@@ -163,6 +201,14 @@ func NewModel(client *eosgrpc.Client, endpoint, rootPath string) tea.Model {
 	input.Prompt = "filter> "
 	input.CharLimit = 256
 	input.Width = 40
+	input.Focus()
+
+	popupTable := table.New(
+		table.WithColumns([]table.Column{{Title: "value", Width: 40}}),
+		table.WithRows(nil),
+		table.WithFocused(true),
+		table.WithHeight(8),
+	)
 
 	return model{
 		client:             client,
@@ -177,11 +223,18 @@ func NewModel(client *eosgrpc.Client, endpoint, rootPath string) tea.Model {
 		directory: eosgrpc.Directory{
 			Path: cleanPath(rootPath),
 		},
-		status:   "Loading EOS state...",
-		input:    input,
-		nodeSort: sortState{column: int(nodeSortHostPort)},
-		fsSort:   sortState{column: int(fsSortID)},
-		styles:   newStyles(),
+		status:             "Loading EOS state...",
+		nodeColumnSelected: int(nodeFilterHostPort),
+		fsColumnSelected:   int(fsFilterHost),
+		nodeSort:           sortState{column: int(nodeSortNone)},
+		fsSort:             sortState{column: int(fsSortNone)},
+		nodeFilter:         filterState{filters: map[int]string{}},
+		fsFilter:           filterState{filters: map[int]string{}},
+		popup: filterPopup{
+			input: input,
+			table: popupTable,
+		},
+		styles: newStyles(),
 	}
 }
 
@@ -200,8 +253,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
-		if m.inputActive {
-			return m.updateInput(msg)
+		if m.popup.active {
+			return m.updatePopup(msg)
 		}
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -301,9 +354,50 @@ func (m model) View() string {
 	footer := m.renderFooter()
 	bodyHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
 	body := m.renderBody(bodyHeight)
+	if m.popup.active {
+		body = m.renderBodyWithPopup(body, bodyHeight)
+	}
 
 	return m.styles.app.
 		Render(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+}
+
+func (m model) renderBodyWithPopup(body string, height int) string {
+	popup := m.renderFilterPopup()
+	bodyLines := strings.Split(body, "\n")
+	popupHeight := lipgloss.Height(popup)
+	topPad := max(0, (height-popupHeight)/2)
+	bottomStart := min(len(bodyLines), topPad+popupHeight)
+
+	top := ""
+	if topPad > 0 && topPad <= len(bodyLines) {
+		top = strings.Join(bodyLines[:topPad], "\n")
+	}
+
+	popupBlock := lipgloss.Place(
+		m.contentWidth(),
+		popupHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		popup,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceBackground(lipgloss.Color("236")),
+	)
+
+	bottom := ""
+	if bottomStart < len(bodyLines) {
+		bottom = strings.Join(bodyLines[bottomStart:], "\n")
+	}
+
+	parts := make([]string, 0, 3)
+	if top != "" {
+		parts = append(parts, top)
+	}
+	parts = append(parts, popupBlock)
+	if bottom != "" {
+		parts = append(parts, bottom)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
@@ -340,20 +434,28 @@ func (m model) maybeLoadNamespace() (tea.Model, tea.Cmd) {
 func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	nodes := m.visibleNodes()
 	switch msg.String() {
-	case "/":
-		m.startFilterInput()
 	case "f":
-		m.nodeFilter.column = (m.nodeFilter.column + 1) % 4
+		m.nodeFilter.column = m.nodeColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "/":
+		m.nodeFilter.column = m.nodeColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "left":
+		m.nodeColumnSelected = max(0, m.nodeColumnSelected-1)
+		m.status = fmt.Sprintf("Selected node column: %s", m.nodeSelectedColumnLabel())
+	case "right":
+		m.nodeColumnSelected = min(nodeColumnCount()-1, m.nodeColumnSelected+1)
+		m.status = fmt.Sprintf("Selected node column: %s", m.nodeSelectedColumnLabel())
+	case "s", "enter":
+		m.nodeSort = m.nextNodeSortState()
 		m.nodeSelected = clampIndex(0, len(m.visibleNodes()))
-		m.status = fmt.Sprintf("Node filter column: %s", m.nodeFilterColumnLabel())
-	case "s":
-		m.nodeSort.column = (m.nodeSort.column + 1) % 4
-		m.nodeSelected = clampIndex(m.nodeSelected, len(m.visibleNodes()))
-		m.status = fmt.Sprintf("Node sort: %s (%s)", m.nodeSortColumnLabel(), sortDirectionLabel(m.nodeSort.desc))
-	case "S":
-		m.nodeSort.desc = !m.nodeSort.desc
-		m.nodeSelected = clampIndex(m.nodeSelected, len(m.visibleNodes()))
-		m.status = fmt.Sprintf("Node sort: %s (%s)", m.nodeSortColumnLabel(), sortDirectionLabel(m.nodeSort.desc))
+		m.status = fmt.Sprintf("Node sort: %s", m.nodeSortStateLabel())
+	case "c":
+		delete(m.nodeFilter.filters, m.nodeColumnSelected)
+		m.nodeFilter.column = m.nodeColumnSelected
+		m.status = fmt.Sprintf("Cleared node filter on %s", m.nodeSelectedColumnLabel())
 	case "up", "k":
 		if m.nodeSelected > 0 {
 			m.nodeSelected--
@@ -374,20 +476,28 @@ func (m model) updateNodesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fileSystems := m.visibleFileSystems()
 	switch msg.String() {
-	case "/":
-		m.startFilterInput()
 	case "f":
-		m.fsFilter.column = (m.fsFilter.column + 1) % 4
+		m.fsFilter.column = m.fsColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "/":
+		m.fsFilter.column = m.fsColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "left":
+		m.fsColumnSelected = max(0, m.fsColumnSelected-1)
+		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
+	case "right":
+		m.fsColumnSelected = min(fsColumnCount()-1, m.fsColumnSelected+1)
+		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
+	case "s", "enter":
+		m.fsSort = m.nextFileSystemSortState()
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
-		m.status = fmt.Sprintf("Filesystem filter column: %s", m.fsFilterColumnLabel())
-	case "s":
-		m.fsSort.column = (m.fsSort.column + 1) % 5
-		m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
-		m.status = fmt.Sprintf("Filesystem sort: %s (%s)", m.fsSortColumnLabel(), sortDirectionLabel(m.fsSort.desc))
-	case "S":
-		m.fsSort.desc = !m.fsSort.desc
-		m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
-		m.status = fmt.Sprintf("Filesystem sort: %s (%s)", m.fsSortColumnLabel(), sortDirectionLabel(m.fsSort.desc))
+		m.status = fmt.Sprintf("Filesystem sort: %s", m.fsSortStateLabel())
+	case "c":
+		delete(m.fsFilter.filters, m.fsColumnSelected)
+		m.fsFilter.column = m.fsColumnSelected
+		m.status = fmt.Sprintf("Cleared filesystem filter on %s", m.fsSelectedColumnLabel())
 	case "up", "k":
 		if m.fsSelected > 0 {
 			m.fsSelected--
@@ -537,7 +647,7 @@ func (m model) renderNodesList(width, height int) string {
 		m.metricLine("Files", fmt.Sprintf("%d", m.nodeStats.FileCount), "Dirs", fmt.Sprintf("%d", m.nodeStats.DirCount)),
 		m.metricLine("Uptime", formatDuration(m.nodeStats.Uptime), "FDs", fmt.Sprintf("%d", m.nodeStats.FileDescs)),
 		"",
-		formatTableRow(columns, []string{"type", "hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs"}),
+		m.renderNodeHeaderRow(columns),
 	}
 
 	if m.nodeStatsLoading {
@@ -627,7 +737,7 @@ func (m model) renderFileSystemsList(width, height int) string {
 		{title: "boot", min: 8, weight: 1},
 		{title: "configstatus", min: 12, weight: 1},
 		{title: "drain", min: 8, weight: 1},
-		{title: "usage", min: 6, weight: 1, right: true},
+		{title: "usage %", min: 8, weight: 1, right: true},
 		{title: "active", min: 8, weight: 1},
 		{title: "health", min: 12, weight: 2},
 	})
@@ -637,7 +747,7 @@ func (m model) renderFileSystemsList(width, height int) string {
 	lines := []string{
 		title + m.renderFileSystemControls(),
 		"",
-		formatTableRow(columns, []string{"host", "port", "id", "path", "schedgroup", "geotag", "boot", "configstatus", "drain", "usage", "active", "health"}),
+		m.renderFileSystemHeaderRow(columns),
 	}
 
 	if m.fileSystemsLoading {
@@ -792,14 +902,11 @@ func (m model) renderNamespaceDetails(width, height int) string {
 }
 
 func (m model) renderFooter() string {
-	keys := "tab switch view • r refresh • j/k move • / filter • f column • s sort • S dir • 1/2/3 jump • q quit"
+	keys := "tab switch view • r refresh • j/k move • ←/→ column • s sort asc/desc/off • f filter • c clear filter • / search values • 1/2/3 jump • q quit"
 	if m.activeView == viewNamespace {
 		keys = "tab switch view • r refresh • j/k move • 1/2/3 jump • namespace: enter open, h/backspace up, g root • q quit"
 	}
 	lines := []string{keys, m.status}
-	if m.inputActive {
-		lines = append(lines, m.input.View()+"  enter apply • esc cancel")
-	}
 	return m.styles.status.Width(m.contentWidth()).Render(strings.Join(lines, "\n"))
 }
 
@@ -817,123 +924,160 @@ func (m model) contentWidth() int {
 	return max(20, m.width-2)
 }
 
-func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.inputActive = false
-		m.input.Blur()
-		m.input.SetValue("")
-		m.status = "Filter edit cancelled"
+		m.closeFilterPopup("Filter selection cancelled")
 		return m, nil
 	case "enter":
-		m.applyFilterInput()
+		m.applyPopupSelection()
 		return m, nil
+	case "up", "down", "j", "k", "pgup", "pgdown", "home", "end", "b", "f", "u", "d", "g", "G":
+		var cmd tea.Cmd
+		m.popup.table, cmd = m.popup.table.Update(msg)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	m.status = fmt.Sprintf("Filter %s: %s", m.activeFilterColumnLabel(), m.input.Value())
+	m.popup.input, cmd = m.popup.input.Update(msg)
+	m.updatePopupRows()
 	return m, cmd
-}
-
-func (m *model) startFilterInput() {
-	m.inputActive = true
-	switch m.activeView {
-	case viewFileSystems:
-		m.input.SetValue(m.fsFilter.query)
-	default:
-		m.input.SetValue(m.nodeFilter.query)
-	}
-	m.input.CursorEnd()
-	m.input.Focus()
-	m.status = fmt.Sprintf("Editing filter for %s", m.activeFilterColumnLabel())
-}
-
-func (m *model) applyFilterInput() {
-	m.inputActive = false
-	value := strings.TrimSpace(m.input.Value())
-	m.input.Blur()
-	switch m.activeView {
-	case viewFileSystems:
-		m.fsFilter.query = value
-		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
-		m.status = fmt.Sprintf("Filesystem filter %s=%q", m.fsFilterColumnLabel(), m.fsFilter.query)
-	default:
-		m.nodeFilter.query = value
-		m.nodeSelected = clampIndex(0, len(m.visibleNodes()))
-		m.status = fmt.Sprintf("Node filter %s=%q", m.nodeFilterColumnLabel(), m.nodeFilter.query)
-	}
-	m.input.SetValue("")
 }
 
 func (m model) visibleNodes() []eosgrpc.NodeRecord {
 	nodes := append([]eosgrpc.NodeRecord(nil), m.nodes...)
-	query := strings.ToLower(strings.TrimSpace(m.nodeFilter.query))
-	if query != "" {
+	if len(m.nodeFilter.filters) > 0 {
 		filtered := make([]eosgrpc.NodeRecord, 0, len(nodes))
 		for _, node := range nodes {
-			if strings.Contains(strings.ToLower(m.nodeFilterValue(node)), query) {
+			if m.matchesNodeFilters(node) {
 				filtered = append(filtered, node)
 			}
 		}
 		nodes = filtered
 	}
-	sort.SliceStable(nodes, func(i, j int) bool {
-		return m.lessNode(nodes[i], nodes[j])
-	})
+	if m.nodeSort.column >= 0 {
+		sort.SliceStable(nodes, func(i, j int) bool {
+			return m.lessNode(nodes[i], nodes[j])
+		})
+	}
 	return nodes
 }
 
 func (m model) visibleFileSystems() []eosgrpc.FileSystemRecord {
 	fileSystems := append([]eosgrpc.FileSystemRecord(nil), m.fileSystems...)
-	query := strings.ToLower(strings.TrimSpace(m.fsFilter.query))
-	if query != "" {
+	if len(m.fsFilter.filters) > 0 {
 		filtered := make([]eosgrpc.FileSystemRecord, 0, len(fileSystems))
 		for _, fs := range fileSystems {
-			if strings.Contains(strings.ToLower(m.fsFilterValue(fs)), query) {
+			if m.matchesFileSystemFilters(fs) {
 				filtered = append(filtered, fs)
 			}
 		}
 		fileSystems = filtered
 	}
-	sort.SliceStable(fileSystems, func(i, j int) bool {
-		return m.lessFileSystem(fileSystems[i], fileSystems[j])
-	})
+	if m.fsSort.column >= 0 {
+		sort.SliceStable(fileSystems, func(i, j int) bool {
+			return m.lessFileSystem(fileSystems[i], fileSystems[j])
+		})
+	}
 	return fileSystems
 }
 
 func (m model) nodeFilterValue(node eosgrpc.NodeRecord) string {
-	switch nodeFilterColumn(m.nodeFilter.column) {
+	return m.nodeFilterValueForColumn(node, m.nodeFilter.column)
+}
+
+func (m model) nodeFilterValueForColumn(node eosgrpc.NodeRecord, column int) string {
+	switch nodeFilterColumn(column) {
+	case nodeFilterType:
+		return node.Type
 	case nodeFilterStatus:
 		return node.Status
 	case nodeFilterGeotag:
 		return node.Geotag
 	case nodeFilterActivated:
 		return node.Activated
+	case nodeFilterHeartbeatDelta:
+		return fmt.Sprintf("%d", node.HeartbeatDelta)
+	case nodeFilterNoFS:
+		return fmt.Sprintf("%d", node.FileSystemCount)
 	default:
 		return node.HostPort
 	}
 }
 
 func (m model) fsFilterValue(fs eosgrpc.FileSystemRecord) string {
-	switch fsFilterColumn(m.fsFilter.column) {
+	return m.fsFilterValueForColumn(fs, m.fsFilter.column)
+}
+
+func (m model) fsFilterValueForColumn(fs eosgrpc.FileSystemRecord, column int) string {
+	switch fsFilterColumn(column) {
+	case fsFilterPort:
+		return fmt.Sprintf("%d", fs.Port)
+	case fsFilterID:
+		return fmt.Sprintf("%d", fs.ID)
 	case fsFilterPath:
 		return fs.Path
 	case fsFilterGroup:
 		return fs.SchedGroup
+	case fsFilterGeotag:
+		return fs.Geotag
+	case fsFilterBoot:
+		return fs.Boot
+	case fsFilterConfigStatus:
+		return fs.ConfigStatus
+	case fsFilterDrain:
+		return fs.DrainStatus
+	case fsFilterUsage:
+		return fmt.Sprintf("%.2f", usagePercent(fs.UsedBytes, fs.CapacityBytes))
 	case fsFilterStatus:
 		return fs.Active
+	case fsFilterHealth:
+		return fs.Health
 	default:
 		return fs.Host
 	}
 }
 
+func (m model) matchesNodeFilters(node eosgrpc.NodeRecord) bool {
+	for column, query := range m.nodeFilter.filters {
+		if query == "" {
+			continue
+		}
+		value := strings.ToLower(m.nodeFilterValueForColumn(node, column))
+		if !strings.Contains(value, strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesFileSystemFilters(fs eosgrpc.FileSystemRecord) bool {
+	for column, query := range m.fsFilter.filters {
+		if query == "" {
+			continue
+		}
+		value := strings.ToLower(m.fsFilterValueForColumn(fs, column))
+		if !strings.Contains(value, strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
 func (m model) lessNode(a, b eosgrpc.NodeRecord) bool {
 	var less bool
 	switch nodeSortColumn(m.nodeSort.column) {
+	case nodeSortType:
+		less = strings.Compare(a.Type, b.Type) < 0
+	case nodeSortHostPort:
+		less = strings.Compare(a.HostPort, b.HostPort) < 0
 	case nodeSortStatus:
 		less = strings.Compare(a.Status, b.Status) < 0
-	case nodeSortFileSystems:
+	case nodeSortGeotag:
+		less = strings.Compare(a.Geotag, b.Geotag) < 0
+	case nodeSortActivated:
+		less = strings.Compare(a.Activated, b.Activated) < 0
+	case nodeSortNoFS:
 		less = a.FileSystemCount < b.FileSystemCount
 	case nodeSortHeartbeat:
 		less = a.HeartbeatDelta < b.HeartbeatDelta
@@ -954,12 +1098,28 @@ func (m model) lessFileSystem(a, b eosgrpc.FileSystemRecord) bool {
 	switch fsSortColumn(m.fsSort.column) {
 	case fsSortHost:
 		less = strings.Compare(a.Host, b.Host) < 0
+	case fsSortPort:
+		less = a.Port < b.Port
+	case fsSortID:
+		less = a.ID < b.ID
 	case fsSortPath:
 		less = strings.Compare(a.Path, b.Path) < 0
+	case fsSortGroup:
+		less = strings.Compare(a.SchedGroup, b.SchedGroup) < 0
+	case fsSortGeotag:
+		less = strings.Compare(a.Geotag, b.Geotag) < 0
+	case fsSortBoot:
+		less = strings.Compare(a.Boot, b.Boot) < 0
+	case fsSortConfigStatus:
+		less = strings.Compare(a.ConfigStatus, b.ConfigStatus) < 0
+	case fsSortDrain:
+		less = strings.Compare(a.DrainStatus, b.DrainStatus) < 0
 	case fsSortUsed:
 		less = usagePercent(a.UsedBytes, a.CapacityBytes) < usagePercent(b.UsedBytes, b.CapacityBytes)
 	case fsSortStatus:
 		less = strings.Compare(a.Active, b.Active) < 0
+	case fsSortHealth:
+		less = strings.Compare(a.Health, b.Health) < 0
 	default:
 		less = a.ID < b.ID
 	}
@@ -973,20 +1133,18 @@ func (m model) lessFileSystem(a, b eosgrpc.FileSystemRecord) bool {
 }
 
 func (m model) renderNodeControls() string {
-	return fmt.Sprintf("  [filter:%s=%s sort:%s %s]",
-		m.nodeFilterColumnLabel(),
-		filterValueLabel(m.nodeFilter.query, m.inputActive && m.activeView == viewNodes, m.input.Value()),
-		m.nodeSortColumnLabel(),
-		sortDirectionLabel(m.nodeSort.desc),
+	return fmt.Sprintf("  [col:%s filters:%d current:%s]",
+		m.nodeSelectedColumnLabel(),
+		len(m.nodeFilter.filters),
+		filterValueLabel(m.nodeFilter.filters[m.nodeColumnSelected], m.popup.active && m.popup.view == viewNodes, m.popup.input.Value()),
 	)
 }
 
 func (m model) renderFileSystemControls() string {
-	return fmt.Sprintf("  [filter:%s=%s sort:%s %s]",
-		m.fsFilterColumnLabel(),
-		filterValueLabel(m.fsFilter.query, m.inputActive && m.activeView == viewFileSystems, m.input.Value()),
-		m.fsSortColumnLabel(),
-		sortDirectionLabel(m.fsSort.desc),
+	return fmt.Sprintf("  [col:%s filters:%d current:%s]",
+		m.fsSelectedColumnLabel(),
+		len(m.fsFilter.filters),
+		filterValueLabel(m.fsFilter.filters[m.fsColumnSelected], m.popup.active && m.popup.view == viewFileSystems, m.popup.input.Value()),
 	)
 }
 
@@ -1007,14 +1165,86 @@ func sortDirectionLabel(desc bool) string {
 	return "asc"
 }
 
+func (m model) renderNodeHeaderRow(columns []tableColumn) string {
+	labels := []string{"type", "hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs"}
+	return m.renderSelectableHeaderRow(columns, labels, m.nodeColumnSelected, m.nodeSort, m.nodeFilter)
+}
+
+func (m model) renderFileSystemHeaderRow(columns []tableColumn) string {
+	labels := []string{"host", "port", "id", "path", "schedgroup", "geotag", "boot", "configstatus", "drain", "usage %", "active", "health"}
+	return m.renderSelectableHeaderRow(columns, labels, m.fsColumnSelected, m.fsSort, m.fsFilter)
+}
+
+func (m model) renderSelectableHeaderRow(columns []tableColumn, labels []string, selected int, sortState sortState, filterState filterState) string {
+	cells := make([]string, 0, len(columns))
+	for i, column := range columns {
+		label := ""
+		if i < len(labels) {
+			label = labels[i]
+		}
+		if sortState.column == i {
+			if sortState.desc {
+				label += "↓"
+			} else {
+				label += "↑"
+			}
+		}
+		if filterState.filters[i] != "" {
+			label += "*"
+		}
+		if i == selected {
+			label = "[" + label + "]"
+		}
+		cell := padRight(label, column.min)
+		if i == selected {
+			cell = m.styles.selected.Render(cell)
+		} else {
+			cell = m.styles.label.Render(cell)
+		}
+		cells = append(cells, cell)
+	}
+	return strings.Join(cells, " ")
+}
+
+func (m model) renderFilterPopup() string {
+	title := "Filter " + m.activeFilterColumnLabel()
+	if m.popup.view == viewFileSystems {
+		title = "Filter " + m.fsFilterColumnLabel()
+	}
+
+	contentWidth := min(80, max(40, m.contentWidth()-8))
+	inputView := m.popup.input.View()
+	tableView := m.popup.table.View()
+	hint := m.styles.status.Render("Enter apply selected value • Esc cancel")
+
+	box := lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.styles.header.Render(title),
+		"",
+		inputView,
+		"",
+		tableView,
+		"",
+		hint,
+	)
+
+	return m.styles.panelDim.Width(contentWidth).Render(box)
+}
+
 func (m model) nodeFilterColumnLabel() string {
 	switch nodeFilterColumn(m.nodeFilter.column) {
+	case nodeFilterType:
+		return "type"
 	case nodeFilterStatus:
 		return "status"
 	case nodeFilterGeotag:
 		return "geotag"
 	case nodeFilterActivated:
 		return "activated"
+	case nodeFilterHeartbeatDelta:
+		return "heartbeatdelta"
+	case nodeFilterNoFS:
+		return "nofs"
 	default:
 		return "hostport"
 	}
@@ -1022,12 +1252,22 @@ func (m model) nodeFilterColumnLabel() string {
 
 func (m model) nodeSortColumnLabel() string {
 	switch nodeSortColumn(m.nodeSort.column) {
+	case nodeSortType:
+		return "type"
+	case nodeSortHostPort:
+		return "hostport"
 	case nodeSortStatus:
 		return "status"
-	case nodeSortFileSystems:
-		return "filesystems"
+	case nodeSortGeotag:
+		return "geotag"
+	case nodeSortActivated:
+		return "activated"
+	case nodeSortNoFS:
+		return "nofs"
 	case nodeSortHeartbeat:
-		return "heartbeat"
+		return "heartbeatdelta"
+	case nodeSortNone:
+		return "none"
 	default:
 		return "hostport"
 	}
@@ -1035,12 +1275,28 @@ func (m model) nodeSortColumnLabel() string {
 
 func (m model) fsFilterColumnLabel() string {
 	switch fsFilterColumn(m.fsFilter.column) {
+	case fsFilterPort:
+		return "port"
+	case fsFilterID:
+		return "id"
 	case fsFilterPath:
 		return "path"
 	case fsFilterGroup:
-		return "group"
+		return "schedgroup"
+	case fsFilterGeotag:
+		return "geotag"
+	case fsFilterBoot:
+		return "boot"
+	case fsFilterConfigStatus:
+		return "configstatus"
+	case fsFilterDrain:
+		return "drain"
+	case fsFilterUsage:
+		return "usage %"
 	case fsFilterStatus:
-		return "status"
+		return "active"
+	case fsFilterHealth:
+		return "health"
 	default:
 		return "host"
 	}
@@ -1050,14 +1306,32 @@ func (m model) fsSortColumnLabel() string {
 	switch fsSortColumn(m.fsSort.column) {
 	case fsSortHost:
 		return "host"
+	case fsSortPort:
+		return "port"
+	case fsSortID:
+		return "id"
 	case fsSortPath:
 		return "path"
+	case fsSortGroup:
+		return "schedgroup"
+	case fsSortGeotag:
+		return "geotag"
+	case fsSortBoot:
+		return "boot"
+	case fsSortConfigStatus:
+		return "configstatus"
+	case fsSortDrain:
+		return "drain"
 	case fsSortUsed:
-		return "used"
+		return "usage %"
 	case fsSortStatus:
-		return "status"
+		return "active"
+	case fsSortHealth:
+		return "health"
+	case fsSortNone:
+		return "none"
 	default:
-		return "id"
+		return "host"
 	}
 }
 
@@ -1067,6 +1341,197 @@ func (m model) activeFilterColumnLabel() string {
 		return m.fsFilterColumnLabel()
 	default:
 		return m.nodeFilterColumnLabel()
+	}
+}
+
+func (m *model) openFilterPopup() {
+	m.popup.active = true
+	m.popup.view = m.activeView
+	if m.activeView == viewFileSystems {
+		m.popup.column = m.fsColumnSelected
+		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else {
+		m.popup.column = m.nodeColumnSelected
+		m.popup.input.SetValue(m.nodeFilter.filters[m.nodeColumnSelected])
+	}
+	m.popup.input.CursorEnd()
+	m.popup.input.Focus()
+	m.popup.table.Focus()
+	m.popup.table.SetCursor(0)
+	m.updatePopupRows()
+	m.status = fmt.Sprintf("Select filter for %s", m.activeFilterColumnLabel())
+}
+
+func (m *model) closeFilterPopup(status string) {
+	m.popup.active = false
+	m.popup.input.Blur()
+	m.popup.input.SetValue("")
+	m.popup.values = nil
+	m.popup.table.SetRows(nil)
+	m.status = status
+}
+
+func (m *model) applyPopupSelection() {
+	row := m.popup.table.SelectedRow()
+	if len(row) == 0 {
+		m.closeFilterPopup("No filter value selected")
+		return
+	}
+
+	value := row[0]
+	if value == "(no matches)" {
+		m.closeFilterPopup("No matching filter value")
+		return
+	}
+	if value == "(no filter)" {
+		value = ""
+	}
+
+	switch m.popup.view {
+	case viewFileSystems:
+		m.fsFilter.column = m.popup.column
+		if value == "" {
+			delete(m.fsFilter.filters, m.popup.column)
+		} else {
+			m.fsFilter.filters[m.popup.column] = value
+		}
+		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
+		m.closeFilterPopup(fmt.Sprintf("Filesystem filters active: %d", len(m.fsFilter.filters)))
+	default:
+		m.nodeFilter.column = m.popup.column
+		if value == "" {
+			delete(m.nodeFilter.filters, m.popup.column)
+		} else {
+			m.nodeFilter.filters[m.popup.column] = value
+		}
+		m.nodeSelected = clampIndex(0, len(m.visibleNodes()))
+		m.closeFilterPopup(fmt.Sprintf("Node filters active: %d", len(m.nodeFilter.filters)))
+	}
+}
+
+func (m *model) updatePopupRows() {
+	needle := strings.ToLower(strings.TrimSpace(m.popup.input.Value()))
+	values := m.popupValues()
+	rows := make([]table.Row, 0, len(values))
+	for _, value := range values {
+		label := value
+		if label == "" {
+			label = "(no filter)"
+		}
+		if needle == "" || strings.Contains(strings.ToLower(label), needle) {
+			rows = append(rows, table.Row{label})
+		}
+	}
+	if len(rows) == 0 {
+		rows = []table.Row{{"(no matches)"}}
+	}
+	m.popup.table.SetColumns([]table.Column{{Title: "value", Width: min(60, max(24, m.contentWidth()-16))}})
+	m.popup.table.SetRows(rows)
+	m.popup.table.SetHeight(min(14, max(6, m.height/3)))
+	m.popup.table.SetWidth(min(70, max(28, m.contentWidth()-12)))
+	m.popup.table.SetCursor(0)
+}
+
+func (m model) popupValues() []string {
+	values := []string{""}
+	seen := map[string]bool{"": true}
+	switch m.popup.view {
+	case viewFileSystems:
+		for _, fs := range m.fileSystems {
+			value := m.fsFilterValueForColumn(fs, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	default:
+		for _, node := range m.nodes {
+			value := m.nodeFilterValueForColumn(node, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	}
+	sort.Strings(values[1:])
+	return values
+}
+
+func nodeColumnCount() int {
+	return 7
+}
+
+func fsColumnCount() int {
+	return 12
+}
+
+func (m model) nodeSelectedColumnLabel() string {
+	column := m.nodeFilter.column
+	m.nodeFilter.column = m.nodeColumnSelected
+	label := m.nodeFilterColumnLabel()
+	m.nodeFilter.column = column
+	return label
+}
+
+func (m model) fsSelectedColumnLabel() string {
+	column := m.fsFilter.column
+	m.fsFilter.column = m.fsColumnSelected
+	label := m.fsFilterColumnLabel()
+	m.fsFilter.column = column
+	return label
+}
+
+func (m model) nodeSortStateLabel() string {
+	if m.nodeSort.column < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%s %s", m.nodeSortColumnLabel(), sortDirectionLabel(m.nodeSort.desc))
+}
+
+func (m model) fsSortStateLabel() string {
+	if m.fsSort.column < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%s %s", m.fsSortColumnLabel(), sortDirectionLabel(m.fsSort.desc))
+}
+
+func (m model) nextNodeSortState() sortState {
+	selected := m.nodeColumnSelected
+	if m.nodeSort.column != selected {
+		return sortState{column: selected}
+	}
+	if !m.nodeSort.desc {
+		return sortState{column: selected, desc: true}
+	}
+	return sortState{column: int(nodeSortNone)}
+}
+
+func (m model) nextFileSystemSortState() sortState {
+	selected := m.fsColumnSelected
+	if m.fsSort.column != selected {
+		return sortState{column: selected}
+	}
+	if !m.fsSort.desc {
+		return sortState{column: selected, desc: true}
+	}
+	return sortState{column: int(fsSortNone)}
+}
+
+func (m model) nodeColumnIsEnum(column int) bool {
+	switch nodeFilterColumn(column) {
+	case nodeFilterType, nodeFilterStatus, nodeFilterActivated:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m model) fsColumnIsEnum(column int) bool {
+	switch fsFilterColumn(column) {
+	case fsFilterBoot, fsFilterConfigStatus, fsFilterDrain, fsFilterStatus:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1443,8 +1908,16 @@ func usagePercent(used, capacity uint64) float64 {
 
 func equivalentNodeSortValue(column int, a, b eosgrpc.NodeRecord) bool {
 	switch nodeSortColumn(column) {
+	case nodeSortType:
+		return a.Type == b.Type
+	case nodeSortHostPort:
+		return a.HostPort == b.HostPort
 	case nodeSortStatus:
 		return a.Status == b.Status
+	case nodeSortGeotag:
+		return a.Geotag == b.Geotag
+	case nodeSortActivated:
+		return a.Activated == b.Activated
 	case nodeSortFileSystems:
 		return a.FileSystemCount == b.FileSystemCount
 	case nodeSortHeartbeat:
@@ -1458,12 +1931,28 @@ func equivalentFileSystemSortValue(column int, a, b eosgrpc.FileSystemRecord) bo
 	switch fsSortColumn(column) {
 	case fsSortHost:
 		return a.Host == b.Host
+	case fsSortPort:
+		return a.Port == b.Port
+	case fsSortID:
+		return a.ID == b.ID
 	case fsSortPath:
 		return a.Path == b.Path
+	case fsSortGroup:
+		return a.SchedGroup == b.SchedGroup
+	case fsSortGeotag:
+		return a.Geotag == b.Geotag
+	case fsSortBoot:
+		return a.Boot == b.Boot
+	case fsSortConfigStatus:
+		return a.ConfigStatus == b.ConfigStatus
+	case fsSortDrain:
+		return a.DrainStatus == b.DrainStatus
 	case fsSortUsed:
 		return usagePercent(a.UsedBytes, a.CapacityBytes) == usagePercent(b.UsedBytes, b.CapacityBytes)
 	case fsSortStatus:
 		return a.Active == b.Active
+	case fsSortHealth:
+		return a.Health == b.Health
 	default:
 		return a.ID == b.ID
 	}

@@ -424,6 +424,22 @@ func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRec
 	return parseSpaceStatus(output), nil
 }
 
+func (c *Client) SpaceConfig(ctx context.Context, name string, key, value string) error {
+	_ = ctx
+
+	fullKey := key
+	if !strings.HasPrefix(key, "space.") && !strings.HasPrefix(key, "fs.") {
+		fullKey = "space." + key
+	}
+
+	_, err := c.runCommand("eos", "-b", "space", "config", name, fmt.Sprintf("%s=%s", fullKey, value))
+	if err != nil {
+		return fmt.Errorf("eos space config %s %s=%s: %w", name, fullKey, value, err)
+	}
+
+	return nil
+}
+
 func parseSpaceStatus(output []byte) []SpaceStatusRecord {
 	lines := strings.Split(string(output), "\n")
 	records := make([]SpaceStatusRecord, 0, len(lines))

@@ -72,6 +72,10 @@ type spaceStatusLoadedMsg struct {
 	err     error
 }
 
+type spaceConfigResultMsg struct {
+	err error
+}
+
 type tickMsg time.Time
 
 type model struct {
@@ -125,8 +129,33 @@ type model struct {
 	fsFilter   filterState
 	fsSort     sortState
 	popup      filterPopup
+	edit       spaceStatusEdit
 
 	styles styles
+}
+
+type spaceStatusEditStage int
+
+const (
+	editStageNone spaceStatusEditStage = iota
+	editStageInput
+	editStageConfirm
+)
+
+type buttonID int
+
+const (
+	buttonCancel buttonID = iota
+	buttonContinue
+)
+
+type spaceStatusEdit struct {
+	active     bool
+	stage      spaceStatusEditStage
+	record     eosgrpc.SpaceStatusRecord
+	input      textinput.Model
+	button     buttonID
+	focusInput bool
 }
 
 type filterPopup struct {
@@ -293,6 +322,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.popup.active {
 			return m.updatePopup(msg)
 		}
+		if m.edit.active {
+			return m.updateSpaceStatusEditKeys(msg)
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -331,6 +363,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewNamespaceStats:
 			// namespace stats view is read-only, just refresh on 'r'
 		case viewSpaceStatus:
+			if msg.String() == "enter" {
+				return m.startSpaceStatusEdit()
+			}
 			return m.updateSpaceStatusKeys(msg)
 		}
 	case infraLoadedMsg:
@@ -421,6 +456,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spaceStatusSelected = clampIndex(m.spaceStatusSelected, len(m.spaceStatus))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
+	case spaceConfigResultMsg:
+		m.edit.active = false
+		if msg.err != nil {
+			m.status = m.styles.error.Render(fmt.Sprintf("Space config failed: %v", msg.err))
+		} else {
+			m.status = "Space configuration updated successfully"
+			return m, loadSpaceStatusCmd(m.client)
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -435,6 +478,8 @@ func (m model) View() string {
 	body := m.renderBody(bodyHeight)
 	if m.popup.active {
 		body = m.renderBodyWithPopup(body, bodyHeight)
+	} else if m.edit.active {
+		body = m.renderBodyWithEditPopup(body, bodyHeight)
 	}
 
 	return m.styles.app.
@@ -442,7 +487,20 @@ func (m model) View() string {
 }
 
 func (m model) renderBodyWithPopup(body string, height int) string {
-	popup := m.renderFilterPopup()
+	return m.renderOverlay(body, m.renderFilterPopup(), height)
+}
+
+func (m model) renderBodyWithEditPopup(body string, height int) string {
+	var popup string
+	if m.edit.stage == editStageInput {
+		popup = m.renderSpaceStatusEditPopup()
+	} else if m.edit.stage == editStageConfirm {
+		popup = m.renderSpaceStatusConfirmPopup()
+	}
+	return m.renderOverlay(body, popup, height)
+}
+
+func (m model) renderOverlay(body string, popup string, height int) string {
 	bodyLines := strings.Split(body, "\n")
 	popupLines := strings.Split(popup, "\n")
 	width := m.contentWidth()
@@ -717,6 +775,97 @@ func (m model) selectedNamespaceEntry() (eosgrpc.Entry, bool) {
 	}
 
 	return m.directory.Entries[m.nsSelected], true
+}
+
+func (m model) selectedSpaceStatusRecord() (eosgrpc.SpaceStatusRecord, bool) {
+	if len(m.spaceStatus) == 0 || m.spaceStatusSelected < 0 || m.spaceStatusSelected >= len(m.spaceStatus) {
+		return eosgrpc.SpaceStatusRecord{}, false
+	}
+	return m.spaceStatus[m.spaceStatusSelected], true
+}
+
+func (m model) startSpaceStatusEdit() (tea.Model, tea.Cmd) {
+	record, ok := m.selectedSpaceStatusRecord()
+	if !ok {
+		return m, nil
+	}
+
+	input := textinput.New()
+	input.Placeholder = "new value"
+	input.Focus()
+	input.SetValue(record.Value)
+
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		record:     record,
+		input:      input,
+		button:     buttonCancel,
+		focusInput: true,
+	}
+
+	return m, nil
+}
+
+func (m model) updateSpaceStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.edit.active = false
+		return m, nil
+	case "tab", "shift+tab":
+		m.edit.focusInput = !m.edit.focusInput
+		if m.edit.focusInput {
+			return m, m.edit.input.Focus()
+		} else {
+			m.edit.input.Blur()
+			return m, nil
+		}
+	case "up", "down":
+		if m.edit.stage == editStageInput {
+			m.edit.focusInput = !m.edit.focusInput
+			if m.edit.focusInput {
+				return m, m.edit.input.Focus()
+			} else {
+				m.edit.input.Blur()
+				return m, nil
+			}
+		}
+	case "left", "right":
+		if !m.edit.focusInput {
+			if m.edit.button == buttonCancel {
+				m.edit.button = buttonContinue
+			} else {
+				m.edit.button = buttonCancel
+			}
+		}
+	case "enter":
+		if !m.edit.focusInput && m.edit.button == buttonCancel {
+			m.edit.active = false
+			return m, nil
+		}
+
+		if m.edit.stage == editStageInput {
+			if m.edit.focusInput || m.edit.button == buttonContinue {
+				m.edit.stage = editStageConfirm
+				m.edit.button = buttonCancel
+				m.edit.focusInput = false
+				m.edit.input.Blur()
+				return m, nil
+			}
+		} else if m.edit.stage == editStageConfirm {
+			if m.edit.button == buttonContinue {
+				return m, runSpaceConfigCmd(m.client, m.edit.record.Key, m.edit.input.Value())
+			}
+		}
+	}
+
+	if m.edit.focusInput {
+		var cmd tea.Cmd
+		m.edit.input, cmd = m.edit.input.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
 }
 
 func (m model) renderHeader() string {
@@ -1136,6 +1285,64 @@ func (m model) renderSpaceStatusView(height int) string {
 	}
 
 	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderSpaceStatusEditPopup() string {
+	cancelBtn := "[ Cancel ]"
+	continueBtn := "[ Continue ]"
+
+	if !m.edit.focusInput {
+		if m.edit.button == buttonCancel {
+			cancelBtn = m.styles.selected.Render(cancelBtn)
+		} else {
+			continueBtn = m.styles.selected.Render(continueBtn)
+		}
+	}
+
+	lines := []string{
+		m.styles.label.Render("Edit Space Status"),
+		fmt.Sprintf("Key:   %s", m.styles.value.Render(m.edit.record.Key)),
+		fmt.Sprintf("Value: %s", m.styles.value.Render(m.edit.record.Value)),
+		"",
+		m.edit.input.View(),
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", continueBtn),
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) renderSpaceStatusConfirmPopup() string {
+	cancelBtn := "[ Cancel ]"
+	confirmBtn := "[ Confirm ]"
+
+	if m.edit.button == buttonCancel {
+		cancelBtn = m.styles.selected.Render(cancelBtn)
+	} else {
+		confirmBtn = m.styles.selected.Render(confirmBtn)
+	}
+
+	command := fmt.Sprintf("eos space config default %s=%s", m.edit.record.Key, m.edit.input.Value())
+
+	lines := []string{
+		m.styles.label.Render("Confirm Configuration Change"),
+		"",
+		"The following command will be executed:",
+		"",
+		m.styles.value.Render(command),
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) renderNamespaceView(height int) string {
@@ -2353,5 +2560,12 @@ func loadSpaceStatusCmd(client *eosgrpc.Client) tea.Cmd {
 	return func() tea.Msg {
 		records, err := client.SpaceStatus(context.Background(), "default")
 		return spaceStatusLoadedMsg{records: records, err: err}
+	}
+}
+
+func runSpaceConfigCmd(client *eosgrpc.Client, key, value string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SpaceConfig(context.Background(), "default", key, value)
+		return spaceConfigResultMsg{err: err}
 	}
 }

@@ -2132,21 +2132,7 @@ func (m model) renderFooter() string {
 		keys = "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  l logs  •  s shell  •  q quit"
 	}
 
-	var summary string
-	if m.fstStatsLoading {
-		summary = "health: loading..."
-	} else {
-		summary = fmt.Sprintf("health: %s  files: %d  dirs: %d", m.nodeStats.State, m.nodeStats.FileCount, m.nodeStats.DirCount)
-	}
-	if !m.spacesLoading && len(m.spaces) > 0 {
-		summary += fmt.Sprintf("  spaces: %d", len(m.spaces))
-	}
-	if m.status != "" {
-		summary += "  │  " + m.status
-	}
-
-	lines := []string{keys, summary}
-	return m.styles.status.Width(m.contentWidth()).Render(strings.Join(lines, "\n"))
+	return m.styles.status.Width(m.contentWidth()).Render(keys)
 }
 
 func (m model) metricLine(leftLabel, leftValue, rightLabel, rightValue string) string {

@@ -62,7 +62,8 @@ func TestModelRendersLoadedNodeData(t *testing.T) {
 		fsts: []eos.FstRecord{
 			{
 				Type:            "nodesview",
-				HostPort:        "host:1095",
+				Host:            "host",
+				Port:            1095,
 				Geotag:          "local",
 				Status:          "online",
 				Activated:       "on",
@@ -133,7 +134,8 @@ func TestViewFitsWindowHeight(t *testing.T) {
 		FileDescs:   553,
 	}
 	m.fsts = []eos.FstRecord{{
-		HostPort:        "lobisapa-dev.cern.ch:1095",
+		Host:            "lobisapa-dev.cern.ch",
+		Port:            1095,
 		Status:          "online",
 		Activated:       "on",
 		Geotag:          "local",
@@ -256,9 +258,9 @@ func TestNamespaceViewFitsWindowHeight(t *testing.T) {
 func TestVisibleFSTsFilterByStatus(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsts = []eos.FstRecord{
-		{HostPort: "b:1095", Status: "offline", FileSystemCount: 1},
-		{HostPort: "a:1095", Status: "online", FileSystemCount: 5},
-		{HostPort: "c:1095", Status: "online", FileSystemCount: 3},
+		{Host: "b", Port: 1095, Status: "offline", FileSystemCount: 1},
+		{Host: "a", Port: 1095, Status: "online", FileSystemCount: 5},
+		{Host: "c", Port: 1095, Status: "online", FileSystemCount: 3},
 	}
 	// fstFilterStatus corresponds to filter column 3; we set both .column and
 	// .filters so visibleFSTs() applies the filter.
@@ -269,7 +271,7 @@ func TestVisibleFSTsFilterByStatus(t *testing.T) {
 	if len(fsts) != 2 {
 		t.Fatalf("expected 2 filtered fsts, got %d", len(fsts))
 	}
-	if fsts[0].HostPort != "a:1095" || fsts[1].HostPort != "c:1095" {
+	if fsts[0].Host != "a" || fsts[1].Host != "c" {
 		t.Fatalf("unexpected filtered order: %#v", fsts)
 	}
 }
@@ -277,15 +279,15 @@ func TestVisibleFSTsFilterByStatus(t *testing.T) {
 func TestVisibleFSTsSortByFileSystemsDesc(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsts = []eos.FstRecord{
-		{HostPort: "b:1095", Status: "online", FileSystemCount: 1},
-		{HostPort: "a:1095", Status: "online", FileSystemCount: 5},
-		{HostPort: "c:1095", Status: "online", FileSystemCount: 3},
+		{Host: "b", Port: 1095, Status: "online", FileSystemCount: 1},
+		{Host: "a", Port: 1095, Status: "online", FileSystemCount: 5},
+		{Host: "c", Port: 1095, Status: "online", FileSystemCount: 3},
 	}
 	m.fstSort.column = int(fstSortFileSystems)
 	m.fstSort.desc = true
 
 	fsts := m.visibleFSTs()
-	if got := []string{fsts[0].HostPort, fsts[1].HostPort, fsts[2].HostPort}; strings.Join(got, ",") != "a:1095,c:1095,b:1095" {
+	if got := []string{fsts[0].Host, fsts[1].Host, fsts[2].Host}; strings.Join(got, ",") != "a,c,b" {
 		t.Fatalf("unexpected sort order: %v", got)
 	}
 }
@@ -310,10 +312,10 @@ func TestFilterPopupAppliesToFSTs(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{
-		{HostPort: "alpha:1095", Status: "online", FileSystemCount: 2},
-		{HostPort: "beta:1095", Status: "offline", FileSystemCount: 1},
+		{Host: "alpha", Port: 1095, Status: "online", FileSystemCount: 2},
+		{Host: "beta", Port: 1095, Status: "offline", FileSystemCount: 1},
 	}
-	m.fstColumnSelected = int(fstFilterHostPort)
+	m.fstColumnSelected = int(fstFilterHost)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m = updated.(model)
@@ -328,7 +330,7 @@ func TestFilterPopupAppliesToFSTs(t *testing.T) {
 	m = updated.(model)
 
 	fsts := m.visibleFSTs()
-	if len(fsts) != 1 || fsts[0].HostPort != "beta:1095" {
+	if len(fsts) != 1 || fsts[0].Host != "beta" {
 		t.Fatalf("expected filter input to keep beta only, got %#v", fsts)
 	}
 }
@@ -341,7 +343,7 @@ func TestFSTsRenderBeforeStatsArrive(t *testing.T) {
 
 	updated, _ := m.Update(fstsLoadedMsg{
 		fsts: []eos.FstRecord{
-			{HostPort: "fast-node:1095", Status: "online", Activated: "on", Geotag: "local", FileSystemCount: 5},
+			{Host: "fast-node", Port: 1095, Status: "online", Activated: "on", Geotag: "local", FileSystemCount: 5},
 		},
 	})
 	m = updated.(model)
@@ -409,8 +411,8 @@ func TestFSTEnumFilterCyclesOnSelectedColumn(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{
-		{HostPort: "a:1095", Status: "online", FileSystemCount: 1},
-		{HostPort: "b:1095", Status: "offline", FileSystemCount: 1},
+		{Host: "a", Port: 1095, Status: "online", FileSystemCount: 1},
+		{Host: "b", Port: 1095, Status: "offline", FileSystemCount: 1},
 	}
 	m.fstColumnSelected = int(fstFilterStatus)
 
@@ -431,16 +433,13 @@ func TestFSTEnumFilterCyclesOnSelectedColumn(t *testing.T) {
 func TestHeaderShowsSelectedAndSortedColumn(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fstsLoading = false
-	// Display column 0 = "hostport".  The fstFilter/fstSort enums have an extra
-	// "type" entry at 0 that doesn't appear in the display, so the display column
-	// index (0) and the semantic enum value (fstFilterHostPort = 1) are different.
-	// We test with raw display-column index 0 which maps to "hostport".
+	// Display column 0 = "host".
 	m.fstColumnSelected = 0
-	m.fstSort = sortState{column: 0} // column-0 indicator appears on "hostport"
-	m.fsts = []eos.FstRecord{{HostPort: "a:1095", FileSystemCount: 1}}
+	m.fstSort = sortState{column: 0} // column-0 indicator appears on "host"
+	m.fsts = []eos.FstRecord{{Host: "a", Port: 1095, FileSystemCount: 1}}
 
 	view := m.renderNodesList(m.contentWidth(), 10)
-	if !strings.Contains(view, "[hostport") || !strings.Contains(view, "hostport↑") {
+	if !strings.Contains(view, "[host") || !strings.Contains(view, "host↑") {
 		t.Fatalf("expected header to show selected sorted column, got:\n%s", view)
 	}
 }
@@ -448,8 +447,8 @@ func TestHeaderShowsSelectedAndSortedColumn(t *testing.T) {
 func TestFilterPopupCanBeCancelled(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFST
-	m.fsts = []eos.FstRecord{{HostPort: "alpha:1095", FileSystemCount: 1}}
-	m.fstColumnSelected = int(fstFilterHostPort)
+	m.fsts = []eos.FstRecord{{Host: "alpha", Port: 1095, FileSystemCount: 1}}
+	m.fstColumnSelected = int(fstFilterHost)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	m = updated.(model)
@@ -462,7 +461,7 @@ func TestFilterPopupCanBeCancelled(t *testing.T) {
 	if m.popup.active {
 		t.Fatalf("expected popup to close on escape")
 	}
-	if m.fstFilter.filters[int(fstFilterHostPort)] != "" {
+	if m.fstFilter.filters[int(fstFilterHost)] != "" {
 		t.Fatalf("expected filter to remain unchanged after cancel, got %+v", m.fstFilter)
 	}
 }
@@ -480,9 +479,9 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.height = 40
 
 	// Populate enough data so every view renders at least one header row.
-	m.fsts = []eos.FstRecord{{HostPort: "fst:1095", Status: "online", Activated: "on", FileSystemCount: 1}}
+	m.fsts = []eos.FstRecord{{Host: "fst", Port: 1095, Status: "online", Activated: "on", FileSystemCount: 1}}
 	m.fstsLoading = false
-	m.mgms = []eos.MgmRecord{{HostPort: "mgm:1094", QDBHostPort: "mgm:7777", Role: "leader", Status: "online", EOSVersion: "5.x"}}
+	m.mgms = []eos.MgmRecord{{Host: "mgm", Port: 1094, QDBHost: "mgm", QDBPort: 7777, Role: "leader", Status: "online", EOSVersion: "5.x"}}
 	m.mgmsLoading = false
 	m.eosVersion = "5.x"
 	m.fileSystems = []eos.FileSystemRecord{{ID: 1, Host: "h", Path: "/p", Active: "online"}}
@@ -730,8 +729,8 @@ func TestSelectedHostForViewFST(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{
-		{HostPort: "fst01.cern.ch:1095", Status: "online", Type: "fst"},
-		{HostPort: "fst02.cern.ch:1095", Status: "online", Type: "fst"},
+		{Host: "fst01.cern.ch", Port: 1095, Status: "online", Type: "fst"},
+		{Host: "fst02.cern.ch", Port: 1095, Status: "online", Type: "fst"},
 	}
 	m.fstSelected = 1
 
@@ -745,8 +744,8 @@ func TestSelectedHostForViewMGM(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewMGM
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "mgm01.cern.ch:1094", Role: "leader"},
-		{HostPort: "mgm02.cern.ch:1094", Role: "follower"},
+		{Host: "mgm01.cern.ch", Port: 1094, Role: "leader"},
+		{Host: "mgm02.cern.ch", Port: 1094, Role: "follower"},
 	}
 	m.mgmSelected = 0
 
@@ -760,8 +759,8 @@ func TestSelectedHostForViewQDB(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{QDBHostPort: "qdb01.cern.ch:7777", Role: "leader"},
-		{QDBHostPort: "qdb02.cern.ch:7777", Role: "follower"},
+		{QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader"},
+		{QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower"},
 	}
 	m.qdbSelected = 1
 
@@ -814,9 +813,9 @@ func TestMGMNavigationUpDown(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewMGM
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "mgm01:1094", Role: "leader"},
-		{HostPort: "mgm02:1094", Role: "follower"},
-		{HostPort: "mgm03:1094", Role: "follower"},
+		{Host: "mgm01", Port: 1094, Role: "leader"},
+		{Host: "mgm02", Port: 1094, Role: "follower"},
+		{Host: "mgm03", Port: 1094, Role: "follower"},
 	}
 	m.mgmSelected = 0
 
@@ -853,9 +852,9 @@ func TestMGMNavigationGG(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewMGM
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "mgm01:1094"},
-		{HostPort: "mgm02:1094"},
-		{HostPort: "mgm03:1094"},
+		{Host: "mgm01", Port: 1094},
+		{Host: "mgm02", Port: 1094},
+		{Host: "mgm03", Port: 1094},
 	}
 	m.mgmSelected = 1
 
@@ -876,8 +875,8 @@ func TestQDBNavigationUpDown(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{QDBHostPort: "qdb01:7777", Role: "leader"},
-		{QDBHostPort: "qdb02:7777", Role: "follower"},
+		{QDBHost: "qdb01", QDBPort: 7777, Role: "leader"},
+		{QDBHost: "qdb02", QDBPort: 7777, Role: "follower"},
 	}
 	m.qdbSelected = 0
 
@@ -902,8 +901,8 @@ func TestMGMViewShowsSelectedRow(t *testing.T) {
 	m.activeView = viewMGM
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "mgm01.cern.ch:1094", Role: "leader", Status: "online"},
-		{HostPort: "mgm02.cern.ch:1094", Role: "follower", Status: "online"},
+		{Host: "mgm01.cern.ch", Port: 1094, Role: "leader", Status: "online"},
+		{Host: "mgm02.cern.ch", Port: 1094, Role: "follower", Status: "online"},
 	}
 	m.mgmSelected = 0
 
@@ -923,8 +922,8 @@ func TestQDBViewShowsSelectedRow(t *testing.T) {
 	m.activeView = viewQDB
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{QDBHostPort: "qdb01.cern.ch:7777", Role: "leader", Status: "online", EOSVersion: "5.3.29"},
-		{QDBHostPort: "qdb02.cern.ch:7777", Role: "follower", Status: "online", EOSVersion: "5.3.29"},
+		{QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", EOSVersion: "5.3.29"},
+		{QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", EOSVersion: "5.3.29"},
 	}
 	m.qdbSelected = 1
 
@@ -940,8 +939,8 @@ func TestMGMSelectedHostChangesWithNavigation(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewMGM
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "mgm01.cern.ch:1094"},
-		{HostPort: "mgm02.cern.ch:1094"},
+		{Host: "mgm01.cern.ch", Port: 1094},
+		{Host: "mgm02.cern.ch", Port: 1094},
 	}
 	m.mgmSelected = 0
 
@@ -973,7 +972,8 @@ func TestFSTFilterColumnAlignment(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 
 	node := eos.FstRecord{
-		HostPort:        "fst01.cern.ch:1095",
+		Host:            "fst01.cern.ch",
+		Port:            1095,
 		Geotag:          "cern::prod",
 		Status:          "online",
 		Activated:       "on",
@@ -988,7 +988,8 @@ func TestFSTFilterColumnAlignment(t *testing.T) {
 		label   string
 		wantVal string
 	}{
-		{fstFilterHostPort, "hostport", node.HostPort},
+		{fstFilterHost, "host", node.Host},
+		{fstFilterPort, "port", "1095"},
 		{fstFilterGeotag, "geotag", node.Geotag},
 		{fstFilterStatus, "status", node.Status},
 		{fstFilterActivated, "activated", node.Activated},
@@ -1031,20 +1032,20 @@ func TestFSTFilterAppliesCorrectField(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 
 	m.fsts = []eos.FstRecord{
-		{HostPort: "alpha.cern.ch:1095", Type: "fst", FileSystemCount: 1},
-		{HostPort: "beta.cern.ch:1095", Type: "fst", FileSystemCount: 1},
-		{HostPort: "gamma.cern.ch:1095", Type: "fst", FileSystemCount: 1},
+		{Host: "alpha.cern.ch", Port: 1095, Type: "fst", FileSystemCount: 1},
+		{Host: "beta.cern.ch", Port: 1095, Type: "fst", FileSystemCount: 1},
+		{Host: "gamma.cern.ch", Port: 1095, Type: "fst", FileSystemCount: 1},
 	}
 
-	// Filter hostport column for "alpha".
-	m.fstFilter.filters = map[int]string{int(fstFilterHostPort): "alpha"}
+	// Filter host column for "alpha".
+	m.fstFilter.filters = map[int]string{int(fstFilterHost): "alpha"}
 
 	visible := m.visibleFSTs()
 	if len(visible) != 1 {
 		t.Fatalf("expected 1 visible FST after hostport filter, got %d", len(visible))
 	}
-	if visible[0].HostPort != "alpha.cern.ch:1095" {
-		t.Errorf("expected alpha.cern.ch:1095, got %q", visible[0].HostPort)
+	if visible[0].Host != "alpha.cern.ch" {
+		t.Errorf("expected alpha.cern.ch, got %q", visible[0].Host)
 	}
 }
 

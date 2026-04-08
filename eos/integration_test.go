@@ -47,13 +47,13 @@ func TestIntegrationNodes(t *testing.T) {
 	}
 
 	for _, n := range nodes {
-		if n.HostPort == "" {
-			t.Errorf("node has empty HostPort: %+v", n)
+		if n.Host == "" {
+			t.Errorf("node has empty Host: %+v", n)
 		}
 	}
 
 	t.Logf("Nodes: %d returned (first: %s status=%s nofs=%d)",
-		len(nodes), nodes[0].HostPort, nodes[0].Status, nodes[0].FileSystemCount)
+		len(nodes), nodes[0].Host, nodes[0].Status, nodes[0].FileSystemCount)
 }
 
 func TestIntegrationFileSystems(t *testing.T) {
@@ -147,8 +147,8 @@ func TestIntegrationMGMs(t *testing.T) {
 
 	hasLeader := false
 	for _, m := range mgms {
-		if m.HostPort == "" {
-			t.Errorf("MGM has empty HostPort: %+v", m)
+		if m.Host == "" {
+			t.Errorf("MGM has empty Host: %+v", m)
 		}
 		if m.Role == "leader" {
 			hasLeader = true
@@ -160,7 +160,7 @@ func TestIntegrationMGMs(t *testing.T) {
 
 	t.Logf("MGMs: %d returned", len(mgms))
 	for _, m := range mgms {
-		t.Logf("  %s role=%s status=%s eos=%s", m.HostPort, m.Role, m.Status, m.EOSVersion)
+		t.Logf("  %s role=%s status=%s eos=%s", m.Host, m.Role, m.Status, m.EOSVersion)
 	}
 }
 

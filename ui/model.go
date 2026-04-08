@@ -257,31 +257,35 @@ type sortState struct {
 
 type fstFilterColumn int
 type fstSortColumn int
+type mgmFilterColumn int
+type qdbFilterColumn int
 type fsFilterColumn int
 type fsSortColumn int
 
 const (
-	fstFilterHostPort       fstFilterColumn = iota // 0 — visible column 0
-	fstFilterGeotag                                // 1 — visible column 1
-	fstFilterStatus                                // 2 — visible column 2
-	fstFilterActivated                             // 3 — visible column 3
-	fstFilterHeartbeatDelta                        // 4 — visible column 4
-	fstFilterNoFS                                  // 5 — visible column 5
-	fstFilterEOSVersion                            // 6 — visible column 6
-	fstFilterType                                  // 7 — not navigable (hidden field)
+	fstFilterHost           fstFilterColumn = iota // 0 — visible column 0
+	fstFilterPort                                  // 1 — visible column 1
+	fstFilterGeotag                                // 2 — visible column 2
+	fstFilterStatus                                // 3 — visible column 3
+	fstFilterActivated                             // 4 — visible column 4
+	fstFilterHeartbeatDelta                        // 5 — visible column 5
+	fstFilterNoFS                                  // 6 — visible column 6
+	fstFilterEOSVersion                            // 7 — visible column 7
+	fstFilterType                                  // 8 — not navigable (hidden field)
 )
 
 const fstSortNone fstSortColumn = -1
 
 const (
-	fstSortHostPort   fstSortColumn = iota // 0 — visible column 0
-	fstSortGeotag                          // 1
-	fstSortStatus                          // 2
-	fstSortActivated                       // 3
-	fstSortHeartbeat                       // 4
-	fstSortNoFS                            // 5
-	fstSortEOSVersion                      // 6
-	fstSortType                            // 7 — not navigable
+	fstSortHost       fstSortColumn = iota // 0 — visible column 0
+	fstSortPort                            // 1
+	fstSortGeotag                          // 2
+	fstSortStatus                          // 3
+	fstSortActivated                       // 4
+	fstSortHeartbeat                       // 5
+	fstSortNoFS                            // 6
+	fstSortEOSVersion                      // 7
+	fstSortType                            // 8 — not navigable
 )
 
 const fstSortFileSystems = fstSortNoFS
@@ -299,6 +303,22 @@ const (
 	fsFilterUsage
 	fsFilterStatus
 	fsFilterHealth
+)
+
+const (
+	mgmFilterHost mgmFilterColumn = iota
+	mgmFilterPort
+	mgmFilterRole
+	mgmFilterStatus
+	mgmFilterEOSVersion
+)
+
+const (
+	qdbFilterHost qdbFilterColumn = iota
+	qdbFilterPort
+	qdbFilterRole
+	qdbFilterStatus
+	qdbFilterVersion
 )
 
 const fsSortNone fsSortColumn = -1
@@ -371,7 +391,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 			Path: cleanPath(rootPath),
 		},
 		status:            "Loading EOS state...",
-		fstColumnSelected: int(fstFilterHostPort),
+		fstColumnSelected: int(fstFilterHost),
 		fsColumnSelected:  int(fsFilterHost),
 		fstSort:           sortState{column: int(fstSortNone)},
 		fsSort:            sortState{column: int(fsSortNone)},
@@ -1280,7 +1300,8 @@ func (m model) renderMGMView(height int) string {
 	mgms := m.mgms
 
 	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "hostport", min: 20, weight: 1},
+		{title: "host", min: 15, weight: 1},
+		{title: "port", min: 5, weight: 0, right: true},
 		{title: "role", min: 10, weight: 0},
 		{title: "status", min: 10, weight: 0},
 		{title: "eos version", min: 14, weight: 0},
@@ -1290,7 +1311,7 @@ func (m model) renderMGMView(height int) string {
 	lines := []string{
 		title,
 		"",
-		m.renderSimpleHeaderRow(columns, []string{"hostport", "role", "status", "eos version"}),
+		m.renderSimpleHeaderRow(columns, []string{"host", "port", "role", "status", "eos version"}),
 	}
 
 	if m.mgmsLoading && len(mgms) == 0 {
@@ -1300,7 +1321,8 @@ func (m model) renderMGMView(height int) string {
 	} else {
 		for i, node := range mgms {
 			row := formatTableRow(columns, []string{
-				node.HostPort,
+				node.Host,
+				fmt.Sprintf("%d", node.Port),
 				strings.ToLower(node.Role),
 				strings.ToLower(node.Status),
 				m.eosVersion,
@@ -1323,7 +1345,8 @@ func (m model) renderQDBView(height int) string {
 	mgms := m.mgms
 
 	columns := allocateTableColumns(contentWidth, []tableColumn{
-		{title: "hostport", min: 20, weight: 1},
+		{title: "host", min: 15, weight: 1},
+		{title: "port", min: 5, weight: 0, right: true},
 		{title: "role", min: 10, weight: 0},
 		{title: "status", min: 10, weight: 0},
 		{title: "qdb version", min: 14, weight: 0},
@@ -1333,7 +1356,7 @@ func (m model) renderQDBView(height int) string {
 	lines := []string{
 		title,
 		"",
-		m.renderSimpleHeaderRow(columns, []string{"hostport", "role", "status", "qdb version"}),
+		m.renderSimpleHeaderRow(columns, []string{"host", "port", "role", "status", "qdb version"}),
 	}
 
 	if m.mgmsLoading && len(mgms) == 0 {
@@ -1345,7 +1368,8 @@ func (m model) renderQDBView(height int) string {
 	} else {
 		for i, node := range mgms {
 			row := formatTableRow(columns, []string{
-				node.QDBHostPort,
+				node.QDBHost,
+				fmt.Sprintf("%d", node.QDBPort),
 				strings.ToLower(node.Role),
 				strings.ToLower(node.Status),
 				node.EOSVersion,
@@ -1409,7 +1433,8 @@ func (m model) renderNodesList(width, height int) string {
 	dataRows := make([][]string, len(fsts))
 	for i, node := range fsts {
 		dataRows[i] = []string{
-			node.HostPort,
+			node.Host,
+			fmt.Sprintf("%d", node.Port),
 			node.Geotag,
 			node.Status,
 			node.Activated,
@@ -1419,7 +1444,8 @@ func (m model) renderNodesList(width, height int) string {
 		}
 	}
 	columnDefs := contentAwareColumns([]tableColumn{
-		{title: "hostport", min: 8, weight: 5},
+		{title: "host", min: 8, weight: 5},
+		{title: "port", min: 5, weight: 0, right: true},
 		{title: "geotag", min: 6, weight: 3},
 		{title: "status", min: 6, weight: 0},
 		{title: "activated", min: 9, weight: 0},
@@ -1483,7 +1509,7 @@ func (m model) renderNodeDetails(width, height int) string {
 
 	lines := []string{
 		m.styles.label.Render("Selected Node"),
-		truncate(node.HostPort, max(10, width-4)),
+		truncate(node.Host+":"+fmt.Sprintf("%d", node.Port), max(10, width-4)),
 		"",
 		m.metricLine("Type", fallback(node.Type, "-"), "EOS", fallback(node.EOSVersion, "-")),
 		m.metricLine("Status", fallback(node.Status, "-"), "Activated", fallback(node.Activated, "-")),
@@ -2263,8 +2289,10 @@ func (m model) fstFilterValue(node eos.FstRecord) string {
 
 func (m model) fstFilterValueForColumn(node eos.FstRecord, column int) string {
 	switch fstFilterColumn(column) {
-	case fstFilterHostPort:
-		return node.HostPort
+	case fstFilterHost:
+		return node.Host
+	case fstFilterPort:
+		return fmt.Sprintf("%d", node.Port)
 	case fstFilterGeotag:
 		return node.Geotag
 	case fstFilterStatus:
@@ -2280,7 +2308,7 @@ func (m model) fstFilterValueForColumn(node eos.FstRecord, column int) string {
 	case fstFilterType:
 		return node.Type
 	default:
-		return node.HostPort
+		return node.Host
 	}
 }
 
@@ -2348,8 +2376,10 @@ func (m model) lessNode(a, b eos.FstRecord) bool {
 	switch fstSortColumn(m.fstSort.column) {
 	case fstSortType:
 		less = strings.Compare(a.Type, b.Type) < 0
-	case fstSortHostPort:
-		less = strings.Compare(a.HostPort, b.HostPort) < 0
+	case fstSortHost:
+		less = strings.Compare(a.Host, b.Host) < 0
+	case fstSortPort:
+		less = a.Port < b.Port
 	case fstSortStatus:
 		less = strings.Compare(a.Status, b.Status) < 0
 	case fstSortGeotag:
@@ -2363,10 +2393,10 @@ func (m model) lessNode(a, b eos.FstRecord) bool {
 	case fstSortEOSVersion:
 		less = strings.Compare(a.EOSVersion, b.EOSVersion) < 0
 	default:
-		less = strings.Compare(a.HostPort, b.HostPort) < 0
+		less = strings.Compare(a.Host, b.Host) < 0
 	}
 	if equivalentNodeSortValue(m.fstSort.column, a, b) {
-		less = strings.Compare(a.HostPort, b.HostPort) < 0
+		less = strings.Compare(a.Host, b.Host) < 0
 	}
 	if m.fstSort.desc {
 		return !less
@@ -2460,7 +2490,7 @@ func sortDirectionLabel(desc bool) string {
 // NOTE: When adding or removing columns, ensure the labels slice here
 // remains in exact sync with the dataRows in renderNodesList (renderFstView).
 func (m model) renderFstHeaderRow(columns []tableColumn) string {
-	labels := []string{"hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs", "eos version"}
+	labels := []string{"host", "port", "geotag", "status", "activated", "heartbeatdelta", "nofs", "eos version"}
 	return m.renderSelectableHeaderRow(columns, labels, m.fstColumnSelected, m.fstSort, m.fstFilter)
 }
 
@@ -2574,8 +2604,10 @@ func (m model) renderFilterPopup() string {
 
 func (m model) fstFilterColumnLabel() string {
 	switch fstFilterColumn(m.fstFilter.column) {
-	case fstFilterHostPort:
-		return "hostport"
+	case fstFilterHost:
+		return "host"
+	case fstFilterPort:
+		return "port"
 	case fstFilterGeotag:
 		return "geotag"
 	case fstFilterStatus:
@@ -2591,14 +2623,16 @@ func (m model) fstFilterColumnLabel() string {
 	case fstFilterType:
 		return "type"
 	default:
-		return "hostport"
+		return "host"
 	}
 }
 
 func (m model) fstSortColumnLabel() string {
 	switch fstSortColumn(m.fstSort.column) {
-	case fstSortHostPort:
-		return "hostport"
+	case fstSortHost:
+		return "host"
+	case fstSortPort:
+		return "port"
 	case fstSortGeotag:
 		return "geotag"
 	case fstSortStatus:
@@ -2616,7 +2650,7 @@ func (m model) fstSortColumnLabel() string {
 	case fstSortNone:
 		return "none"
 	default:
-		return "hostport"
+		return "host"
 	}
 }
 
@@ -2839,7 +2873,7 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 }
 
 func nodeColumnCount() int {
-	return 7 // the 7 navigable visible columns; fstFilterType/fstSortType are not user-navigable
+	return 8 // the 8 navigable visible columns; fstFilterType/fstSortType are not user-navigable
 }
 
 func fsColumnCount() int {
@@ -3402,22 +3436,22 @@ func equivalentNodeSortValue(column int, a, b eos.FstRecord) bool {
 	switch fstSortColumn(column) {
 	case fstSortType:
 		return a.Type == b.Type
-	case fstSortHostPort:
-		return a.HostPort == b.HostPort
+	case fstSortHost:
+		return a.Host == b.Host
 	case fstSortStatus:
 		return a.Status == b.Status
 	case fstSortGeotag:
 		return a.Geotag == b.Geotag
 	case fstSortActivated:
 		return a.Activated == b.Activated
-	case fstSortFileSystems:
+	case fstSortNoFS:
 		return a.FileSystemCount == b.FileSystemCount
 	case fstSortHeartbeat:
 		return a.HeartbeatDelta == b.HeartbeatDelta
 	case fstSortEOSVersion:
 		return a.EOSVersion == b.EOSVersion
 	default:
-		return a.HostPort == b.HostPort
+		return a.Host == b.Host
 	}
 }
 
@@ -3541,16 +3575,16 @@ func (m model) selectedHostForView() string {
 	switch m.activeView {
 	case viewMGM:
 		if m.mgmSelected >= 0 && m.mgmSelected < len(m.mgms) {
-			return eos.HostOnly(m.mgms[m.mgmSelected].HostPort)
+			return m.mgms[m.mgmSelected].Host
 		}
 	case viewQDB:
 		if m.qdbSelected >= 0 && m.qdbSelected < len(m.mgms) {
-			return eos.HostOnly(m.mgms[m.qdbSelected].QDBHostPort)
+			return m.mgms[m.qdbSelected].QDBHost
 		}
 	case viewFST:
 		fsts := m.visibleFSTs()
 		if m.fstSelected >= 0 && m.fstSelected < len(fsts) {
-			return eos.HostOnly(fsts[m.fstSelected].HostPort)
+			return fsts[m.fstSelected].Host
 		}
 	case viewFileSystems:
 		fss := m.visibleFileSystems()

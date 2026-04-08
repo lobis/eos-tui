@@ -123,7 +123,8 @@ type NodeStats struct {
 
 type FstRecord struct {
 	Type            string
-	HostPort        string
+	Host            string
+	Port            int
 	Geotag          string
 	Status          string
 	Activated       string
@@ -145,13 +146,15 @@ type FstRecord struct {
 }
 
 type MgmRecord struct {
-	HostPort    string // MGM service port (e.g. hostname:1094)
-	QDBHostPort string // QDB/raft port (e.g. hostname:7777)
-	Role        string
-	Geotag      string
-	Status      string
-	Heartbeat   string
-	EOSVersion  string
+	Host       string
+	Port       int
+	QDBHost    string
+	QDBPort    int
+	Role       string
+	Geotag     string
+	Status     string
+	Heartbeat  string
+	EOSVersion string
 }
 
 type FileSystemRecord struct {
@@ -329,12 +332,17 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 			version = info.MyVersion
 		}
 
+		h, p := splitHostPort(host + ":" + mgmPort)
+		qh, qp := splitHostPort(node)
+
 		mgms = append(mgms, MgmRecord{
-			HostPort:    host + ":" + mgmPort,
-			QDBHostPort: node, // raw raft address (hostname:7777)
-			Role:        role,
-			Status:      status,
-			EOSVersion:  version,
+			Host:       h,
+			Port:       p,
+			QDBHost:    qh,
+			QDBPort:    qp,
+			Role:       role,
+			Status:     status,
+			EOSVersion: version,
 		})
 	}
 
@@ -343,7 +351,10 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 		if mgms[i].Role != mgms[j].Role {
 			return mgms[i].Role == "leader"
 		}
-		return mgms[i].HostPort < mgms[j].HostPort
+		if mgms[i].Host != mgms[j].Host {
+			return mgms[i].Host < mgms[j].Host
+		}
+		return mgms[i].Port < mgms[j].Port
 	})
 
 	return mgms, nil
@@ -555,10 +566,11 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 		if geotag == "" {
 			geotag = item.Cfg.Stat.Geotag
 		}
-
+		h, p := splitHostPort(item.HostPort)
 		nodes = append(nodes, FstRecord{
 			Type:            item.Type,
-			HostPort:        item.HostPort,
+			Host:            h,
+			Port:            p,
 			Geotag:          geotag,
 			Status:          item.Status,
 			Activated:       item.Cfg.Status,
@@ -581,7 +593,10 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 	}
 
 	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].HostPort < nodes[j].HostPort
+		if nodes[i].Host != nodes[j].Host {
+			return nodes[i].Host < nodes[j].Host
+		}
+		return nodes[i].Port < nodes[j].Port
 	})
 
 	return nodes, nil
@@ -1368,4 +1383,14 @@ func cleanPath(rawPath string) string {
 	}
 
 	return cleaned
+}
+
+func splitHostPort(hp string) (string, int) {
+	parts := strings.Split(hp, ":")
+	host := parts[0]
+	port := 0
+	if len(parts) > 1 {
+		port, _ = strconv.Atoi(parts[1])
+	}
+	return host, port
 }

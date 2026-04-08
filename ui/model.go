@@ -2020,10 +2020,18 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 }
 
 func (m model) renderNamespaceView(height int) string {
-	// splitViewHeights(n) returns sum = n-1; pass height+3 so sum = height+2,
-	// which is what the body needs to fill the screen correctly.
-	listHeight, detailHeight := splitViewHeights(height + 3)
 	width := m.contentWidth()
+
+	fixedListLines := 3 // Title, blank, header
+	naturalListContent := fixedListLines + len(m.directory.Entries)
+	if !m.nsLoaded && !m.nsLoading {
+		naturalListContent = 4 // Title, blank, header, "(empty)" or hint
+	}
+
+	// Details have ~10 lines of metrics/info.
+	naturalDetailContent := 10
+
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
 
 	list := m.renderNamespaceList(width, listHeight)
 	details := m.renderNamespaceDetails(width, detailHeight)
@@ -3309,26 +3317,21 @@ func adaptiveSplitHeights(height, naturalListContent, naturalDetailContent int) 
 
 	// Constants for minimum usable heights.
 	const minList = 6
-	const minDetail = 8
 
-	// If everything fits within the total target, we still want to consume the
-	// full height so the footer is at the bottom. Give extra space to details.
+	// Case 1: Everything fits. Expand the list to fill the target height
+	// so the details box stays at its natural size at the bottom.
 	if naturalList+naturalDetail <= target {
 		return target - naturalDetail, naturalDetail
 	}
 
-	// If the list is small enough to fit alongside the full details, prioritize
-	// showing the list in full and give everything else to details.
-	if naturalList <= target-naturalDetail {
-		return naturalList, target - naturalList
+	// Case 2: Space is tight. Prioritize the details box (bottom) natural height.
+	// The list (top) should be shortened first.
+	detailHeight := naturalDetail
+	if target-detailHeight < minList {
+		detailHeight = target - minList
 	}
 
-	// If the list is large, let it consume as much as it needs to "fit" its rows,
-	// capped only by the minimum space we must reserve for the details panel.
-	listHeight := min(naturalList, target-minDetail)
-	if listHeight < minList {
-		listHeight = minList
-	}
+	listHeight := target - detailHeight
 
 	// Final clamp to ensure nothing is below the absolute minimum of 4.
 	listH := max(4, listHeight)

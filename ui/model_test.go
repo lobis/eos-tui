@@ -229,6 +229,30 @@ func TestNarrowResizeStillFitsWindowHeight(t *testing.T) {
 	}
 }
 
+func TestNamespaceViewFitsWindowHeight(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 40
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/test",
+		Entries: []eos.Entry{
+			{Name: "file1", Kind: eos.EntryKindFile},
+		},
+	}
+
+	view := m.View()
+	// Total height must be m.height.
+	// Since splitViewHeights is currently bugged/older, it might return fewer lines.
+	got := lineCount(view)
+	if got != m.height {
+		// This should fail before I fix it if my assumption that it's bugged is correct.
+		t.Errorf("expected view to have exactly %d lines to fill screen, got %d", m.height, got)
+	}
+}
+
 func TestVisibleFSTsFilterByStatus(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsts = []eos.FstRecord{

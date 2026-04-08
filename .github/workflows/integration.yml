@@ -5,8 +5,8 @@ name: Integration Tests (EOS)
 # This mirrors the approach used by the EOS project's own GitLab CI.
 #
 # Triggers:
+#   - Every push to main and every pull request.
 #   - Manual dispatch (workflow_dispatch), with an optional image-tag override.
-#   - Weekly schedule (every Monday at 06:00 UTC).
 #
 # Prerequisites (no secrets required for the default image):
 #   The EOS image is pulled from the public CERN registry:
@@ -15,14 +15,16 @@ name: Integration Tests (EOS)
 #     oci://registry.cern.ch/eos/charts/server
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
     inputs:
       eos_image_tag:
-        description: 'EOS image tag (e.g. 5.0.31)'
+        description: 'EOS image tag (e.g. 5.4.1)'
         required: false
-        default: '5.0.31'
-  schedule:
-    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
+        default: '5.4.1'
 
 permissions:
   contents: read
@@ -56,7 +58,7 @@ jobs:
 
       - name: Deploy EOS via Helm chart
         env:
-          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.0.31' }}
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1' }}
         run: |
           # The chart's default image is gitlab-registry.cern.ch/dss/eos/eos-all.
           # A minimal cluster: 1 QDB (single-node raft), 1 MGM (+MQ sidecar), 2 FSTs.

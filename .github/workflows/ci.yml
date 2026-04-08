@@ -37,6 +37,8 @@ jobs:
           fi
 
       - name: Run tests
+        env:
+          EOS_TEST_SKIP: '1'
         run: go test ./...
 
       - name: Build binary

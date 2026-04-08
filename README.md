@@ -8,6 +8,7 @@ A terminal user interface for monitoring and managing EOS storage clusters.
 - **FST View**: monitor storage nodes, disk load, and traffic.
 - **Namespace Browser**: browse the EOS file system, inspect file metadata, and view layouts.
 - **Space Management**: view space distribution, quotas, and health.
+- **Group Monitoring**: monitor EOS groups, capacity usage, and file counts.
 - **Real-time IO Traffic**: live tracking of IO shaping and traffic by app, user, or group.
 - **Interactive Logs**: tail and grep logs from any node directly in the TUI.
 - **Integrated Shell**: open an interactive SSH shell to any node with a single keypress.
@@ -55,7 +56,7 @@ eos-tui -ssh eospilot
 
 ### Global
 
-- `tab` / `1-9`: Switch between views.
+- `tab` / `0-9`: Switch between views.
 - `r`: Refresh current view.
 - `l`: Open log overlay for the selected node.
 - `s`: Open an interactive SSH shell to the selected node.

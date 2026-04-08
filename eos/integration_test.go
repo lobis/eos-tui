@@ -234,3 +234,24 @@ func TestIntegrationAllComponentsLoad(t *testing.T) {
 		t.Fatal("one or more components failed to load")
 	}
 }
+
+func TestIntegrationGroups(t *testing.T) {
+	c := integrationClient(t)
+
+	groups, err := c.Groups(context.Background())
+	if err != nil {
+		t.Fatalf("Groups() error: %v", err)
+	}
+	if len(groups) == 0 {
+		t.Fatal("expected at least one group, got none")
+	}
+
+	for _, g := range groups {
+		if g.Name == "" {
+			t.Errorf("group has empty Name: %+v", g)
+		}
+	}
+
+	t.Logf("Groups: %d returned (first: %s status=%s nofs=%d)",
+		len(groups), groups[0].Name, groups[0].Status, groups[0].NoFS)
+}

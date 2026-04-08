@@ -34,9 +34,10 @@ const (
 	viewNamespaceStats               // tab 7: NS stats
 	viewSpaceStatus                  // tab 8: Space status
 	viewIOShaping                    // tab 9: IO Traffic
+	viewGroups                       // tab 0: Groups
 )
 
-const viewCount = 9
+const viewCount = 10
 
 type infraLoadedMsg struct {
 	stats      eos.NodeStats
@@ -75,6 +76,11 @@ type mgmsLoadedMsg struct {
 
 type spacesLoadedMsg struct {
 	spaces []eos.SpaceRecord
+	err    error
+}
+
+type groupsLoadedMsg struct {
+	groups []eos.GroupRecord
 	err    error
 }
 
@@ -162,6 +168,12 @@ type model struct {
 	spacesSelected       int
 	spacesColumnSelected int
 
+	groups               []eos.GroupRecord
+	groupsLoading        bool
+	groupsErr            error
+	groupsSelected       int
+	groupsColumnSelected int
+
 	namespaceStats eos.NamespaceStats
 	nsStatsLoading bool
 	nsStatsErr     error
@@ -186,13 +198,15 @@ type model struct {
 
 	status string
 
-	fstFilter filterState
-	fstSort   sortState
-	fsFilter  filterState
-	fsSort    sortState
-	popup     filterPopup
-	edit      spaceStatusEdit
-	log       logOverlay
+	fstFilter   filterState
+	fstSort     sortState
+	fsFilter    filterState
+	fsSort      sortState
+	groupFilter filterState
+	groupSort   sortState
+	popup       filterPopup
+	edit        spaceStatusEdit
+	log         logOverlay
 
 	styles styles
 }
@@ -261,6 +275,8 @@ type mgmFilterColumn int
 type qdbFilterColumn int
 type fsFilterColumn int
 type fsSortColumn int
+type groupFilterColumn int
+type groupSortColumn int
 
 const (
 	fstFilterHost           fstFilterColumn = iota // 0 — visible column 0
@@ -319,6 +335,28 @@ const (
 	qdbFilterRole
 	qdbFilterStatus
 	qdbFilterVersion
+)
+
+const groupSortNone groupSortColumn = -1
+
+const (
+	groupFilterName groupFilterColumn = iota
+	groupFilterStatus
+	groupFilterNoFS
+	groupFilterCapacity
+	groupFilterUsed
+	groupFilterFree
+	groupFilterFiles
+)
+
+const (
+	groupSortName groupSortColumn = iota
+	groupSortStatus
+	groupSortNoFS
+	groupSortCapacity
+	groupSortUsed
+	groupSortFree
+	groupSortFiles
 )
 
 const fsSortNone fsSortColumn = -1
@@ -390,13 +428,16 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		directory: eos.Directory{
 			Path: cleanPath(rootPath),
 		},
-		status:            "Loading EOS state...",
-		fstColumnSelected: int(fstFilterHost),
-		fsColumnSelected:  int(fsFilterHost),
-		fstSort:           sortState{column: int(fstSortNone)},
-		fsSort:            sortState{column: int(fsSortNone)},
-		fstFilter:         filterState{filters: map[int]string{}},
-		fsFilter:          filterState{filters: map[int]string{}},
+		status:               "Loading EOS state...",
+		fstColumnSelected:    int(fstFilterHost),
+		fsColumnSelected:     int(fsFilterHost),
+		groupsColumnSelected: int(groupFilterName),
+		fstSort:              sortState{column: int(fstSortNone)},
+		fsSort:               sortState{column: int(fsSortNone)},
+		groupSort:            sortState{column: int(groupSortNone)},
+		fstFilter:            filterState{filters: map[int]string{}},
+		fsFilter:             filterState{filters: map[int]string{}},
+		groupFilter:          filterState{filters: map[int]string{}},
 		popup: filterPopup{
 			input: input,
 			table: popupTable,
@@ -480,6 +521,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "9":
 			m.activeView = viewIOShaping
 			return m.onViewChanged()
+		case "0":
+			m.activeView = viewGroups
+			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
 		case "l":
@@ -510,6 +554,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSpaceStatusKeys(msg)
 		case viewIOShaping:
 			return m.updateIOShapingKeys(msg)
+		case viewGroups:
+			return m.updateGroupKeys(msg)
 		}
 	case mgmsLoadedMsg:
 		m.mgmsLoading = false
@@ -606,6 +652,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.spaces = msg.spaces
 			m.spacesSelected = clampIndex(m.spacesSelected, len(m.spaces))
+		}
+	case groupsLoadedMsg:
+		m.groupsLoading = false
+		m.groupsErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Groups refresh failed: %v", msg.err)
+		} else {
+			m.groups = msg.groups
+			m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case namespaceStatsLoadedMsg:
@@ -766,6 +821,13 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			return m, loadSpacesCmd(m.client)
 		}
 		return m, nil
+	case viewGroups:
+		if !m.groupsLoading && len(m.groups) == 0 && m.groupsErr == nil {
+			m.groupsLoading = true
+			m.groupsErr = nil
+			return m, loadGroupsCmd(m.client)
+		}
+		return m, nil
 	case viewNamespaceStats:
 		if !m.nsStatsLoading && m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsErr == nil {
 			m.nsStatsLoading = true
@@ -797,6 +859,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.spacesErr = nil
 		m.status = "Refreshing spaces..."
 		return m, loadSpacesCmd(m.client)
+	case viewGroups:
+		m.groupsLoading = true
+		m.groupsErr = nil
+		m.status = "Refreshing groups..."
+		return m, loadGroupsCmd(m.client)
 	case viewNamespaceStats:
 		m.nsStatsLoading = true
 		m.nsStatsErr = nil
@@ -1404,6 +1471,8 @@ func (m model) renderBody(availableHeight int) string {
 		return m.renderSpaceStatusView(availableHeight)
 	case viewIOShaping:
 		return m.renderIOShapingView(availableHeight)
+	case viewGroups:
+		return m.renderGroupsView(availableHeight)
 	default:
 		return ""
 	}
@@ -2169,12 +2238,12 @@ func (m model) renderFooter() string {
 		return m.styles.status.Width(m.contentWidth()).Render(keys)
 	}
 
-	keys := "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  f/  filter  •  l logs  •  s shell  •  q quit"
+	keys := "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  f/  filter  •  l logs  •  s shell  •  q quit"
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  l logs  •  s shell  •  q quit"
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  l logs  •  s shell  •  q quit"
 	case viewIOShaping:
-		keys = "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  l logs  •  s shell  •  q quit"
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  l logs  •  s shell  •  q quit"
 	}
 
 	return m.styles.status.Width(m.contentWidth()).Render(keys)
@@ -2720,6 +2789,8 @@ func (m model) activeFilterColumnLabel() string {
 	switch m.activeView {
 	case viewFileSystems:
 		return m.fsFilterColumnLabel()
+	case viewGroups:
+		return m.groupFilterColumnLabel()
 	default:
 		return m.fstFilterColumnLabel()
 	}
@@ -2731,6 +2802,9 @@ func (m *model) openFilterPopup() {
 	if m.activeView == viewFileSystems {
 		m.popup.column = m.fsColumnSelected
 		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else if m.activeView == viewGroups {
+		m.popup.column = m.groupsColumnSelected
+		m.popup.input.SetValue(m.groupFilter.filters[m.groupsColumnSelected])
 	} else {
 		m.popup.column = m.fstColumnSelected
 		m.popup.input.SetValue(m.fstFilter.filters[m.fstColumnSelected])
@@ -2780,6 +2854,15 @@ func (m *model) applyPopupSelection() {
 		}
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
 		m.closeFilterPopup(fmt.Sprintf("Filesystem filters active: %d", len(m.fsFilter.filters)))
+	case viewGroups:
+		m.groupFilter.column = m.popup.column
+		if value == "" {
+			delete(m.groupFilter.filters, m.popup.column)
+		} else {
+			m.groupFilter.filters[m.popup.column] = value
+		}
+		m.groupsSelected = clampIndex(0, len(m.visibleGroups()))
+		m.closeFilterPopup(fmt.Sprintf("Group filters active: %d", len(m.groupFilter.filters)))
 	default:
 		m.fstFilter.column = m.popup.column
 		if value == "" {
@@ -3005,6 +3088,13 @@ func loadSpacesCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		spaces, err := client.Spaces(context.Background())
 		return spacesLoadedMsg{spaces: spaces, err: err}
+	}
+}
+
+func loadGroupsCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		groups, err := client.Groups(context.Background())
+		return groupsLoadedMsg{groups: groups, err: err}
 	}
 }
 
@@ -3768,6 +3858,10 @@ func (m model) openShell() (tea.Model, tea.Cmd) {
 	}
 
 	selectedHost := m.selectedHostForView()
+	if selectedHost == "" {
+		return m, nil
+	}
+
 	sshTarget, jumpProxy := m.client.SSHTargetForHost(selectedHost)
 
 	var cmd *exec.Cmd
@@ -3793,4 +3887,283 @@ func (m model) openShell() (tea.Model, tea.Cmd) {
 		}
 		return tea.ClearScreen
 	})
+}
+
+func (m model) groupFilterColumnLabel() string {
+	switch groupFilterColumn(m.groupFilter.column) {
+	case groupFilterName:
+		return "name"
+	case groupFilterStatus:
+		return "status"
+	case groupFilterNoFS:
+		return "nofs"
+	case groupFilterCapacity:
+		return "capacity"
+	case groupFilterUsed:
+		return "used"
+	case groupFilterFree:
+		return "free"
+	case groupFilterFiles:
+		return "files"
+	default:
+		return "name"
+	}
+}
+
+func (m model) groupSortColumnLabel() string {
+	switch groupSortColumn(m.groupSort.column) {
+	case groupSortName:
+		return "name"
+	case groupSortStatus:
+		return "status"
+	case groupSortNoFS:
+		return "nofs"
+	case groupSortCapacity:
+		return "capacity"
+	case groupSortUsed:
+		return "used"
+	case groupSortFree:
+		return "free"
+	case groupSortFiles:
+		return "files"
+	case groupSortNone:
+		return "none"
+	default:
+		return "name"
+	}
+}
+
+func (m model) visibleGroups() []eos.GroupRecord {
+	groups := append([]eos.GroupRecord(nil), m.groups...)
+	if len(m.groupFilter.filters) > 0 {
+		filtered := make([]eos.GroupRecord, 0, len(groups))
+		for _, g := range groups {
+			if m.matchesGroupFilters(g) {
+				filtered = append(filtered, g)
+			}
+		}
+		groups = filtered
+	}
+	if m.groupSort.column >= 0 {
+		sort.SliceStable(groups, func(i, j int) bool {
+			return m.lessGroup(groups[i], groups[j])
+		})
+	}
+	return groups
+}
+
+func (m model) matchesGroupFilters(g eos.GroupRecord) bool {
+	for col, filter := range m.groupFilter.filters {
+		val := strings.ToLower(m.groupFilterValueForColumn(g, col))
+		if !strings.Contains(val, strings.ToLower(filter)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) groupFilterValue(g eos.GroupRecord) string {
+	return m.groupFilterValueForColumn(g, m.groupFilter.column)
+}
+
+func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
+	switch groupFilterColumn(column) {
+	case groupFilterName:
+		return g.Name
+	case groupFilterStatus:
+		return g.Status
+	case groupFilterNoFS:
+		return fmt.Sprintf("%d", g.NoFS)
+	case groupFilterCapacity:
+		return humanBytes(g.CapacityBytes)
+	case groupFilterUsed:
+		return humanBytes(g.UsedBytes)
+	case groupFilterFree:
+		return humanBytes(g.FreeBytes)
+	case groupFilterFiles:
+		return fmt.Sprintf("%d", g.NumFiles)
+	default:
+		return g.Name
+	}
+}
+
+func (m model) lessGroup(a, b eos.GroupRecord) bool {
+	less := false
+	switch groupSortColumn(m.groupSort.column) {
+	case groupSortName:
+		less = a.Name < b.Name
+	case groupSortStatus:
+		less = a.Status < b.Status
+	case groupSortNoFS:
+		less = a.NoFS < b.NoFS
+	case groupSortCapacity:
+		less = a.CapacityBytes < b.CapacityBytes
+	case groupSortUsed:
+		less = a.UsedBytes < b.UsedBytes
+	case groupSortFree:
+		less = a.FreeBytes < b.FreeBytes
+	case groupSortFiles:
+		less = a.NumFiles < b.NumFiles
+	}
+	if m.groupSort.desc {
+		return !less
+	}
+	return less
+}
+
+func groupColumnCount() int {
+	return 7
+}
+
+func (m model) uniqueGroupValues(column int) []string {
+	seen := make(map[string]bool)
+	var values []string
+	for _, g := range m.groups {
+		val := m.groupFilterValueForColumn(g, column)
+		if val != "" && !seen[val] {
+			seen[val] = true
+			values = append(values, val)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	groups := m.visibleGroups()
+	switch msg.String() {
+	case "up", "k":
+		m.groupsSelected = max(0, m.groupsSelected-1)
+	case "down", "j":
+		m.groupsSelected = min(len(groups)-1, m.groupsSelected+1)
+	case "ctrl+d", "pgdown":
+		m.groupsSelected = min(len(groups)-1, m.groupsSelected+10)
+	case "ctrl+u", "pgup":
+		m.groupsSelected = max(0, m.groupsSelected-10)
+	case "left", "h":
+		m.groupsColumnSelected = max(0, m.groupsColumnSelected-1)
+	case "right", "l":
+		m.groupsColumnSelected = min(groupColumnCount()-1, m.groupsColumnSelected+1)
+	case "S":
+		sortCol := groupSortColumn(m.groupsColumnSelected)
+		if m.groupSort.column == int(sortCol) {
+			m.groupSort.desc = !m.groupSort.desc
+		} else {
+			m.groupSort.column = int(sortCol)
+			m.groupSort.desc = false
+		}
+	case "/":
+		m.openFilterPopup()
+	}
+	return m, nil
+}
+
+func (m model) renderGroupsView(height int) string {
+	const groupDetailLines = 6
+	listHeight := max(4, height-groupDetailLines)
+	detailHeight := groupDetailLines
+
+	list := m.renderGroupsList(m.width, listHeight)
+	details := m.renderGroupDetails(m.width, detailHeight)
+
+	return lipgloss.JoinVertical(lipgloss.Left, list, details)
+}
+
+func (m model) renderGroupsList(width, height int) string {
+	contentWidth := panelContentWidth(width)
+
+	groups := m.visibleGroups()
+	dataRows := make([][]string, len(groups))
+	for i, g := range groups {
+		dataRows[i] = []string{
+			g.Name,
+			g.Status,
+			fmt.Sprintf("%d", g.NoFS),
+			humanBytes(g.CapacityBytes),
+			humanBytes(g.UsedBytes),
+			humanBytes(g.FreeBytes),
+			fmt.Sprintf("%d", g.NumFiles),
+		}
+	}
+
+	columnDefs := contentAwareColumns([]tableColumn{
+		{title: "name", min: 10, weight: 3},
+		{title: "status", min: 6, weight: 1},
+		{title: "nofs", min: 4, weight: 0, right: true},
+		{title: "capacity", min: 8, weight: 0, right: true},
+		{title: "used", min: 8, weight: 0, right: true},
+		{title: "free", min: 8, weight: 0, right: true},
+		{title: "files", min: 5, weight: 0, right: true},
+	}, dataRows)
+
+	columns := allocateTableColumns(contentWidth, columnDefs)
+
+	title := m.styles.label.Render("EOS Groups")
+	lines := []string{
+		title,
+		"",
+		m.renderGroupHeaderRow(columns),
+	}
+
+	if m.groupsLoading {
+		lines = append(lines, "Loading groups...")
+	} else if m.groupsErr != nil {
+		lines = append(lines, m.styles.error.Render(m.groupsErr.Error()))
+	} else if len(groups) == 0 {
+		lines = append(lines, "(no groups)")
+	} else {
+		start, end := visibleWindow(len(groups), m.groupsSelected, max(1, panelContentHeight(height)-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(groups))
+		for i := start; i < end; i++ {
+			g := groups[i]
+			row := []string{
+				g.Name,
+				g.Status,
+				fmt.Sprintf("%d", g.NoFS),
+				humanBytes(g.CapacityBytes),
+				humanBytes(g.UsedBytes),
+				humanBytes(g.FreeBytes),
+				fmt.Sprintf("%d", g.NumFiles),
+			}
+			line := formatTableRow(columns, row)
+			if i == m.groupsSelected {
+				line = m.styles.selected.Render(line)
+			}
+			lines = append(lines, line)
+		}
+	}
+
+	for len(lines) < panelContentHeight(height) {
+		lines = append(lines, "")
+	}
+
+	box := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return m.styles.panel.Width(contentWidth).Height(panelContentHeight(height)).Render(box)
+}
+
+func (m model) renderGroupHeaderRow(columns []tableColumn) string {
+	labels := []string{"name", "status", "nofs", "capacity", "used", "free", "files"}
+	return m.renderSelectableHeaderRow(columns, labels, m.groupsColumnSelected, m.groupSort, m.groupFilter)
+}
+
+func (m model) renderGroupDetails(width, height int) string {
+	contentWidth := panelContentWidth(width)
+	groups := m.visibleGroups()
+	if len(groups) == 0 || m.groupsSelected < 0 || m.groupsSelected >= len(groups) {
+		return m.styles.panelDim.Width(contentWidth).Height(panelContentHeight(height)).Render("no group selected")
+	}
+
+	g := groups[m.groupsSelected]
+	title := m.styles.header.Render("Group: " + g.Name)
+
+	box := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		m.metricLine("Status", g.Status, "Filesystems", fmt.Sprintf("%d", g.NoFS)),
+		m.metricLine("Capacity", humanBytes(g.CapacityBytes), "Used", humanBytes(g.UsedBytes)),
+		m.metricLine("Free", humanBytes(g.FreeBytes), "Files", fmt.Sprintf("%d", g.NumFiles)),
+	)
+
+	return m.styles.panelDim.Width(contentWidth).Height(panelContentHeight(height)).Render(box)
 }

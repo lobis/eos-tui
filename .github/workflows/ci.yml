@@ -86,6 +86,24 @@ jobs:
           cache: true
 
       # -----------------------------------------------------------------------
+      # Disk space – the EOS image is ~4 GB and kind copies it into the
+      # node's containerd store, so we need headroom on the runner.
+      # -----------------------------------------------------------------------
+
+      - name: Free disk space
+        run: |
+          echo "=== Disk usage before cleanup ==="
+          df -h /
+          # Remove large pre-installed toolchains that we don't need.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet \
+            /opt/ghc /usr/local/share/boost /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL || true
+          # Prune Docker build cache & dangling images.
+          docker system prune -af --volumes || true
+          echo "=== Disk usage after cleanup ==="
+          df -h /
+
+      # -----------------------------------------------------------------------
       # Docker image cache
       #
       # The EOS "eos-ci" image is large. We save it as a tar after the first
@@ -117,7 +135,10 @@ jobs:
 
       - name: Load EOS Docker image from cache
         if: steps.cache-eos-image.outputs.cache-hit == 'true'
-        run: docker load -i /tmp/eos-image.tar
+        run: |
+          docker load -i /tmp/eos-image.tar
+          # Remove the tar to free space for kind.
+          rm -f /tmp/eos-image.tar
 
       # -----------------------------------------------------------------------
       # Kubernetes cluster
@@ -136,6 +157,9 @@ jobs:
           kind load docker-image \
             --name chart-testing \
             ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
+          # Remove the image from Docker now that it's loaded into
+          # kind's containerd; avoids storing two copies.
+          docker rmi ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG} || true
 
       # -----------------------------------------------------------------------
       # Helm chart cache

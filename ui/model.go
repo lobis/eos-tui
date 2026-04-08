@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path"
 	"sort"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -104,6 +107,12 @@ type eosVersionLoadedMsg struct {
 	version string
 }
 
+type logLoadedMsg struct {
+	filePath string
+	lines    []string
+	err      error
+}
+
 type ioShapingTickMsg struct{}
 
 type tickMsg time.Time
@@ -131,6 +140,9 @@ type model struct {
 	mgms        []eos.MgmRecord
 
 	eosVersion string
+
+	mgmSelected int
+	qdbSelected int
 
 	fstSelected       int
 	fstColumnSelected int
@@ -173,6 +185,7 @@ type model struct {
 	fsSort    sortState
 	popup     filterPopup
 	edit      spaceStatusEdit
+	log       logOverlay
 
 	styles styles
 }
@@ -208,6 +221,21 @@ type filterPopup struct {
 	input  textinput.Model
 	table  table.Model
 	values []string
+}
+
+type logOverlay struct {
+	active    bool
+	host      string // specific host to read from (empty = effective target)
+	filePath  string
+	title     string
+	allLines  []string // raw lines from tail
+	filtered  []string // lines matching current filter
+	filter    string   // current grep string
+	filtering bool     // filter input is active
+	vp        viewport.Model
+	input     textinput.Model
+	err       error
+	loading   bool
 }
 
 type filterState struct {
@@ -363,6 +391,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
+		// Log overlay intercepts all keys when active.
+		if m.log.active {
+			return m.updateLogKeys(msg)
+		}
 		if m.popup.active {
 			return m.updatePopup(msg)
 		}
@@ -421,11 +453,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
+		case "l":
+			return m.openLogOverlay()
+		case "s":
+			return m.openShell()
 		}
 
 		switch m.activeView {
-		case viewMGM, viewQDB:
-			// read-only views
+		case viewMGM:
+			return m.updateMGMKeys(msg)
+		case viewQDB:
+			return m.updateQDBKeys(msg)
 		case viewFST:
 			return m.updateFSTKeys(msg)
 		case viewFileSystems:
@@ -595,6 +633,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.activeView == viewIOShaping {
 			return m, ioShapingTickCmd()
 		}
+	case logLoadedMsg:
+		m.log.loading = false
+		m.log.err = msg.err
+		if msg.err == nil {
+			m.log.allLines = msg.lines
+			m.log.filtered = applyLogFilter(msg.lines, m.log.filter)
+			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.log.vp.GotoBottom()
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -606,6 +653,12 @@ func (m model) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	bodyHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
+
+	if m.log.active {
+		body := m.renderLogOverlay(bodyHeight)
+		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
+	}
+
 	body := m.renderBody(bodyHeight)
 	if m.popup.active {
 		body = m.renderBodyWithPopup(body, bodyHeight)
@@ -771,13 +824,13 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fstFilter.column = m.fstColumnSelected
 		m.openFilterPopup()
 		return m, nil
-	case "left", "h":
+	case "left":
 		m.fstColumnSelected = max(0, m.fstColumnSelected-1)
 		m.status = fmt.Sprintf("Selected node column: %s", m.fstSelectedColumnLabel())
-	case "right", "l":
+	case "right":
 		m.fstColumnSelected = min(nodeColumnCount()-1, m.fstColumnSelected+1)
 		m.status = fmt.Sprintf("Selected node column: %s", m.fstSelectedColumnLabel())
-	case "s", "enter":
+	case "S", "enter":
 		m.fstSort = m.nextNodeSortState()
 		m.fstSelected = clampIndex(0, len(m.visibleFSTs()))
 		m.status = fmt.Sprintf("Node sort: %s", m.fstSortStateLabel())
@@ -806,6 +859,54 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateMGMKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.mgms)
+	half := max(1, m.height/6)
+	switch msg.String() {
+	case "up", "k":
+		if m.mgmSelected > 0 {
+			m.mgmSelected--
+		}
+	case "down", "j":
+		if m.mgmSelected < n-1 {
+			m.mgmSelected++
+		}
+	case "ctrl+u":
+		m.mgmSelected = max(0, m.mgmSelected-half)
+	case "ctrl+d":
+		m.mgmSelected = min(n-1, m.mgmSelected+half)
+	case "g":
+		m.mgmSelected = 0
+	case "G":
+		m.mgmSelected = max(0, n-1)
+	}
+	return m, nil
+}
+
+func (m model) updateQDBKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.mgms)
+	half := max(1, m.height/6)
+	switch msg.String() {
+	case "up", "k":
+		if m.qdbSelected > 0 {
+			m.qdbSelected--
+		}
+	case "down", "j":
+		if m.qdbSelected < n-1 {
+			m.qdbSelected++
+		}
+	case "ctrl+u":
+		m.qdbSelected = max(0, m.qdbSelected-half)
+	case "ctrl+d":
+		m.qdbSelected = min(n-1, m.qdbSelected+half)
+	case "g":
+		m.qdbSelected = 0
+	case "G":
+		m.qdbSelected = max(0, n-1)
+	}
+	return m, nil
+}
+
 func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fileSystems := m.visibleFileSystems()
 	half := max(1, m.height/6)
@@ -818,13 +919,13 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fsFilter.column = m.fsColumnSelected
 		m.openFilterPopup()
 		return m, nil
-	case "left", "h":
+	case "left":
 		m.fsColumnSelected = max(0, m.fsColumnSelected-1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
-	case "right", "l":
+	case "right":
 		m.fsColumnSelected = min(fsColumnCount()-1, m.fsColumnSelected+1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
-	case "s", "enter":
+	case "S", "enter":
 		m.fsSort = m.nextFileSystemSortState()
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
 		m.status = fmt.Sprintf("Filesystem sort: %s", m.fsSortStateLabel())
@@ -878,7 +979,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nsLoading = true
 		m.status = "Jumping to / ..."
 		return m, loadDirectoryCmd(m.client, "/")
-	case "backspace", "h", "left":
+	case "backspace", "left":
 		parent := parentPath(m.directory.Path)
 		if parent != m.directory.Path {
 			m.nsSelected = 0
@@ -886,7 +987,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Opening %s...", parent)
 			return m, loadDirectoryCmd(m.client, parent)
 		}
-	case "enter", "l", "right":
+	case "enter", "right":
 		entry, ok := m.selectedNamespaceEntry()
 		if ok && entry.Kind == eos.EntryKindContainer {
 			m.nsSelected = 0
@@ -918,9 +1019,9 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.spacesSelected = 0
 	case "G":
 		m.spacesSelected = max(0, len(m.spaces)-1)
-	case "left", "h":
+	case "left":
 		m.spacesColumnSelected = max(0, m.spacesColumnSelected-1)
-	case "right", "l":
+	case "right":
 		m.spacesColumnSelected = min(6, m.spacesColumnSelected+1)
 	}
 
@@ -1175,12 +1276,16 @@ func (m model) renderMGMView(height int) string {
 	} else if len(mgms) == 0 {
 		lines = append(lines, "(no mgm nodes found)")
 	} else {
-		for _, node := range mgms {
-			lines = append(lines, formatTableRow(columns, []string{
+		for i, node := range mgms {
+			row := formatTableRow(columns, []string{
 				node.HostPort,
 				strings.ToLower(node.Status),
 				m.eosVersion,
-			}))
+			})
+			if i == m.mgmSelected {
+				row = m.styles.selected.Width(contentWidth).Render(row)
+			}
+			lines = append(lines, row)
 		}
 	}
 
@@ -1215,13 +1320,17 @@ func (m model) renderQDBView(height int) string {
 	} else if len(mgms) == 0 {
 		lines = append(lines, "(no qdb nodes found)")
 	} else {
-		for _, node := range mgms {
-			lines = append(lines, formatTableRow(columns, []string{
+		for i, node := range mgms {
+			row := formatTableRow(columns, []string{
 				node.HostPort,
 				strings.ToLower(node.Role),
 				strings.ToLower(node.Status),
 				node.EOSVersion,
-			}))
+			})
+			if i == m.qdbSelected {
+				row = m.styles.selected.Width(contentWidth).Render(row)
+			}
+			lines = append(lines, row)
 		}
 	}
 
@@ -1893,12 +2002,24 @@ func (m model) renderNamespaceDetails(width, height int) string {
 }
 
 func (m model) renderFooter() string {
-	keys := "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→/hl column  •  s sort  •  f filter  •  c clear col  •  esc clear all  •  q quit"
+	if m.log.active {
+		filter := ""
+		if m.log.filter != "" {
+			filter = fmt.Sprintf("  •  filter: %q", m.log.filter)
+		}
+		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  r reload  •  esc close%s", filter)
+		if m.log.filtering {
+			keys = "type to filter  •  enter apply  •  esc cancel"
+		}
+		return m.styles.status.Width(m.contentWidth()).Render(keys)
+	}
+
+	keys := "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  f/  filter  •  l logs  •  s shell  •  q quit"
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  h← back  •  g root  •  q quit"
+		keys = "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  l logs  •  s shell  •  q quit"
 	case viewIOShaping:
-		keys = "tab/1-7 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  q quit"
+		keys = "tab/1-9 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  l logs  •  s shell  •  q quit"
 	}
 
 	var summary string
@@ -3230,4 +3351,232 @@ func runSpaceConfigCmd(client *eos.Client, key, value string) tea.Cmd {
 		err := client.SpaceConfig(context.Background(), "default", key, value)
 		return spaceConfigResultMsg{err: err}
 	}
+}
+
+// ---- Log overlay ------------------------------------------------------------
+
+// selectedHostForView returns the hostname of the currently selected row in the
+// active view, or empty string when no row is selected or the view has no host.
+func (m model) selectedHostForView() string {
+	switch m.activeView {
+	case viewMGM:
+		if m.mgmSelected >= 0 && m.mgmSelected < len(m.mgms) {
+			return eos.HostOnly(m.mgms[m.mgmSelected].HostPort)
+		}
+	case viewQDB:
+		if m.qdbSelected >= 0 && m.qdbSelected < len(m.mgms) {
+			return eos.HostOnly(m.mgms[m.qdbSelected].HostPort)
+		}
+	case viewFST:
+		fsts := m.visibleFSTs()
+		if m.fstSelected >= 0 && m.fstSelected < len(fsts) {
+			return eos.HostOnly(fsts[m.fstSelected].HostPort)
+		}
+	case viewFileSystems:
+		fss := m.visibleFileSystems()
+		if m.fsSelected >= 0 && m.fsSelected < len(fss) {
+			return fss[m.fsSelected].Host
+		}
+	}
+	return ""
+}
+
+// logFileForView returns the log file path and a human-readable title for the
+// currently active view.
+func (m model) logFileForView() (filePath, title string) {
+	switch m.activeView {
+	case viewQDB:
+		return "/var/log/eos/quarkdb/xrdlog.quarkdb", "QDB Log"
+	case viewFST, viewFileSystems:
+		return "/var/log/eos/fst/xrdlog.fst", "FST Log"
+	default:
+		return "/var/log/eos/mgm/xrdlog.mgm", "MGM Log"
+	}
+}
+
+func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
+	if m.client == nil {
+		return m, nil
+	}
+	filePath, title := m.logFileForView()
+	host := m.selectedHostForView()
+
+	logInput := textinput.New()
+	logInput.Prompt = "grep> "
+	logInput.CharLimit = 256
+
+	vp := viewport.New(m.contentWidth()-4, max(4, m.height-10))
+	vp.SetContent("Loading...")
+
+	titleWithHost := title
+	if host != "" {
+		titleWithHost = fmt.Sprintf("%s  [%s]", title, host)
+	}
+
+	m.log = logOverlay{
+		active:   true,
+		host:     host,
+		filePath: filePath,
+		title:    titleWithHost,
+		loading:  true,
+		vp:       vp,
+		input:    logInput,
+	}
+	return m, loadLogCmd(m.client, host, filePath)
+}
+
+func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Filter input mode: type to grep, enter to apply, esc to cancel.
+	if m.log.filtering {
+		switch msg.String() {
+		case "esc":
+			m.log.filtering = false
+			m.log.input.Blur()
+		case "enter":
+			m.log.filtering = false
+			m.log.input.Blur()
+			m.log.filter = m.log.input.Value()
+			m.log.filtered = applyLogFilter(m.log.allLines, m.log.filter)
+			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.log.vp.GotoBottom()
+		default:
+			var cmd tea.Cmd
+			m.log.input, cmd = m.log.input.Update(msg)
+			// Live filter as user types.
+			m.log.filtered = applyLogFilter(m.log.allLines, m.log.input.Value())
+			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.log.vp.GotoBottom()
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	// Normal navigation.
+	switch msg.String() {
+	case "esc", "q":
+		m.log = logOverlay{}
+	case "/":
+		m.log.filtering = true
+		m.log.input.SetValue(m.log.filter)
+		m.log.input.Focus()
+	case "r":
+		m.log.loading = true
+		return m, loadLogCmd(m.client, m.log.host, m.log.filePath)
+	case "g":
+		m.log.vp.GotoTop()
+	case "G":
+		m.log.vp.GotoBottom()
+	default:
+		var cmd tea.Cmd
+		m.log.vp, cmd = m.log.vp.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) renderLogOverlay(height int) string {
+	width := m.contentWidth()
+	vpWidth := width - 4 // panel border + padding
+
+	// Keep viewport sized to available space.
+	filterHeight := 0
+	if m.log.filtering {
+		filterHeight = 2
+	}
+	vpHeight := max(4, height-4-filterHeight) // title bar (2) + border (2)
+	m.log.vp.Width = vpWidth
+	m.log.vp.Height = vpHeight
+
+	// Title bar.
+	filterInfo := ""
+	if m.log.filter != "" {
+		filterInfo = fmt.Sprintf("  [grep: %q  %d lines]", m.log.filter, len(m.log.filtered))
+	}
+	totalInfo := fmt.Sprintf("  %d lines", len(m.log.allLines))
+	if m.log.loading {
+		totalInfo = "  loading..."
+	} else if m.log.err != nil {
+		totalInfo = "  " + m.log.err.Error()
+	}
+	titleLine := m.styles.header.Render(m.log.title) +
+		m.styles.label.Render("  "+m.log.filePath) +
+		m.styles.value.Render(totalInfo+filterInfo)
+
+	lines := []string{titleLine, ""}
+
+	if m.log.err != nil && !m.log.loading {
+		lines = append(lines, m.styles.error.Render(m.log.err.Error()))
+	} else {
+		lines = append(lines, m.log.vp.View())
+	}
+
+	if m.log.filtering {
+		lines = append(lines, "", m.log.input.View())
+	}
+
+	inner := strings.Join(lines, "\n")
+	return m.styles.panel.Width(width).Render(inner)
+}
+
+// applyLogFilter returns lines that case-insensitively contain filter.
+// Empty filter returns all lines.
+func applyLogFilter(lines []string, filter string) []string {
+	if filter == "" {
+		return lines
+	}
+	lower := strings.ToLower(filter)
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.Contains(strings.ToLower(l), lower) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func loadLogCmd(client *eos.Client, host, filePath string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := client.TailLogOnHost(context.Background(), host, filePath, 2000)
+		if err != nil {
+			return logLoadedMsg{filePath: filePath, err: err}
+		}
+		raw := strings.TrimRight(string(out), "\n")
+		lines := strings.Split(raw, "\n")
+		return logLoadedMsg{filePath: filePath, lines: lines}
+	}
+}
+
+// ---- Shell -----------------------------------------------------------------
+
+func (m model) openShell() (tea.Model, tea.Cmd) {
+	if m.client == nil {
+		return m, nil
+	}
+
+	selectedHost := m.selectedHostForView()
+	sshTarget, jumpProxy := m.client.SSHTargetForHost(selectedHost)
+
+	var cmd *exec.Cmd
+	switch {
+	case sshTarget != "" && jumpProxy != "":
+		cmd = exec.Command("ssh", "-o", "BatchMode=no", "-t", "-J", jumpProxy, sshTarget)
+	case sshTarget != "":
+		cmd = exec.Command("ssh", "-o", "BatchMode=no", "-t", sshTarget)
+	default:
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		cmd = exec.Command(shell)
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			m.status = fmt.Sprintf("shell exited: %v", err)
+		}
+		return tea.ClearScreen
+	})
 }

@@ -590,6 +590,52 @@ func TestParseEOSServerVersion(t *testing.T) {
 	}
 }
 
+func TestSSHTargetForHostLocal(t *testing.T) {
+	// No SSH target configured (running locally).
+	c := &Client{}
+
+	// No host selected — should return empty strings (open local shell).
+	target, jump := c.SSHTargetForHost("")
+	if target != "" || jump != "" {
+		t.Errorf("expected empty target/jump for local+no-host, got target=%q jump=%q", target, jump)
+	}
+
+	// Specific host selected — should SSH directly.
+	target, jump = c.SSHTargetForHost("fst01.cern.ch")
+	if target != "root@fst01.cern.ch" {
+		t.Errorf("expected root@fst01.cern.ch, got %q", target)
+	}
+	if jump != "" {
+		t.Errorf("expected no jump for local client, got %q", jump)
+	}
+}
+
+func TestSSHTargetForHostRemoteSameHost(t *testing.T) {
+	// Running via SSH to mgm01.cern.ch; selected host IS the gateway.
+	c := &Client{resolvedSSHTarget: "root@mgm01.cern.ch"}
+
+	target, jump := c.SSHTargetForHost("mgm01.cern.ch")
+	if target != "root@mgm01.cern.ch" {
+		t.Errorf("expected direct target root@mgm01.cern.ch, got %q", target)
+	}
+	if jump != "" {
+		t.Errorf("expected no jump when selected host IS the gateway, got %q", jump)
+	}
+}
+
+func TestSSHTargetForHostRemoteDifferentHost(t *testing.T) {
+	// Running via SSH to mgm01.cern.ch; selected host is a different FST.
+	c := &Client{resolvedSSHTarget: "root@mgm01.cern.ch"}
+
+	target, jump := c.SSHTargetForHost("fst01.cern.ch")
+	if target != "root@fst01.cern.ch" {
+		t.Errorf("expected root@fst01.cern.ch, got %q", target)
+	}
+	if jump != "root@mgm01.cern.ch" {
+		t.Errorf("expected jump root@mgm01.cern.ch, got %q", jump)
+	}
+}
+
 func TestHostOnly(t *testing.T) {
 	tests := []struct {
 		input string

@@ -362,19 +362,19 @@ func TestFSTSortCyclesOnSelectedColumn(t *testing.T) {
 	m.activeView = viewFST
 	m.fstColumnSelected = int(fstFilterNoFS)
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if m.fstSort.column != int(fstSortNoFS) || m.fstSort.desc {
 		t.Fatalf("expected first sort press to set ascending nofs sort, got %+v", m.fstSort)
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if m.fstSort.column != int(fstSortNoFS) || !m.fstSort.desc {
 		t.Fatalf("expected second sort press to set descending nofs sort, got %+v", m.fstSort)
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if m.fstSort.column != int(fstSortNone) {
 		t.Fatalf("expected third sort press to clear sort, got %+v", m.fstSort)
@@ -697,6 +697,239 @@ func TestSpacesAndNsStatsAreInInitialLoadBatch(t *testing.T) {
 	}
 	if !m.nsStatsLoading {
 		t.Error("expected nsStatsLoading=true at startup (infra batch fetches ns stats)")
+	}
+}
+
+// ---- selectedHostForView tests ---------------------------------------------
+
+func TestSelectedHostForViewFST(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{
+		{HostPort: "fst01.cern.ch:1095", Status: "online"},
+		{HostPort: "fst02.cern.ch:1095", Status: "online"},
+	}
+	m.fstSelected = 1
+
+	got := m.selectedHostForView()
+	if got != "fst02.cern.ch" {
+		t.Errorf("expected fst02.cern.ch, got %q", got)
+	}
+}
+
+func TestSelectedHostForViewMGM(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "mgm01.cern.ch:1094", Role: "leader"},
+		{HostPort: "mgm02.cern.ch:1094", Role: "follower"},
+	}
+	m.mgmSelected = 0
+
+	got := m.selectedHostForView()
+	if got != "mgm01.cern.ch" {
+		t.Errorf("expected mgm01.cern.ch, got %q", got)
+	}
+}
+
+func TestSelectedHostForViewQDB(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewQDB
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "qdb01.cern.ch:7777", Role: "leader"},
+		{HostPort: "qdb02.cern.ch:7777", Role: "follower"},
+	}
+	m.qdbSelected = 1
+
+	got := m.selectedHostForView()
+	if got != "qdb02.cern.ch" {
+		t.Errorf("expected qdb02.cern.ch, got %q", got)
+	}
+}
+
+func TestSelectedHostForViewFileSystems(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 1, Host: "fst01.cern.ch", Path: "/data/01"},
+		{ID: 2, Host: "fst02.cern.ch", Path: "/data/02"},
+	}
+	m.fsSelected = 0
+
+	got := m.selectedHostForView()
+	if got != "fst01.cern.ch" {
+		t.Errorf("expected fst01.cern.ch, got %q", got)
+	}
+}
+
+func TestSelectedHostForViewNoSelection(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewSpaces // no host concept
+
+	got := m.selectedHostForView()
+	if got != "" {
+		t.Errorf("expected empty string for spaces view, got %q", got)
+	}
+}
+
+func TestSelectedHostForViewEmptyList(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewFST
+	m.fsts = nil
+	m.fstSelected = 0
+
+	got := m.selectedHostForView()
+	if got != "" {
+		t.Errorf("expected empty for empty FST list, got %q", got)
+	}
+}
+
+// ---- MGM/QDB navigation tests ----------------------------------------------
+
+func TestMGMNavigationUpDown(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "mgm01:1094", Role: "leader"},
+		{HostPort: "mgm02:1094", Role: "follower"},
+		{HostPort: "mgm03:1094", Role: "follower"},
+	}
+	m.mgmSelected = 0
+
+	// Navigate down
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.mgmSelected != 1 {
+		t.Fatalf("expected mgmSelected=1 after j, got %d", m.mgmSelected)
+	}
+
+	// Navigate down again
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected mgmSelected=2 after j, got %d", m.mgmSelected)
+	}
+
+	// Navigate down at end — should clamp
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected mgmSelected=2 (clamped), got %d", m.mgmSelected)
+	}
+
+	// Navigate up
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(model)
+	if m.mgmSelected != 1 {
+		t.Fatalf("expected mgmSelected=1 after k, got %d", m.mgmSelected)
+	}
+}
+
+func TestMGMNavigationGG(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "mgm01:1094"},
+		{HostPort: "mgm02:1094"},
+		{HostPort: "mgm03:1094"},
+	}
+	m.mgmSelected = 1
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected G to go to last, got %d", m.mgmSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.mgmSelected != 0 {
+		t.Fatalf("expected g to go to first, got %d", m.mgmSelected)
+	}
+}
+
+func TestQDBNavigationUpDown(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewQDB
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "qdb01:7777", Role: "leader"},
+		{HostPort: "qdb02:7777", Role: "follower"},
+	}
+	m.qdbSelected = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.qdbSelected != 1 {
+		t.Fatalf("expected qdbSelected=1 after down, got %d", m.qdbSelected)
+	}
+
+	// Should not go beyond list end
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.qdbSelected != 1 {
+		t.Fatalf("expected qdbSelected clamped at 1, got %d", m.qdbSelected)
+	}
+}
+
+func TestMGMViewShowsSelectedRow(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "mgm01.cern.ch:1094", Role: "leader", Status: "online"},
+		{HostPort: "mgm02.cern.ch:1094", Role: "follower", Status: "online"},
+	}
+	m.mgmSelected = 0
+
+	view := m.View()
+	if !strings.Contains(view, "mgm01.cern.ch") {
+		t.Errorf("expected mgm01 in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "mgm02.cern.ch") {
+		t.Errorf("expected mgm02 in view, got:\n%s", view)
+	}
+}
+
+func TestQDBViewShowsSelectedRow(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewQDB
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "qdb01.cern.ch:7777", Role: "leader", Status: "online", EOSVersion: "5.3.29"},
+		{HostPort: "qdb02.cern.ch:7777", Role: "follower", Status: "online", EOSVersion: "5.3.29"},
+	}
+	m.qdbSelected = 1
+
+	view := m.View()
+	for _, needle := range []string{"qdb01.cern.ch", "qdb02.cern.ch", "leader", "follower"} {
+		if !strings.Contains(view, needle) {
+			t.Errorf("expected %q in QDB view, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestMGMSelectedHostChangesWithNavigation(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{HostPort: "mgm01.cern.ch:1094"},
+		{HostPort: "mgm02.cern.ch:1094"},
+	}
+	m.mgmSelected = 0
+
+	if got := m.selectedHostForView(); got != "mgm01.cern.ch" {
+		t.Fatalf("expected mgm01.cern.ch initially, got %q", got)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+
+	if got := m.selectedHostForView(); got != "mgm02.cern.ch" {
+		t.Fatalf("expected mgm02.cern.ch after navigating down, got %q", got)
 	}
 }
 

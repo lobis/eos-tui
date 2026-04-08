@@ -268,13 +268,15 @@ jobs:
             echo '--- Removing nologin gate (pam_nologin) ---'
             rm -f /run/nologin /etc/nologin /var/run/nologin
 
-            echo '--- Writing minimal sshd config for CI (disable container-incompatible PAM modules) ---'
-            mkdir -p /etc/ssh/sshd_config.d
-            printf 'PermitRootLogin yes\nPubkeyAuthentication yes\nAuthorizedKeysFile .ssh/authorized_keys\nPasswordAuthentication no\nUsePAM no\nPrintLastLog no\nPrintMotd no\n' \
-              > /etc/ssh/sshd_config.d/ci.conf
-
             echo '--- Starting sshd on port 2222 ---'
-            /usr/sbin/sshd -p 2222
+            /usr/sbin/sshd -p 2222 \
+              -o UsePAM=no \
+              -o PermitRootLogin=yes \
+              -o PubkeyAuthentication=yes \
+              -o PasswordAuthentication=no \
+              -o AuthorizedKeysFile=/root/.ssh/authorized_keys \
+              -o PrintLastLog=no \
+              -o PrintMotd=no
             echo 'sshd running'
 
             echo '--- Starting socat QDB tunnel (localhost:7777 -> eos-qdb) ---'

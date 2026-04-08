@@ -1,15 +1,38 @@
 name: CI
 
+# Runs unit tests on all platforms and integration tests against a real EOS
+# cluster spun up via the official EOS Helm chart on a local kind
+# (Kubernetes-in-Docker) cluster.
+#
+# Triggers:
+#   - Every push to main and every pull request.
+#   - Manual dispatch (workflow_dispatch), with an optional image-tag override.
+#
+# Prerequisites (no secrets required for the default image):
+#   The EOS image is pulled from the public CERN registry:
+#     gitlab-registry.cern.ch/dss/eos/eos-all
+#   The EOS Helm chart is pulled from:
+#     oci://registry.cern.ch/eos/charts/server
+
 on:
   push:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+    inputs:
+      eos_image_tag:
+        description: 'EOS image tag including OS suffix (e.g. 5.4.1.el9)'
+        required: false
+        default: '5.4.1.el9'
 
 permissions:
   contents: read
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Unit tests + build (cross-platform)
+  # ---------------------------------------------------------------------------
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -43,3 +66,309 @@ jobs:
 
       - name: Build binary
         run: go build -v -o bin/ ./...
+
+  # ---------------------------------------------------------------------------
+  # Integration tests against a real EOS cluster
+  # ---------------------------------------------------------------------------
+  integration:
+    name: EOS Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # -----------------------------------------------------------------------
+      # Disk space – the EOS image is ~4 GB and kind copies it into the
+      # node's containerd store, so we need headroom on the runner.
+      # -----------------------------------------------------------------------
+
+      - name: Free disk space
+        run: |
+          echo "=== Disk usage before cleanup ==="
+          df -h /
+          # Remove large pre-installed toolchains that we don't need.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet \
+            /opt/ghc /usr/local/share/boost /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL || true
+          # Prune Docker build cache & dangling images.
+          docker system prune -af --volumes || true
+          echo "=== Disk usage after cleanup ==="
+          df -h /
+
+      # -----------------------------------------------------------------------
+      # Docker image cache
+      #
+      # The EOS "eos-ci" image is large. We save it as a tar after the first
+      # pull and restore it on subsequent runs to avoid hitting the CERN
+      # registry every time.
+      #
+      # The public image is gitlab-registry.cern.ch/dss/eos/eos-ci.
+      # Tags follow the CERN convention: <version>.el9 (e.g. 5.4.1.el9).
+      # The "eos-all" variant is hosted on a private CERN registry and is not
+      # accessible from GitHub Actions runners.
+      # -----------------------------------------------------------------------
+
+      - name: Cache EOS Docker image
+        id: cache-eos-image
+        uses: actions/cache@v5
+        with:
+          path: /tmp/eos-image.tar
+          key: eos-docker-image-${{ inputs.eos_image_tag || '5.4.1.el9' }}
+
+      - name: Pull and save EOS Docker image
+        if: steps.cache-eos-image.outputs.cache-hit != 'true'
+        env:
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
+        run: |
+          docker pull ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
+          docker save ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG} \
+            -o /tmp/eos-image.tar
+
+      - name: Load EOS Docker image from cache
+        if: steps.cache-eos-image.outputs.cache-hit == 'true'
+        run: |
+          docker load -i /tmp/eos-image.tar
+          # Remove the tar to free space for kind.
+          rm -f /tmp/eos-image.tar
+
+      # -----------------------------------------------------------------------
+      # Kubernetes cluster
+      # -----------------------------------------------------------------------
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+
+      - name: Load EOS image into kind
+        env:
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
+        run: |
+          # helm/kind-action creates a cluster named "chart-testing" by default,
+          # so we must pass --name to avoid the "no nodes found for cluster 'kind'" error.
+          kind load docker-image \
+            --name chart-testing \
+            ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
+          # Remove the image from Docker now that it's loaded into
+          # kind's containerd; avoids storing two copies.
+          docker rmi ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG} || true
+
+      # -----------------------------------------------------------------------
+      # Helm chart cache
+      # -----------------------------------------------------------------------
+
+      - name: Cache Helm chart
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/helm
+          key: helm-eos-chart-${{ inputs.eos_image_tag || '5.4.1.el9' }}
+
+      # -----------------------------------------------------------------------
+      # EOS cluster
+      # -----------------------------------------------------------------------
+
+      - name: Deploy EOS via Helm chart
+        env:
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
+        run: |
+          # Deploy a minimal EOS cluster: 1 QDB (single-node raft), 1 MGM (+MQ sidecar), 2 FSTs.
+          # Uses the publicly accessible eos-ci image pre-loaded into the kind cluster.
+          # global.pullPolicy=IfNotPresent ensures k8s uses the locally pre-loaded image
+          # instead of attempting to re-pull from the CERN registry.
+          helm install eos oci://registry.cern.ch/eos/charts/server \
+            --set "global.repository=${EOS_IMAGE_REPO}" \
+            --set "global.tag=${EOS_IMAGE_TAG}" \
+            --set "global.pullPolicy=IfNotPresent" \
+            --set "fst.replicaCount=2" \
+            --set "qdb.replicaCount=1" \
+            --set "global.securityContext.privileged=true" \
+            --set "global.securityContext.allowPrivilegeEscalation=true" \
+            --timeout 20m \
+            --wait
+
+      - name: Wait for EOS namespace to boot
+        run: |
+          echo "Waiting for EOS MGM namespace to reach 'booted' state..."
+          MGM_CONTAINER=$(kubectl get pod eos-mgm-0 \
+            -o jsonpath='{.spec.containers[0].name}')
+          echo "Using MGM container: ${MGM_CONTAINER}"
+
+          for i in $(seq 1 60); do
+            if kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- \
+                eos ns stat 2>/dev/null | grep -q "booted"; then
+              echo "EOS MGM booted after $((i * 10))s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: EOS MGM did not boot within 600s"
+              kubectl logs eos-mgm-0 --all-containers=true --tail=50
+              exit 1
+            fi
+            echo "  attempt $i/60 — not yet booted, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "=== eos fs ls ==="
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- eos fs ls
+
+      # -----------------------------------------------------------------------
+      # SSH access into the MGM pod
+      #
+      # The eos-tui client issues every EOS command via SSH (runCommand uses
+      # `ssh -o BatchMode=yes <target> <cmd>`).  We:
+      #   1. Generate an ephemeral ed25519 key pair on the runner.
+      #   2. Install openssh-server and socat inside the MGM container.
+      #   3. Drop the public key into root's authorized_keys and start sshd
+      #      on port 2222 (avoids any conflict with the EOS MGM service).
+      #   4. Start a socat tunnel inside the container:
+      #        localhost:7777  →  eos-qdb-0.eos-qdb.default.svc.cluster.local:7777
+      #      This makes `redis-cli -p 7777 raft-info` work from the MGM pod,
+      #      which is needed by TestIntegrationMGMs and
+      #      TestIntegrationDiscoverMGMMaster.
+      #   5. kubectl port-forward the container's port 2222 to the runner.
+      #   6. Write an SSH client config block mapping the alias "eos-mgm" to
+      #      localhost:2222 with the ephemeral key — no code changes needed.
+      # -----------------------------------------------------------------------
+
+      - name: Set up SSH access to EOS MGM
+        timeout-minutes: 5
+        run: |
+          # Generate an ephemeral SSH key pair (no passphrase).
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/eos_test_key -C eos-tui-ci
+          PUBLIC_KEY=$(cat ~/.ssh/eos_test_key.pub)
+
+          MGM_CONTAINER=$(kubectl get pod eos-mgm-0 \
+            -o jsonpath='{.spec.containers[0].name}')
+          echo "Using MGM container: ${MGM_CONTAINER}"
+
+          # Install openssh-server + socat, then configure sshd and the QDB
+          # proxy tunnel inside the MGM container.
+          #
+          # dnf can hang if the container's repos (e.g. CERN mirrors) are
+          # unreachable from inside the kind cluster, so we:
+          #   - wrap with `timeout 120` to cap the total time,
+          #   - set per-connection timeout to 30s via --setopt,
+          #   - disable weak-dep pulls and GPG checks for speed,
+          #   - disable any non-base repos that might be unreachable.
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- bash -c "
+            set -e
+            echo '--- Installing openssh-server and socat ---'
+
+            # Disable any non-standard repos that may be unreachable from kind.
+            for f in /etc/yum.repos.d/*.repo; do
+              case \"\$(basename \"\$f\")\" in
+                alma*|rocky*|centos*|baseos*|appstream*|extras*|crb*) ;;
+                *) echo \"  disabling repo file: \$f\"
+                   sed -i 's/^enabled=1/enabled=0/' \"\$f\" 2>/dev/null || true ;;
+              esac
+            done
+
+            timeout 120 dnf install -y \
+              --nogpgcheck \
+              --setopt=timeout=30 \
+              --setopt=install_weak_deps=False \
+              openssh-server socat 2>&1 | tail -10
+
+            echo '--- Configuring authorized_keys ---'
+            mkdir -p /root/.ssh
+            chmod 700 /root/.ssh
+            echo '${PUBLIC_KEY}' > /root/.ssh/authorized_keys
+            chmod 600 /root/.ssh/authorized_keys
+
+            echo '--- Generating SSH host keys ---'
+            ssh-keygen -A
+
+            echo '--- Removing nologin gate (pam_nologin) ---'
+            rm -f /run/nologin /etc/nologin /var/run/nologin
+
+            echo '--- Starting sshd on port 2222 ---'
+            /usr/sbin/sshd -p 2222 \
+              -o UsePAM=no \
+              -o PermitRootLogin=yes \
+              -o PubkeyAuthentication=yes \
+              -o PasswordAuthentication=no \
+              -o AuthorizedKeysFile=/root/.ssh/authorized_keys \
+              -o PrintLastLog=no \
+              -o PrintMotd=no
+            echo 'sshd running'
+
+            echo '--- Starting socat QDB tunnel (localhost:7777 -> eos-qdb) ---'
+            nohup socat TCP-LISTEN:7777,fork,reuseaddr \
+              TCP:eos-qdb-0.eos-qdb.default.svc.cluster.local:7777 \
+              </dev/null >/dev/null 2>&1 &
+            echo 'socat tunnel started'
+          "
+
+          # Port-forward the MGM's sshd to the runner.
+          kubectl port-forward pod/eos-mgm-0 2222:2222 &
+          # Give port-forward time to establish.
+          sleep 5
+
+          # Write an SSH client config block so that `ssh eos-mgm <cmd>` works.
+          cat >> ~/.ssh/config << 'EOF'
+          Host eos-mgm
+            HostName 127.0.0.1
+            Port 2222
+            User root
+            IdentityFile ~/.ssh/eos_test_key
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 30
+            ConnectTimeout 10
+          EOF
+
+          echo "--- Verifying SSH connectivity ---"
+          ssh eos-mgm 'eos version'
+          echo "--- Verifying EOS node list reachable via SSH ---"
+          ssh eos-mgm 'eos -j node ls' | head -5
+          echo "--- Verifying redis-cli via socat tunnel ---"
+          ssh eos-mgm 'redis-cli -p 7777 raft-info' | head -5
+
+      # -----------------------------------------------------------------------
+      # Integration tests
+      # -----------------------------------------------------------------------
+
+      - name: Run integration tests
+        env:
+          EOS_TEST_SSH_TARGET: eos-mgm
+        run: |
+          go test -v -timeout 10m -run TestIntegration ./eos/...
+
+      # -----------------------------------------------------------------------
+      # Debug dump on failure
+      # -----------------------------------------------------------------------
+
+      - name: Dump EOS state on failure
+        if: failure()
+        run: |
+          echo "=== kubectl get pods ==="
+          kubectl get pods || true
+
+          MGM_CONTAINER=$(kubectl get pod eos-mgm-0 \
+            -o jsonpath='{.spec.containers[0].name}' 2>/dev/null || echo "eos-mgm")
+
+          echo "=== EOS version ==="
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- eos version || true
+          echo "=== EOS ns stat ==="
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- eos ns stat || true
+          echo "=== EOS fs ls ==="
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- eos fs ls || true
+          echo "=== EOS node ls ==="
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- eos -j node ls 2>/dev/null \
+            | head -50 || true
+
+          echo "=== eos-mgm-0 pod logs (last 100 lines) ==="
+          kubectl logs eos-mgm-0 --all-containers=true --tail=100 || true
+          echo "=== eos-qdb-0 pod logs (last 50 lines) ==="
+          kubectl logs eos-qdb-0 --tail=50 || true

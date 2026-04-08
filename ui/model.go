@@ -103,6 +103,11 @@ type ioShapingLoadedMsg struct {
 	err     error
 }
 
+type ioShapingPoliciesLoadedMsg struct {
+	records []eos.IOShapingPolicyRecord
+	err     error
+}
+
 type eosVersionLoadedMsg struct {
 	version string
 }
@@ -114,6 +119,7 @@ type logLoadedMsg struct {
 }
 
 type ioShapingTickMsg struct{}
+type ioShapingPolicyTickMsg struct{}
 
 type tickMsg time.Time
 
@@ -172,6 +178,7 @@ type model struct {
 	spaceStatusSelected int
 
 	ioShaping         []eos.IOShapingRecord
+	ioShapingPolicies []eos.IOShapingPolicyRecord
 	ioShapingMode     eos.IOShapingMode
 	ioShapingLoading  bool
 	ioShapingErr      error
@@ -254,25 +261,27 @@ type fsFilterColumn int
 type fsSortColumn int
 
 const (
-	fstFilterType fstFilterColumn = iota
-	fstFilterHostPort
-	fstFilterGeotag
-	fstFilterStatus
-	fstFilterActivated
-	fstFilterHeartbeatDelta
-	fstFilterNoFS
+	fstFilterHostPort       fstFilterColumn = iota // 0 — visible column 0
+	fstFilterGeotag                                // 1 — visible column 1
+	fstFilterStatus                                // 2 — visible column 2
+	fstFilterActivated                             // 3 — visible column 3
+	fstFilterHeartbeatDelta                        // 4 — visible column 4
+	fstFilterNoFS                                  // 5 — visible column 5
+	fstFilterEOSVersion                            // 6 — visible column 6
+	fstFilterType                                  // 7 — not navigable (hidden field)
 )
 
 const fstSortNone fstSortColumn = -1
 
 const (
-	fstSortType fstSortColumn = iota
-	fstSortHostPort
-	fstSortGeotag
-	fstSortStatus
-	fstSortActivated
-	fstSortHeartbeat
-	fstSortNoFS
+	fstSortHostPort   fstSortColumn = iota // 0 — visible column 0
+	fstSortGeotag                          // 1
+	fstSortStatus                          // 2
+	fstSortActivated                       // 3
+	fstSortHeartbeat                       // 4
+	fstSortNoFS                            // 5
+	fstSortEOSVersion                      // 6
+	fstSortType                            // 7 — not navigable
 )
 
 const fstSortFileSystems = fstSortNoFS
@@ -557,6 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fstSelected = clampIndex(m.fstSelected, len(m.visibleFSTs()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
+		m.nodeStats.State = m.computeClusterHealth()
 	case fileSystemsLoadedMsg:
 		m.fileSystemsLoading = false
 		m.fileSystemsErr = msg.err
@@ -567,6 +577,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
+		m.nodeStats.State = m.computeClusterHealth()
 	case spacesLoadedMsg:
 		m.spacesLoading = false
 		m.spacesErr = msg.err
@@ -624,7 +635,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.mode == m.ioShapingMode {
 			m.ioShaping = msg.records
 			m.ioShapingErr = nil
-			m.ioShapingSelected = clampIndex(m.ioShapingSelected, len(m.ioShaping))
+			m.ioShapingSelected = clampIndex(m.ioShapingSelected, len(m.ioShapingMergedRows()))
+		}
+	case ioShapingPoliciesLoadedMsg:
+		if msg.err == nil {
+			m.ioShapingPolicies = msg.records
+			m.ioShapingSelected = clampIndex(m.ioShapingSelected, len(m.ioShapingMergedRows()))
 		}
 	case ioShapingTickMsg:
 		if m.activeView == viewIOShaping && !m.ioShapingLoading {
@@ -632,6 +648,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), ioShapingTickCmd())
 		} else if m.activeView == viewIOShaping {
 			return m, ioShapingTickCmd()
+		}
+	case ioShapingPolicyTickMsg:
+		if m.activeView == viewIOShaping {
+			return m, tea.Batch(loadIOShapingPoliciesCmd(m.client), ioShapingPolicyTickCmd())
 		}
 	case logLoadedMsg:
 		m.log.loading = false
@@ -738,7 +758,7 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 	case viewIOShaping:
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil
-		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), ioShapingTickCmd())
+		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), ioShapingTickCmd(), loadIOShapingPoliciesCmd(m.client), ioShapingPolicyTickCmd())
 	default:
 		return m, nil
 	}
@@ -771,7 +791,8 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil
 		m.status = "Refreshing IO shaping..."
-		return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
+
 	default:
 		m.fstStatsLoading = true
 		m.fstsLoading = true
@@ -1054,28 +1075,28 @@ func (m model) updateSpaceStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	half := max(1, m.height/6)
-	n := len(m.ioShaping)
+	n := len(m.ioShapingMergedRows())
 	switch msg.String() {
 	case "a":
 		if m.ioShapingMode != eos.IOShapingApps {
 			m.ioShapingMode = eos.IOShapingApps
 			m.ioShapingSelected = 0
 			m.ioShapingLoading = true
-			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
 		}
 	case "u":
 		if m.ioShapingMode != eos.IOShapingUsers {
 			m.ioShapingMode = eos.IOShapingUsers
 			m.ioShapingSelected = 0
 			m.ioShapingLoading = true
-			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
 		}
 	case "g":
 		if m.ioShapingMode != eos.IOShapingGroups {
 			m.ioShapingMode = eos.IOShapingGroups
 			m.ioShapingSelected = 0
 			m.ioShapingLoading = true
-			return m, loadIOShapingCmd(m.client, m.ioShapingMode)
+			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
 		}
 	case "up", "k":
 		if m.ioShapingSelected > 0 {
@@ -1260,6 +1281,7 @@ func (m model) renderMGMView(height int) string {
 
 	columns := allocateTableColumns(contentWidth, []tableColumn{
 		{title: "hostport", min: 20, weight: 1},
+		{title: "role", min: 10, weight: 0},
 		{title: "status", min: 10, weight: 0},
 		{title: "eos version", min: 14, weight: 0},
 	})
@@ -1268,7 +1290,7 @@ func (m model) renderMGMView(height int) string {
 	lines := []string{
 		title,
 		"",
-		m.renderSimpleHeaderRow(columns, []string{"hostport", "status", "eos version"}),
+		m.renderSimpleHeaderRow(columns, []string{"hostport", "role", "status", "eos version"}),
 	}
 
 	if m.mgmsLoading && len(mgms) == 0 {
@@ -1279,6 +1301,7 @@ func (m model) renderMGMView(height int) string {
 		for i, node := range mgms {
 			row := formatTableRow(columns, []string{
 				node.HostPort,
+				strings.ToLower(node.Role),
 				strings.ToLower(node.Status),
 				m.eosVersion,
 			})
@@ -1322,7 +1345,7 @@ func (m model) renderQDBView(height int) string {
 	} else {
 		for i, node := range mgms {
 			row := formatTableRow(columns, []string{
-				node.HostPort,
+				node.QDBHostPort,
 				strings.ToLower(node.Role),
 				strings.ToLower(node.Status),
 				node.EOSVersion,
@@ -1369,7 +1392,8 @@ func (m model) renderFSTView(height int) string {
 	}
 	fixedHeaderLines := 6 + filterLines // title+controls, 3 metric lines, blank, col headers [, filters]
 	naturalListContent := fixedHeaderLines + len(m.visibleFSTs())
-	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
+	const fstDetailLines = 18 // fixed lines rendered by renderNodeDetails
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, fstDetailLines)
 	width := m.contentWidth()
 
 	list := m.renderNodesList(width, listHeight)
@@ -1391,6 +1415,7 @@ func (m model) renderNodesList(width, height int) string {
 			node.Activated,
 			fmt.Sprintf("%d", node.HeartbeatDelta),
 			fmt.Sprintf("%d", node.FileSystemCount),
+			node.EOSVersion,
 		}
 	}
 	columnDefs := contentAwareColumns([]tableColumn{
@@ -1400,6 +1425,7 @@ func (m model) renderNodesList(width, height int) string {
 		{title: "activated", min: 9, weight: 0},
 		{title: "heartbeatdelta", min: 14, weight: 0, right: true},
 		{title: "nofs", min: 4, weight: 0, right: true},
+		{title: "eos version", min: 11, weight: 0},
 	}, dataRows)
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
@@ -1486,7 +1512,8 @@ func (m model) renderFileSystemsView(height int) string {
 	}
 	fixedHeaderLines := 3 + filterLines // title+controls, blank, col headers [, filters]
 	naturalListContent := fixedHeaderLines + len(m.visibleFileSystems())
-	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
+	const fsDetailLines = 14 // fixed lines rendered by renderFileSystemDetails
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, fsDetailLines)
 	width := m.contentWidth()
 
 	list := m.renderFileSystemsList(width, listHeight)
@@ -1598,7 +1625,8 @@ func (m model) renderFileSystemDetails(width, height int) string {
 func (m model) renderSpacesView(height int) string {
 	const fixedHeaderLines = 3 // title, blank, column headers
 	naturalListContent := fixedHeaderLines + len(m.spaces)
-	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent)
+	const spaceDetailLines = 8 // fixed lines rendered by renderSpaceDetails
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, spaceDetailLines)
 	width := m.contentWidth()
 
 	list := m.renderSpacesList(width, listHeight)
@@ -1757,6 +1785,52 @@ func (m model) renderSpaceStatusView(height int) string {
 	return m.styles.panel.Width(width).Render(fitLines(lines, height))
 }
 
+type ioShapingMergedRow struct {
+	id      string
+	traffic *eos.IOShapingRecord
+	policy  *eos.IOShapingPolicyRecord
+}
+
+// ioShapingMergedRows returns the union of traffic records and policy records
+// for the current mode, sorted alphabetically by id. Rows with traffic but no
+// policy, policy but no traffic, or both are all included.
+func (m model) ioShapingMergedRows() []ioShapingMergedRow {
+	policyType := "app"
+	switch m.ioShapingMode {
+	case eos.IOShapingUsers:
+		policyType = "uid"
+	case eos.IOShapingGroups:
+		policyType = "gid"
+	}
+
+	policyByID := make(map[string]eos.IOShapingPolicyRecord)
+	for _, p := range m.ioShapingPolicies {
+		if strings.ToLower(p.Type) == policyType {
+			policyByID[p.ID] = p
+		}
+	}
+
+	seen := make(map[string]bool)
+	var rows []ioShapingMergedRow
+	for i := range m.ioShaping {
+		r := &m.ioShaping[i]
+		seen[r.ID] = true
+		row := ioShapingMergedRow{id: r.ID, traffic: r}
+		if p, ok := policyByID[r.ID]; ok {
+			row.policy = &p
+		}
+		rows = append(rows, row)
+	}
+	for id, p := range policyByID {
+		if !seen[id] {
+			pc := p
+			rows = append(rows, ioShapingMergedRow{id: id, policy: &pc})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
+	return rows
+}
+
 func (m model) renderIOShapingView(height int) string {
 	width := m.contentWidth()
 	contentWidth := panelContentWidth(width)
@@ -1783,24 +1857,60 @@ func (m model) renderIOShapingView(height int) string {
 		return m.styles.panelDim.Width(width).Render(fitLines(lines, height))
 	}
 
-	records := m.ioShaping
+	rows := m.ioShapingMergedRows()
 
-	dataRows := make([][]string, len(records))
-	for i, r := range records {
+	formatLimit := func(v float64) string {
+		if v == 0 {
+			return "-"
+		}
+		return humanBytesRate(v)
+	}
+	enabledStr := func(p *eos.IOShapingPolicyRecord) string {
+		if p == nil {
+			return "-"
+		}
+		if p.Enabled {
+			return "yes"
+		}
+		return "no"
+	}
+
+	dataRows := make([][]string, len(rows))
+	for i, r := range rows {
+		readRate, writeRate, readIOPS, writeIOPS := "-", "-", "-", "-"
+		if r.traffic != nil {
+			readRate = humanBytesRate(r.traffic.ReadBps)
+			writeRate = humanBytesRate(r.traffic.WriteBps)
+			readIOPS = fmt.Sprintf("%.1f", r.traffic.ReadIOPS)
+			writeIOPS = fmt.Sprintf("%.1f", r.traffic.WriteIOPS)
+		}
+		limRead, limWrite, resRead, resWrite := "-", "-", "-", "-"
+		if r.policy != nil {
+			limRead = formatLimit(r.policy.LimitReadBytesPerSec)
+			limWrite = formatLimit(r.policy.LimitWriteBytesPerSec)
+			resRead = formatLimit(r.policy.ReservationReadBytesPerSec)
+			resWrite = formatLimit(r.policy.ReservationWriteBytesPerSec)
+		}
 		dataRows[i] = []string{
-			r.ID,
-			humanBytesRate(r.ReadBps),
-			humanBytesRate(r.WriteBps),
-			fmt.Sprintf("%.1f", r.ReadIOPS),
-			fmt.Sprintf("%.1f", r.WriteIOPS),
+			r.id,
+			readRate, writeRate, readIOPS, writeIOPS,
+			enabledStr(r.policy),
+			limRead, limWrite, resRead, resWrite,
 		}
 	}
+
+	headers := []string{idLabel, "read rate", "write rate", "read iops", "write iops", "enabled", "lim read", "lim write", "res read", "res write"}
 	columns := allocateTableColumns(contentWidth, contentAwareColumns([]tableColumn{
 		{title: idLabel, min: 10, weight: 4},
 		{title: "read rate", min: 10, weight: 1, right: true},
 		{title: "write rate", min: 10, weight: 1, right: true},
 		{title: "read iops", min: 9, weight: 0, right: true},
 		{title: "write iops", min: 10, weight: 0, right: true},
+		{title: "enabled", min: 7, weight: 0},
+		{title: "lim read", min: 10, weight: 0, right: true},
+		{title: "lim write", min: 10, weight: 0, right: true},
+		{title: "res read", min: 10, weight: 0, right: true},
+		{title: "res write", min: 10, weight: 0, right: true},
 	}, dataRows))
 
 	title := m.styles.label.Render("IO Traffic  ") +
@@ -1810,15 +1920,15 @@ func (m model) renderIOShapingView(height int) string {
 		modeTabLabel(m.ioShapingMode, eos.IOShapingGroups, "g groups", m.styles) +
 		indicator
 
-	lines := []string{title, "", m.renderSimpleHeaderRow(columns, []string{idLabel, "read rate", "write rate", "read iops", "write iops"})}
+	lines := []string{title, "", m.renderSimpleHeaderRow(columns, headers)}
 
-	if m.ioShapingLoading && len(records) == 0 {
+	if m.ioShapingLoading && len(rows) == 0 {
 		lines = append(lines, "Loading...")
-	} else if len(records) == 0 {
+	} else if len(rows) == 0 {
 		lines = append(lines, "(no data)")
 	} else {
-		start, end := visibleWindow(len(records), m.ioShapingSelected, max(1, height-len(lines)))
-		lines[0] = title + renderScrollSummary(start, end, len(records))
+		start, end := visibleWindow(len(rows), m.ioShapingSelected, max(1, height-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(rows))
 		for i := start; i < end; i++ {
 			line := formatTableRow(columns, dataRows[i])
 			if i == m.ioShapingSelected {
@@ -2073,6 +2183,29 @@ func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// computeClusterHealth derives a health state string from already-loaded node
+// and filesystem data. This avoids calling `eos status` (which internally runs
+// the eos-status shell script and creates temporary files).
+// Returns "OK", "WARN", or "-" (if no data yet).
+func (m model) computeClusterHealth() string {
+	fsts := m.fsts
+	fss := m.fileSystems
+	if len(fsts) == 0 && len(fss) == 0 {
+		return "-"
+	}
+	for _, node := range fsts {
+		if strings.ToLower(node.Status) != "online" {
+			return "WARN"
+		}
+	}
+	for _, fs := range fss {
+		if strings.ToLower(fs.Boot) != "booted" {
+			return "WARN"
+		}
+	}
+	return "OK"
+}
+
 func (m model) visibleFSTs() []eos.FstRecord {
 	fsts := make([]eos.FstRecord, 0, len(m.fsts))
 	for _, node := range m.fsts {
@@ -2125,18 +2258,22 @@ func (m model) fstFilterValue(node eos.FstRecord) string {
 
 func (m model) fstFilterValueForColumn(node eos.FstRecord, column int) string {
 	switch fstFilterColumn(column) {
-	case fstFilterType:
-		return node.Type
-	case fstFilterStatus:
-		return node.Status
+	case fstFilterHostPort:
+		return node.HostPort
 	case fstFilterGeotag:
 		return node.Geotag
+	case fstFilterStatus:
+		return node.Status
 	case fstFilterActivated:
 		return node.Activated
 	case fstFilterHeartbeatDelta:
 		return fmt.Sprintf("%d", node.HeartbeatDelta)
 	case fstFilterNoFS:
 		return fmt.Sprintf("%d", node.FileSystemCount)
+	case fstFilterEOSVersion:
+		return node.EOSVersion
+	case fstFilterType:
+		return node.Type
 	default:
 		return node.HostPort
 	}
@@ -2218,6 +2355,8 @@ func (m model) lessNode(a, b eos.FstRecord) bool {
 		less = a.FileSystemCount < b.FileSystemCount
 	case fstSortHeartbeat:
 		less = a.HeartbeatDelta < b.HeartbeatDelta
+	case fstSortEOSVersion:
+		less = strings.Compare(a.EOSVersion, b.EOSVersion) < 0
 	default:
 		less = strings.Compare(a.HostPort, b.HostPort) < 0
 	}
@@ -2316,7 +2455,7 @@ func sortDirectionLabel(desc bool) string {
 // NOTE: When adding or removing columns, ensure the labels slice here
 // remains in exact sync with the dataRows in renderNodesList (renderFstView).
 func (m model) renderFstHeaderRow(columns []tableColumn) string {
-	labels := []string{"hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs"}
+	labels := []string{"hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs", "eos version"}
 	return m.renderSelectableHeaderRow(columns, labels, m.fstColumnSelected, m.fstSort, m.fstFilter)
 }
 
@@ -2430,18 +2569,22 @@ func (m model) renderFilterPopup() string {
 
 func (m model) fstFilterColumnLabel() string {
 	switch fstFilterColumn(m.fstFilter.column) {
-	case fstFilterType:
-		return "type"
-	case fstFilterStatus:
-		return "status"
+	case fstFilterHostPort:
+		return "hostport"
 	case fstFilterGeotag:
 		return "geotag"
+	case fstFilterStatus:
+		return "status"
 	case fstFilterActivated:
 		return "activated"
 	case fstFilterHeartbeatDelta:
 		return "heartbeatdelta"
 	case fstFilterNoFS:
 		return "nofs"
+	case fstFilterEOSVersion:
+		return "eos version"
+	case fstFilterType:
+		return "type"
 	default:
 		return "hostport"
 	}
@@ -2449,20 +2592,22 @@ func (m model) fstFilterColumnLabel() string {
 
 func (m model) fstSortColumnLabel() string {
 	switch fstSortColumn(m.fstSort.column) {
-	case fstSortType:
-		return "type"
 	case fstSortHostPort:
 		return "hostport"
-	case fstSortStatus:
-		return "status"
 	case fstSortGeotag:
 		return "geotag"
+	case fstSortStatus:
+		return "status"
 	case fstSortActivated:
 		return "activated"
-	case fstSortNoFS:
-		return "nofs"
 	case fstSortHeartbeat:
 		return "heartbeatdelta"
+	case fstSortNoFS:
+		return "nofs"
+	case fstSortEOSVersion:
+		return "eos version"
+	case fstSortType:
+		return "type"
 	case fstSortNone:
 		return "none"
 	default:
@@ -2689,7 +2834,7 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 }
 
 func nodeColumnCount() int {
-	return 7
+	return 7 // the 7 navigable visible columns; fstFilterType/fstSortType are not user-navigable
 }
 
 func fsColumnCount() int {
@@ -3171,15 +3316,20 @@ func splitViewHeights(total int) (int, int) {
 // The two panel borders together account for 4 lines (2 each), but because the
 // body must fill height+2 rendered lines (to offset the -2 in View's bodyHeight
 // formula), the net target is height+2.
-func adaptiveSplitHeights(height, naturalListContent int) (int, int) {
+func adaptiveSplitHeights(height, naturalListContent, naturalDetailContent int) (int, int) {
 	target := height + 2
-	// Default 2/3 split within the target space.
-	defaultList := max(4, (target*2)/3)
-	// Natural list height = content + 2 for its own border.
+	// Cap detail to its natural content + border so it never wastes space on
+	// large screens, but keep a minimum of 4.
+	naturalDetail := naturalDetailContent + 2
+	detailHeight := max(4, min(naturalDetail, target-4))
+
+	// List gets the remaining space, limited to its natural content height.
+	remaining := target - detailHeight
 	naturalList := naturalListContent + 2
-	listHeight := max(4, min(naturalList, defaultList))
-	detailHeight := max(4, target-listHeight)
-	// If both minimums exceed target, shrink the list.
+	defaultList := max(4, (target*2)/3)
+	listHeight := max(4, min(naturalList, max(remaining, defaultList)))
+
+	// Clamp: total must not exceed target.
 	if listHeight+detailHeight > target {
 		listHeight = max(4, target-detailHeight)
 	}
@@ -3251,6 +3401,8 @@ func equivalentNodeSortValue(column int, a, b eos.FstRecord) bool {
 		return a.FileSystemCount == b.FileSystemCount
 	case fstSortHeartbeat:
 		return a.HeartbeatDelta == b.HeartbeatDelta
+	case fstSortEOSVersion:
+		return a.EOSVersion == b.EOSVersion
 	default:
 		return a.HostPort == b.HostPort
 	}
@@ -3346,6 +3498,21 @@ func ioShapingTickCmd() tea.Cmd {
 	})
 }
 
+func loadIOShapingPoliciesCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		records, err := client.IOShapingPolicies(ctx)
+		return ioShapingPoliciesLoadedMsg{records: records, err: err}
+	}
+}
+
+func ioShapingPolicyTickCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return ioShapingPolicyTickMsg{}
+	})
+}
+
 func runSpaceConfigCmd(client *eos.Client, key, value string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.SpaceConfig(context.Background(), "default", key, value)
@@ -3365,7 +3532,7 @@ func (m model) selectedHostForView() string {
 		}
 	case viewQDB:
 		if m.qdbSelected >= 0 && m.qdbSelected < len(m.mgms) {
-			return eos.HostOnly(m.mgms[m.qdbSelected].HostPort)
+			return eos.HostOnly(m.mgms[m.qdbSelected].QDBHostPort)
 		}
 	case viewFST:
 		fsts := m.visibleFSTs()

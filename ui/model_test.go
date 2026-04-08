@@ -458,7 +458,7 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	// Populate enough data so every view renders at least one header row.
 	m.fsts = []eos.FstRecord{{HostPort: "fst:1095", Status: "online", Activated: "on", FileSystemCount: 1}}
 	m.fstsLoading = false
-	m.mgms = []eos.MgmRecord{{HostPort: "mgm:7777", Role: "leader", Status: "online", EOSVersion: "5.x"}}
+	m.mgms = []eos.MgmRecord{{HostPort: "mgm:1094", QDBHostPort: "mgm:7777", Role: "leader", Status: "online", EOSVersion: "5.x"}}
 	m.mgmsLoading = false
 	m.eosVersion = "5.x"
 	m.fileSystems = []eos.FileSystemRecord{{ID: 1, Host: "h", Path: "/p", Active: "online"}}
@@ -706,8 +706,8 @@ func TestSelectedHostForViewFST(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{
-		{HostPort: "fst01.cern.ch:1095", Status: "online"},
-		{HostPort: "fst02.cern.ch:1095", Status: "online"},
+		{HostPort: "fst01.cern.ch:1095", Status: "online", Type: "fst"},
+		{HostPort: "fst02.cern.ch:1095", Status: "online", Type: "fst"},
 	}
 	m.fstSelected = 1
 
@@ -736,8 +736,8 @@ func TestSelectedHostForViewQDB(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "qdb01.cern.ch:7777", Role: "leader"},
-		{HostPort: "qdb02.cern.ch:7777", Role: "follower"},
+		{QDBHostPort: "qdb01.cern.ch:7777", Role: "leader"},
+		{QDBHostPort: "qdb02.cern.ch:7777", Role: "follower"},
 	}
 	m.qdbSelected = 1
 
@@ -852,8 +852,8 @@ func TestQDBNavigationUpDown(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "qdb01:7777", Role: "leader"},
-		{HostPort: "qdb02:7777", Role: "follower"},
+		{QDBHostPort: "qdb01:7777", Role: "leader"},
+		{QDBHostPort: "qdb02:7777", Role: "follower"},
 	}
 	m.qdbSelected = 0
 
@@ -899,8 +899,8 @@ func TestQDBViewShowsSelectedRow(t *testing.T) {
 	m.activeView = viewQDB
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{HostPort: "qdb01.cern.ch:7777", Role: "leader", Status: "online", EOSVersion: "5.3.29"},
-		{HostPort: "qdb02.cern.ch:7777", Role: "follower", Status: "online", EOSVersion: "5.3.29"},
+		{QDBHostPort: "qdb01.cern.ch:7777", Role: "leader", Status: "online", EOSVersion: "5.3.29"},
+		{QDBHostPort: "qdb02.cern.ch:7777", Role: "follower", Status: "online", EOSVersion: "5.3.29"},
 	}
 	m.qdbSelected = 1
 
@@ -938,4 +938,172 @@ func padIndex(i int) string {
 		return "0" + strconv.Itoa(i)
 	}
 	return strconv.Itoa(i)
+}
+
+// TestFSTFilterColumnAlignment verifies that every navigable column index
+// (0 .. nodeColumnCount-1) maps to the correct field in fstFilterValueForColumn.
+// This is a regression test for the off-by-one bug where fstFilterType=0 sat
+// before fstFilterHostPort in the iota, causing visual column [hostport] (i=0)
+// to actually filter by the Type field.
+func TestFSTFilterColumnAlignment(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+
+	node := eos.FstRecord{
+		HostPort:        "fst01.cern.ch:1095",
+		Geotag:          "cern::prod",
+		Status:          "online",
+		Activated:       "on",
+		HeartbeatDelta:  3,
+		FileSystemCount: 4,
+		EOSVersion:      "5.2.7",
+		Type:            "fst",
+	}
+
+	cases := []struct {
+		column  fstFilterColumn
+		label   string
+		wantVal string
+	}{
+		{fstFilterHostPort, "hostport", node.HostPort},
+		{fstFilterGeotag, "geotag", node.Geotag},
+		{fstFilterStatus, "status", node.Status},
+		{fstFilterActivated, "activated", node.Activated},
+		{fstFilterHeartbeatDelta, "heartbeatdelta", "3"},
+		{fstFilterNoFS, "nofs", "4"},
+		{fstFilterEOSVersion, "eos version", node.EOSVersion},
+	}
+
+	for _, tc := range cases {
+		col := int(tc.column)
+
+		// Each navigable column index must be within nodeColumnCount.
+		if col >= nodeColumnCount() {
+			t.Errorf("column %s (index %d) is >= nodeColumnCount (%d)", tc.label, col, nodeColumnCount())
+		}
+
+		// fstFilterValueForColumn must return the correct field.
+		got := m.fstFilterValueForColumn(node, col)
+		if got != tc.wantVal {
+			t.Errorf("column %s (index %d): fstFilterValueForColumn = %q, want %q", tc.label, col, got, tc.wantVal)
+		}
+
+		// fstFilterColumnLabel must return the right label for the column.
+		m.fstFilter.column = col
+		gotLabel := m.fstFilterColumnLabel()
+		if gotLabel != tc.label {
+			t.Errorf("column index %d: fstFilterColumnLabel = %q, want %q", col, gotLabel, tc.label)
+		}
+	}
+
+	// fstFilterType must NOT be navigable (its index must be >= nodeColumnCount).
+	if int(fstFilterType) < nodeColumnCount() {
+		t.Errorf("fstFilterType index %d is navigable (< nodeColumnCount %d); it should be hidden", fstFilterType, nodeColumnCount())
+	}
+}
+
+// TestFSTFilterAppliesCorrectField sets a filter on the hostport column and
+// verifies that only the hostport field is used for matching (not the type field).
+func TestFSTFilterAppliesCorrectField(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+
+	m.fsts = []eos.FstRecord{
+		{HostPort: "alpha.cern.ch:1095", Type: "fst", FileSystemCount: 1},
+		{HostPort: "beta.cern.ch:1095", Type: "fst", FileSystemCount: 1},
+		{HostPort: "gamma.cern.ch:1095", Type: "fst", FileSystemCount: 1},
+	}
+
+	// Filter hostport column for "alpha".
+	m.fstFilter.filters = map[int]string{int(fstFilterHostPort): "alpha"}
+
+	visible := m.visibleFSTs()
+	if len(visible) != 1 {
+		t.Fatalf("expected 1 visible FST after hostport filter, got %d", len(visible))
+	}
+	if visible[0].HostPort != "alpha.cern.ch:1095" {
+		t.Errorf("expected alpha.cern.ch:1095, got %q", visible[0].HostPort)
+	}
+}
+
+// TestIOShapingMergedRowsIncludesPolicyOnly verifies that ioShapingMergedRows
+// returns rows for policy-only entries (no current traffic) as well as
+// traffic-only and combined entries — and that the result is sorted by id.
+func TestIOShapingMergedRowsIncludesPolicyOnly(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.ioShapingMode = eos.IOShapingApps
+
+	m.ioShaping = []eos.IOShapingRecord{
+		{ID: "app-traffic", Type: "app", ReadBps: 1e6},
+		{ID: "app-both", Type: "app", WriteBps: 2e6},
+	}
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "app-both", Type: "app", Enabled: true, LimitWriteBytesPerSec: 5e9},
+		{ID: "app-policy-only", Type: "app", Enabled: false, LimitWriteBytesPerSec: 1e9},
+	}
+
+	rows := m.ioShapingMergedRows()
+
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 merged rows (traffic-only, both, policy-only), got %d", len(rows))
+	}
+
+	// Rows must be sorted alphabetically by id.
+	ids := make([]string, len(rows))
+	for i, r := range rows {
+		ids[i] = r.id
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i] < ids[i-1] {
+			t.Errorf("rows not sorted: %v", ids)
+			break
+		}
+	}
+
+	byID := make(map[string]ioShapingMergedRow, len(rows))
+	for _, r := range rows {
+		byID[r.id] = r
+	}
+
+	// app-traffic: traffic present, no policy.
+	if r := byID["app-traffic"]; r.traffic == nil || r.policy != nil {
+		t.Errorf("app-traffic: expected traffic=set policy=nil, got traffic=%v policy=%v", r.traffic, r.policy)
+	}
+	// app-both: both traffic and policy present.
+	if r := byID["app-both"]; r.traffic == nil || r.policy == nil {
+		t.Errorf("app-both: expected traffic=set policy=set, got traffic=%v policy=%v", r.traffic, r.policy)
+	}
+	// app-policy-only: policy present, no traffic.
+	if r := byID["app-policy-only"]; r.traffic != nil || r.policy == nil {
+		t.Errorf("app-policy-only: expected traffic=nil policy=set, got traffic=%v policy=%v", r.traffic, r.policy)
+	}
+}
+
+// TestIOShapingNavigationIncludesPolicyOnlyRows verifies that the navigation
+// bound (n) used in updateIOShapingKeys accounts for policy-only rows so the
+// user can navigate to them with j/down.
+func TestIOShapingNavigationIncludesPolicyOnlyRows(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+
+	// One traffic record, one policy-only record → merged count = 2.
+	m.ioShaping = []eos.IOShapingRecord{
+		{ID: "app-a", Type: "app"},
+	}
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "app-b", Type: "app", Enabled: true},
+	}
+
+	if got := len(m.ioShapingMergedRows()); got != 2 {
+		t.Fatalf("expected 2 merged rows, got %d", got)
+	}
+
+	// Simulate pressing "down" from row 0 — should reach row 1 (policy-only).
+	m.ioShapingSelected = 0
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}
+	updated, _ := m.Update(msg)
+	m2 := updated.(model)
+
+	if m2.ioShapingSelected != 1 {
+		t.Errorf("after pressing j, expected ioShapingSelected=1, got %d", m2.ioShapingSelected)
+	}
 }

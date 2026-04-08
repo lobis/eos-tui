@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseStatusHealth(t *testing.T) {
-	input := "instance: eosdev\n          health:     OK       \n"
-	if got := parseStatusHealth(input); got != "OK" {
-		t.Fatalf("expected OK, got %q", got)
-	}
-}
-
 func TestParseLabeledValues(t *testing.T) {
 	input := `
 ALL      Files                            78 [booted] (0s)

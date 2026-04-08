@@ -145,12 +145,13 @@ type FstRecord struct {
 }
 
 type MgmRecord struct {
-	HostPort   string
-	Role       string
-	Geotag     string
-	Status     string
-	Heartbeat  string
-	EOSVersion string
+	HostPort    string // MGM service port (e.g. hostname:1094)
+	QDBHostPort string // QDB/raft port (e.g. hostname:7777)
+	Role        string
+	Geotag      string
+	Status      string
+	Heartbeat   string
+	EOSVersion  string
 }
 
 type FileSystemRecord struct {
@@ -230,6 +231,16 @@ type IOShapingRecord struct {
 	WriteIOPS float64
 }
 
+type IOShapingPolicyRecord struct {
+	ID                          string
+	Type                        string
+	Enabled                     bool
+	LimitReadBytesPerSec        float64
+	LimitWriteBytesPerSec       float64
+	ReservationReadBytesPerSec  float64
+	ReservationWriteBytesPerSec float64
+}
+
 func New(_ context.Context, cfg Config) (*Client, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -267,6 +278,11 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	if info.Leader == "" && len(info.Nodes) == 0 {
 		return nil, fmt.Errorf("no MGM cluster info from raft-info")
 	}
+
+	// Fetch the MGM service port from `eos ns stat` via master_id
+	// (e.g. "eospilot-ns-02.cern.ch:1094"). The raft nodes use the QDB port
+	// (7777); the actual MGM port must be read from the namespace.
+	mgmPort := mgmPortFromNsStat(c)
 
 	// Determine leader hostname (strip raft port :7777)
 	leaderHost := hostOnly(info.Leader)
@@ -314,10 +330,11 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 		}
 
 		mgms = append(mgms, MgmRecord{
-			HostPort:   node,
-			Role:       role,
-			Status:     status,
-			EOSVersion: version,
+			HostPort:    host + ":" + mgmPort,
+			QDBHostPort: node, // raw raft address (hostname:7777)
+			Role:        role,
+			Status:      status,
+			EOSVersion:  version,
 		})
 	}
 
@@ -330,6 +347,35 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	})
 
 	return mgms, nil
+}
+
+// mgmPortFromNsStat fetches the MGM service port by reading master_id from
+// `eos ns stat`.  master_id is of the form "hostname:port" (e.g.
+// "eospilot-ns-02.cern.ch:1094"). Falls back to "1094" on any error.
+func mgmPortFromNsStat(c *Client) string {
+	const fallback = "1094"
+
+	out, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
+	if err != nil {
+		return fallback
+	}
+
+	var payload struct {
+		Result []struct {
+			Master string `json:"master_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble(out), &payload); err != nil || len(payload.Result) == 0 {
+		return fallback
+	}
+
+	masterID := payload.Result[0].Master // e.g. "eospilot-ns-02.cern.ch:1094"
+	if idx := strings.LastIndex(masterID, ":"); idx != -1 {
+		if port := masterID[idx+1:]; port != "" {
+			return port
+		}
+	}
+	return fallback
 }
 
 // raftReplica holds the parsed status of a single replica node from raft-info.
@@ -817,19 +863,17 @@ func (c *Client) StatPath(ctx context.Context, rawPath string) (Entry, error) {
 }
 
 func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
-	statusOut, err := c.runCommand("eos", "-b", "status")
-	if err != nil {
-		return NodeStats{}, fmt.Errorf("eos status: %w", err)
-	}
-
+	// Fetch namespace stats via eos ns stat (plain text format).
+	// State (health) is not fetched here; it is derived in the UI from the
+	// already-loaded node and filesystem data, avoiding a redundant call to
+	// `eos status` which internally runs the eos-status shell script and
+	// creates temporary files under /tmp.
 	nsStatOut, err := c.runCommand("eos", "-b", "ns", "stat")
 	if err != nil {
 		return NodeStats{}, fmt.Errorf("eos ns stat: %w", err)
 	}
 
-	stats := NodeStats{
-		State: parseStatusHealth(string(statusOut)),
-	}
+	stats := NodeStats{}
 
 	values := parseLabeledValues(string(nsStatOut))
 	stats.FileCount = parseUint(values["Files"])
@@ -984,6 +1028,41 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 	return records, nil
 }
 
+func (c *Client) IOShapingPolicies(ctx context.Context) ([]IOShapingPolicyRecord, error) {
+	_ = ctx
+	output, err := c.runCommand("eos", "io", "shaping", "policy", "ls", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("io shaping policy ls: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	var raw []struct {
+		ID                          string  `json:"id"`
+		Type                        string  `json:"type"`
+		Enabled                     bool    `json:"is_enabled"`
+		LimitReadBytesPerSec        float64 `json:"limit_read_bytes_per_sec"`
+		LimitWriteBytesPerSec       float64 `json:"limit_write_bytes_per_sec"`
+		ReservationReadBytesPerSec  float64 `json:"reservation_read_bytes_per_sec"`
+		ReservationWriteBytesPerSec float64 `json:"reservation_write_bytes_per_sec"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble(output), &raw); err != nil {
+		return nil, fmt.Errorf("parse io shaping policy: %w", err)
+	}
+
+	records := make([]IOShapingPolicyRecord, len(raw))
+	for i, r := range raw {
+		records[i] = IOShapingPolicyRecord{
+			ID:                          r.ID,
+			Type:                        r.Type,
+			Enabled:                     r.Enabled,
+			LimitReadBytesPerSec:        r.LimitReadBytesPerSec,
+			LimitWriteBytesPerSec:       r.LimitWriteBytesPerSec,
+			ReservationReadBytesPerSec:  r.ReservationReadBytesPerSec,
+			ReservationWriteBytesPerSec: r.ReservationWriteBytesPerSec,
+		}
+	}
+	return records, nil
+}
+
 func (c *Client) runCommand(args ...string) ([]byte, error) {
 	c.logCommand(args)
 
@@ -1083,17 +1162,6 @@ func stripEOSPreamble(b []byte) []byte {
 // shellQuote wraps s in single quotes, escaping any embedded single quotes.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func parseStatusHealth(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "health:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "health:"))
-		}
-	}
-
-	return "-"
 }
 
 func toUint64(v any) uint64 {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -643,12 +645,37 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 }
 
 func (c *Client) runCommand(args ...string) ([]byte, error) {
+	c.logCommand(args)
 	if c.sshTarget == "" {
 		return exec.Command(args[0], args[1:]...).CombinedOutput()
 	}
 
 	remoteCommand := strings.Join(args, " ")
 	return exec.Command("ssh", "-o", "BatchMode=yes", c.sshTarget, remoteCommand).CombinedOutput()
+}
+
+func (c *Client) logCommand(args []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	logDir := filepath.Join(home, ".eos-tui")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return
+	}
+
+	logFile := filepath.Join(logDir, "history.log")
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	command := strings.Join(args, " ")
+	line := fmt.Sprintf("[%s] %s\n", timestamp, command)
+	_, _ = f.WriteString(line)
 }
 
 func parseStatusHealth(output string) string {

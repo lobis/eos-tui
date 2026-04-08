@@ -78,7 +78,7 @@ type NodeStats struct {
 	FileDescs   uint64
 }
 
-type NodeRecord struct {
+type FstRecord struct {
 	Type            string
 	HostPort        string
 	Geotag          string
@@ -198,7 +198,7 @@ func (c *Client) NodeStats(ctx context.Context) (NodeStats, error) {
 	return c.nodeStatsViaCLI()
 }
 
-func (c *Client) Nodes(ctx context.Context) ([]NodeRecord, error) {
+func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 	_ = ctx
 
 	output, err := c.runCommand("eos", "-j", "-b", "node", "ls")
@@ -258,14 +258,14 @@ func (c *Client) Nodes(ctx context.Context) ([]NodeRecord, error) {
 		return nil, err
 	}
 
-	nodes := make([]NodeRecord, 0, len(payload.Result))
+	nodes := make([]FstRecord, 0, len(payload.Result))
 	for _, item := range payload.Result {
 		geotag := item.Geotag
 		if geotag == "" {
 			geotag = item.Cfg.Stat.Geotag
 		}
 
-		nodes = append(nodes, NodeRecord{
+		nodes = append(nodes, FstRecord{
 			Type:            item.Type,
 			HostPort:        item.HostPort,
 			Geotag:          geotag,

@@ -59,7 +59,7 @@ func TestModelRendersLoadedNodeData(t *testing.T) {
 			DirCount:    7,
 			FileDescs:   42,
 		},
-		nodes: []eos.NodeRecord{
+		nodes: []eos.FstRecord{
 			{
 				Type:            "nodesview",
 				HostPort:        "host:1095",
@@ -128,7 +128,7 @@ func TestViewFitsWindowHeight(t *testing.T) {
 		DirCount:    19,
 		FileDescs:   553,
 	}
-	m.nodes = []eos.NodeRecord{{
+	m.nodes = []eos.FstRecord{{
 		HostPort:        "lobisapa-dev.cern.ch:1095",
 		Status:          "online",
 		Activated:       "on",
@@ -227,7 +227,7 @@ func TestNarrowResizeStillFitsWindowHeight(t *testing.T) {
 
 func TestVisibleNodesFilterByStatus(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.nodes = []eos.NodeRecord{
+	m.nodes = []eos.FstRecord{
 		{HostPort: "b:1095", Status: "offline", FileSystemCount: 1},
 		{HostPort: "a:1095", Status: "online", FileSystemCount: 5},
 		{HostPort: "c:1095", Status: "online", FileSystemCount: 3},
@@ -246,7 +246,7 @@ func TestVisibleNodesFilterByStatus(t *testing.T) {
 
 func TestVisibleNodesSortByFileSystemsDesc(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.nodes = []eos.NodeRecord{
+	m.nodes = []eos.FstRecord{
 		{HostPort: "b:1095", Status: "online", FileSystemCount: 1},
 		{HostPort: "a:1095", Status: "online", FileSystemCount: 5},
 		{HostPort: "c:1095", Status: "online", FileSystemCount: 3},
@@ -278,7 +278,7 @@ func TestVisibleFileSystemsSortByUsedDesc(t *testing.T) {
 
 func TestFilterPopupAppliesToNodes(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.nodes = []eos.NodeRecord{
+	m.nodes = []eos.FstRecord{
 		{HostPort: "alpha:1095", Status: "online"},
 		{HostPort: "beta:1095", Status: "offline"},
 	}
@@ -308,7 +308,7 @@ func TestNodesRenderBeforeStatsArrive(t *testing.T) {
 	m.height = 24
 
 	updated, _ := m.Update(nodesLoadedMsg{
-		nodes: []eos.NodeRecord{
+		nodes: []eos.FstRecord{
 			{HostPort: "fast-node:1095", Status: "online", Activated: "on", Geotag: "local", FileSystemCount: 5},
 		},
 	})
@@ -373,7 +373,7 @@ func TestNodeSortCyclesOnSelectedColumn(t *testing.T) {
 
 func TestNodeEnumFilterCyclesOnSelectedColumn(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.nodes = []eos.NodeRecord{
+	m.nodes = []eos.FstRecord{
 		{HostPort: "a:1095", Status: "online"},
 		{HostPort: "b:1095", Status: "offline"},
 	}
@@ -398,7 +398,7 @@ func TestHeaderShowsSelectedAndSortedColumn(t *testing.T) {
 	m.nodesLoading = false
 	m.nodeColumnSelected = int(nodeFilterHostPort)
 	m.nodeSort = sortState{column: int(nodeSortHostPort)}
-	m.nodes = []eos.NodeRecord{{HostPort: "a:1095"}}
+	m.nodes = []eos.FstRecord{{HostPort: "a:1095"}}
 
 	view := m.renderNodesList(m.contentWidth(), 10)
 	if !strings.Contains(view, "[hostport") || !strings.Contains(view, "hostport↑") {
@@ -408,7 +408,7 @@ func TestHeaderShowsSelectedAndSortedColumn(t *testing.T) {
 
 func TestFilterPopupCanBeCancelled(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.nodes = []eos.NodeRecord{{HostPort: "alpha:1095"}}
+	m.nodes = []eos.FstRecord{{HostPort: "alpha:1095"}}
 	m.nodeColumnSelected = int(nodeFilterHostPort)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})

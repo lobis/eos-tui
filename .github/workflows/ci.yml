@@ -22,9 +22,9 @@ on:
   workflow_dispatch:
     inputs:
       eos_image_tag:
-        description: 'EOS image tag (e.g. 5.4.1)'
+        description: 'EOS image tag including OS suffix (e.g. 5.4.1.el9)'
         required: false
-        default: '5.4.1'
+        default: '5.4.1.el9'
 
 permissions:
   contents: read
@@ -88,9 +88,14 @@ jobs:
       # -----------------------------------------------------------------------
       # Docker image cache
       #
-      # The EOS "eos-all" image is large. We save it as a tar after the first
+      # The EOS "eos-ci" image is large. We save it as a tar after the first
       # pull and restore it on subsequent runs to avoid hitting the CERN
       # registry every time.
+      #
+      # The public image is gitlab-registry.cern.ch/dss/eos/eos-ci.
+      # Tags follow the CERN convention: <version>.el9 (e.g. 5.4.1.el9).
+      # The "eos-all" variant is hosted on a private CERN registry and is not
+      # accessible from GitHub Actions runners.
       # -----------------------------------------------------------------------
 
       - name: Cache EOS Docker image
@@ -98,15 +103,16 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /tmp/eos-image.tar
-          key: eos-docker-image-${{ inputs.eos_image_tag || '5.4.1' }}
+          key: eos-docker-image-${{ inputs.eos_image_tag || '5.4.1.el9' }}
 
       - name: Pull and save EOS Docker image
         if: steps.cache-eos-image.outputs.cache-hit != 'true'
         env:
-          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1' }}
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
         run: |
-          docker pull gitlab-registry.cern.ch/dss/eos/eos-all:${EOS_IMAGE_TAG}
-          docker save gitlab-registry.cern.ch/dss/eos/eos-all:${EOS_IMAGE_TAG} \
+          docker pull ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
+          docker save ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG} \
             -o /tmp/eos-image.tar
 
       - name: Load EOS Docker image from cache
@@ -122,10 +128,11 @@ jobs:
 
       - name: Load EOS image into kind
         env:
-          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1' }}
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
         run: |
           kind load docker-image \
-            gitlab-registry.cern.ch/dss/eos/eos-all:${EOS_IMAGE_TAG}
+            ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
 
       # -----------------------------------------------------------------------
       # Helm chart cache
@@ -135,7 +142,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/helm
-          key: helm-eos-chart-${{ inputs.eos_image_tag || '5.4.1' }}
+          key: helm-eos-chart-${{ inputs.eos_image_tag || '5.4.1.el9' }}
 
       # -----------------------------------------------------------------------
       # EOS cluster
@@ -143,12 +150,17 @@ jobs:
 
       - name: Deploy EOS via Helm chart
         env:
-          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1' }}
+          EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
+          EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
         run: |
-          # The chart's default image is gitlab-registry.cern.ch/dss/eos/eos-all.
-          # A minimal cluster: 1 QDB (single-node raft), 1 MGM (+MQ sidecar), 2 FSTs.
+          # Deploy a minimal EOS cluster: 1 QDB (single-node raft), 1 MGM (+MQ sidecar), 2 FSTs.
+          # Uses the publicly accessible eos-ci image pre-loaded into the kind cluster.
+          # global.pullPolicy=IfNotPresent ensures k8s uses the locally pre-loaded image
+          # instead of attempting to re-pull from the CERN registry.
           helm install eos oci://registry.cern.ch/eos/charts/server \
+            --set "global.repository=${EOS_IMAGE_REPO}" \
             --set "global.tag=${EOS_IMAGE_TAG}" \
+            --set "global.pullPolicy=IfNotPresent" \
             --set "fst.replicaCount=2" \
             --set "qdb.replicaCount=1" \
             --set "global.securityContext.privileged=true" \

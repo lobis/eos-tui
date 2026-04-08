@@ -11,6 +11,7 @@ This repository contains a Go TUI for EOS, inspired by k9s.
 
 ## Verification
 
+- **CRITICAL**: Always run `go build ./...` and `go test ./...` after any code change and before declaring a task complete.
 - Run `go test ./...`
 - If relevant, run a local build with `go build ./...`
 - Deploy with `make deploy-both`

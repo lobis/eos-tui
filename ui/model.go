@@ -3304,22 +3304,35 @@ func splitViewHeights(total int) (int, int) {
 // formula), the net target is height+2.
 func adaptiveSplitHeights(height, naturalListContent, naturalDetailContent int) (int, int) {
 	target := height + 2
-	// Cap detail to its natural content + border so it never wastes space on
-	// large screens, but keep a minimum of 4.
-	naturalDetail := naturalDetailContent + 2
-	detailHeight := max(4, min(naturalDetail, target-4))
-
-	// List gets the remaining space, limited to its natural content height.
-	remaining := target - detailHeight
 	naturalList := naturalListContent + 2
-	defaultList := max(4, (target*2)/3)
-	listHeight := max(4, min(naturalList, max(remaining, defaultList)))
+	naturalDetail := naturalDetailContent + 2
 
-	// Clamp: total must not exceed target.
-	if listHeight+detailHeight > target {
-		listHeight = max(4, target-detailHeight)
+	// Constants for minimum usable heights.
+	const minList = 6
+	const minDetail = 8
+
+	// If everything fits within the total target, we still want to consume the
+	// full height so the footer is at the bottom. Give extra space to details.
+	if naturalList+naturalDetail <= target {
+		return target - naturalDetail, naturalDetail
 	}
-	return listHeight, detailHeight
+
+	// If the list is small enough to fit alongside the full details, prioritize
+	// showing the list in full and give everything else to details.
+	if naturalList <= target-naturalDetail {
+		return naturalList, target - naturalList
+	}
+
+	// If the list is large, let it consume as much as it needs to "fit" its rows,
+	// capped only by the minimum space we must reserve for the details panel.
+	listHeight := min(naturalList, target-minDetail)
+	if listHeight < minList {
+		listHeight = minList
+	}
+
+	// Final clamp to ensure nothing is below the absolute minimum of 4.
+	listH := max(4, listHeight)
+	return listH, target - listH
 }
 
 // contentAwareColumns adjusts the min width of each column to be at least as

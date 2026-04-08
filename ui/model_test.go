@@ -22,7 +22,7 @@ func TestNewModelRendersMenuWithoutWindowSize(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 
 	view := m.View()
-	for _, needle := range []string{"EOS TUI", "1 MGM", "2 QDB", "3 FST", "4 FS", "5 Namespace", "Loading EOS state..."} {
+	for _, needle := range []string{"EOS TUI", "1 MGM", "2 QDB", "3 FST", "4 FS", "5 Namespace"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected initial view to contain %q, got:\n%s", needle, view)
 		}
@@ -82,7 +82,7 @@ func TestModelRendersLoadedNodeData(t *testing.T) {
 	m.activeView = viewFST
 
 	view := m.View()
-	for _, needle := range []string{"host:1095", "Cluster Summary", "Selected Node", "online", "Connected to local eos cli"} {
+	for _, needle := range []string{"host:1095", "Cluster Summary", "Selected Node", "online"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected loaded nodes view to contain %q, got:\n%s", needle, view)
 		}

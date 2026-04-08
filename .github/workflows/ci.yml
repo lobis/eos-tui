@@ -216,6 +216,7 @@ jobs:
       # -----------------------------------------------------------------------
 
       - name: Set up SSH access to EOS MGM
+        timeout-minutes: 5
         run: |
           # Generate an ephemeral SSH key pair (no passphrase).
           mkdir -p ~/.ssh
@@ -229,10 +230,31 @@ jobs:
 
           # Install openssh-server + socat, then configure sshd and the QDB
           # proxy tunnel inside the MGM container.
+          #
+          # dnf can hang if the container's repos (e.g. CERN mirrors) are
+          # unreachable from inside the kind cluster, so we:
+          #   - wrap with `timeout 120` to cap the total time,
+          #   - set per-connection timeout to 30s via --setopt,
+          #   - disable weak-dep pulls and GPG checks for speed,
+          #   - disable any non-base repos that might be unreachable.
           kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- bash -c "
             set -e
             echo '--- Installing openssh-server and socat ---'
-            dnf install -y openssh-server socat 2>&1 | tail -5
+
+            # Disable any non-standard repos that may be unreachable from kind.
+            for f in /etc/yum.repos.d/*.repo; do
+              case \"\$(basename \"\$f\")\" in
+                alma*|rocky*|centos*|baseos*|appstream*|extras*|crb*) ;;
+                *) echo \"  disabling repo file: \$f\"
+                   sed -i 's/^enabled=1/enabled=0/' \"\$f\" 2>/dev/null || true ;;
+              esac
+            done
+
+            timeout 120 dnf install -y \
+              --nogpgcheck \
+              --setopt=timeout=30 \
+              --setopt=install_weak_deps=False \
+              openssh-server socat 2>&1 | tail -10
 
             echo '--- Configuring authorized_keys ---'
             mkdir -p /root/.ssh

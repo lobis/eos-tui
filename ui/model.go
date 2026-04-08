@@ -3229,6 +3229,9 @@ func formatTimeShort(value time.Time) string {
 }
 
 func truncate(value string, width int) string {
+	// Ensure we don't have newlines which would break the 1-line layout.
+	value = strings.ReplaceAll(value, "\n", " ")
+
 	if width <= 0 || lipgloss.Width(value) <= width {
 		return value
 	}

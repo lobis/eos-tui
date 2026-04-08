@@ -180,7 +180,7 @@ jobs:
           EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
           EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
         run: |
-          # Deploy a minimal EOS cluster: 1 QDB (single-node raft), 1 MGM (+MQ sidecar), 2 FSTs.
+          # Deploy a minimal EOS cluster: 1 QDB (single-node raft), 1 MGM, 2 FSTs.
           # Uses the publicly accessible eos-ci image pre-loaded into the kind cluster.
           # global.pullPolicy=IfNotPresent ensures k8s uses the locally pre-loaded image
           # instead of attempting to re-pull from the CERN registry.
@@ -234,8 +234,11 @@ jobs:
       #      This makes `redis-cli -p 7777 raft-info` work from the MGM pod,
       #      which is needed by TestIntegrationMGMs and
       #      TestIntegrationDiscoverMGMMaster.
-      #   5. kubectl port-forward the container's port 2222 to the runner.
-      #   6. Write an SSH client config block mapping the alias "eos-mgm" to
+      #   5. Extract the QDB password and set REDISCLI_AUTH in the SSH
+      #      environment so that redis-cli auto-authenticates through the
+      #      socat tunnel (QDB rejects unauthenticated remote connections).
+      #   6. kubectl port-forward the container's port 2222 to the runner.
+      #   7. Write an SSH client config block mapping the alias "eos-mgm" to
       #      localhost:2222 with the ephemeral key — no code changes needed.
       # -----------------------------------------------------------------------
 
@@ -251,6 +254,24 @@ jobs:
           MGM_CONTAINER=$(kubectl get pod eos-mgm-0 \
             -o jsonpath='{.spec.containers[0].name}')
           echo "Using MGM container: ${MGM_CONTAINER}"
+
+          # Extract the QDB password so redis-cli can authenticate through
+          # the socat tunnel.  QuarkDB stores the password file next to the
+          # database; the exact path depends on the Helm chart, so we search.
+          QDB_CONTAINER=$(kubectl get pod eos-qdb-0 \
+            -o jsonpath='{.spec.containers[0].name}')
+          echo "Using QDB container: ${QDB_CONTAINER}"
+
+          QDB_PASSWORD=$(kubectl exec eos-qdb-0 -c "${QDB_CONTAINER}" -- bash -c "
+            f=\$(find /var -name 'quarkdb-password' -type f 2>/dev/null | head -1)
+            if [ -n \"\$f\" ]; then cat \"\$f\"; fi
+          " 2>/dev/null || true)
+
+          if [ -n "${QDB_PASSWORD}" ]; then
+            echo "Found QDB password (length=${#QDB_PASSWORD})"
+          else
+            echo "WARNING: QDB password not found; redis-cli raft-info may fail"
+          fi
 
           # Install openssh-server + socat, then configure sshd and the QDB
           # proxy tunnel inside the MGM container.
@@ -299,6 +320,7 @@ jobs:
               -o PubkeyAuthentication=yes \
               -o PasswordAuthentication=no \
               -o AuthorizedKeysFile=/root/.ssh/authorized_keys \
+              -o PermitUserEnvironment=yes \
               -o PrintLastLog=no \
               -o PrintMotd=no
             echo 'sshd running'
@@ -309,6 +331,16 @@ jobs:
               </dev/null >/dev/null 2>&1 &
             echo 'socat tunnel started'
           "
+
+          # Write REDISCLI_AUTH into the SSH environment file on the MGM pod.
+          # Piping avoids nested-quoting issues if the password contains
+          # shell metacharacters.
+          echo "--- Setting up REDISCLI_AUTH for QDB authentication ---"
+          printf 'REDISCLI_AUTH=%s\n' "${QDB_PASSWORD}" \
+            | kubectl exec -i eos-mgm-0 -c "${MGM_CONTAINER}" \
+                -- tee /root/.ssh/environment >/dev/null
+          kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" \
+            -- chmod 600 /root/.ssh/environment
 
           # Port-forward the MGM's sshd to the runner.
           kubectl port-forward pod/eos-mgm-0 2222:2222 &

@@ -1255,6 +1255,7 @@ type cliFileInfo struct {
 	TreeFiles      uint64        `json:"treefiles"`
 	TreeSize       int64         `json:"treesize"`
 	UID            uint32        `json:"uid"`
+	LinkTarget     string        `json:"link"`
 }
 
 type cliLocation struct {
@@ -1315,8 +1316,8 @@ func (c *Client) fetchCLIFileInfo(rawPath string) (cliFileInfo, error) {
 }
 
 func entryFromCLI(info cliFileInfo) Entry {
-	fullPath := cleanPath(info.Path)
-	name := info.Name
+	fullPath := cleanPath(strings.TrimSpace(info.Path))
+	name := strings.TrimSpace(info.Name)
 	if name == "" && fullPath == "/" {
 		name = "/"
 	}
@@ -1342,7 +1343,8 @@ func entryFromCLI(info cliFileInfo) Entry {
 		Flags:      info.Flags,
 		Mode:       info.Mode,
 		Locations:  len(info.Locations),
-		ETag:       info.ETag,
+		LinkName:   strings.TrimSpace(info.LinkTarget),
+		ETag:       strings.TrimSpace(info.ETag),
 		ModifiedAt: time.Unix(info.MTime, info.MTimeNS).UTC(),
 		ChangedAt:  time.Unix(info.CTime, info.CTimeNS).UTC(),
 	}

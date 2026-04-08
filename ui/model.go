@@ -2028,8 +2028,19 @@ func (m model) renderNamespaceView(height int) string {
 		naturalListContent = 4 // Title, blank, header, "(empty)" or hint
 	}
 
-	// Details have ~10 lines of metrics/info.
-	naturalDetailContent := 10
+	// Details have dynamic height: 7 base lines + 2 for container/file info + optional link line.
+	naturalDetailContent := 9
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		if selected.Kind != eos.EntryKindContainer {
+			if selected.LinkName != "" {
+				naturalDetailContent = 10
+			}
+		}
+	} else if m.directory.Self.Kind != eos.EntryKindContainer {
+		if m.directory.Self.LinkName != "" {
+			naturalDetailContent = 10
+		}
+	}
 
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
 

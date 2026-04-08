@@ -268,6 +268,11 @@ jobs:
             echo '--- Removing nologin gate (pam_nologin) ---'
             rm -f /run/nologin /etc/nologin /var/run/nologin
 
+            echo '--- Writing minimal sshd config for CI (disable container-incompatible PAM modules) ---'
+            mkdir -p /etc/ssh/sshd_config.d
+            printf 'PermitRootLogin yes\nPubkeyAuthentication yes\nAuthorizedKeysFile .ssh/authorized_keys\nPasswordAuthentication no\nUsePAM no\nPrintLastLog no\nPrintMotd no\n' \
+              > /etc/ssh/sshd_config.d/ci.conf
+
             echo '--- Starting sshd on port 2222 ---'
             /usr/sbin/sshd -p 2222
             echo 'sshd running'

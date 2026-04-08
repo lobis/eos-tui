@@ -131,7 +131,10 @@ jobs:
           EOS_IMAGE_REPO: gitlab-registry.cern.ch/dss/eos/eos-ci
           EOS_IMAGE_TAG: ${{ inputs.eos_image_tag || '5.4.1.el9' }}
         run: |
+          # helm/kind-action creates a cluster named "chart-testing" by default,
+          # so we must pass --name to avoid the "no nodes found for cluster 'kind'" error.
           kind load docker-image \
+            --name chart-testing \
             ${EOS_IMAGE_REPO}:${EOS_IMAGE_TAG}
 
       # -----------------------------------------------------------------------

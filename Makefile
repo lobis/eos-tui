@@ -1,5 +1,5 @@
 APP_NAME := eos-tui
-CMD_PATH := ./cmd/eostui
+CMD_PATH := .
 BIN_DIR := ./bin
 LOCAL_BIN := $(BIN_DIR)/$(APP_NAME)
 LINUX_BIN := $(BIN_DIR)/$(APP_NAME)-linux-amd64
@@ -17,7 +17,17 @@ REMOTE_TMP ?= $(REMOTE_BIN).new
 REMOTE_ARGS ?=
 EOSPILOT ?=
 
-.PHONY: build build-local test deploy-remote deploy-both deploy-remote-eospilot deploy-eospilot run-remote dev-remote smoke-remote clean
+.PHONY: build build-local test deploy-remote deploy-both deploy-remote-eospilot deploy-eospilot run-remote dev-remote smoke-remote clean help
+
+help:
+	@echo "Available targets:"
+	@echo "  build           - Build linux-amd64 binary"
+	@echo "  build-local     - Build local binary"
+	@echo "  test            - Run tests"
+	@echo "  fmt             - Format code"
+	@echo "  deploy-remote   - Deploy to dev host"
+	@echo "  deploy-eospilot - Deploy to eospilot host"
+	@echo "  clean           - Remove build artifacts"
 
 build:
 	mkdir -p $(BIN_DIR)
@@ -29,6 +39,9 @@ build-local:
 
 test:
 	$(GO) test ./...
+
+fmt:
+	$(GO) fmt ./...
 
 deploy-remote: build
 	ssh $(REMOTE_HOST) 'mkdir -p $(REMOTE_DIR)'
@@ -57,4 +70,5 @@ smoke-remote: deploy-remote
 	ssh -tt $(REMOTE_HOST) 'TERM=$${TERM:-xterm-256color} timeout 3 $(REMOTE_BIN) $(REMOTE_ARGS)' || test $$? -eq 124
 
 clean:
-	rm -f $(LOCAL_BIN) $(LINUX_BIN)
+	rm -rf $(BIN_DIR)
+	rm -f eos-tui

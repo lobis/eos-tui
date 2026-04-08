@@ -2,3 +2,18 @@
 /dist/
 /.idea/
 /.claude/
+
+# Binaries
+eostui
+eos-tui
+bin/
+
+# Go stuff
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/

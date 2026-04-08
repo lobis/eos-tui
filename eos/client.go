@@ -21,8 +21,51 @@ type Config struct {
 }
 
 type Client struct {
+	// sshTarget is the gateway/initial SSH host supplied by the user (e.g. "eospilot").
 	sshTarget string
-	timeout   time.Duration
+	// resolvedSSHTarget is set after MGM master discovery and becomes the
+	// effective destination for all subsequent commands.  When empty,
+	// sshTarget is used as-is.
+	resolvedSSHTarget string
+	timeout           time.Duration
+}
+
+// effectiveSSHTarget returns the host that runCommand will actually SSH to.
+func (c *Client) effectiveSSHTarget() string {
+	if c.resolvedSSHTarget != "" {
+		return c.resolvedSSHTarget
+	}
+	return c.sshTarget
+}
+
+// ResolvedSSHTarget returns the effective SSH target after master discovery,
+// or the original target if discovery has not run.
+func (c *Client) ResolvedSSHTarget() string {
+	return c.effectiveSSHTarget()
+}
+
+// DiscoverMGMMaster runs `redis-cli raft-info` on the current SSH target,
+// identifies the QDB/MGM leader, and updates the client so that all subsequent
+// commands are routed directly to the leader host.
+// Returns the resolved hostname (e.g. "eospilot-ns-02.cern.ch").
+func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
+	_ = ctx
+	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
+	if err != nil {
+		return "", fmt.Errorf("raft-info for master discovery: %w", err)
+	}
+
+	info := parseRaftInfo(output)
+	if info.Leader == "" {
+		return "", fmt.Errorf("no leader found in raft-info output")
+	}
+
+	leader := hostOnly(info.Leader)
+	// EOS nodes run as root; use explicit root@ so the resolved hostname
+	// works without relying on SSH config aliases.
+	resolved := "root@" + leader
+	c.resolvedSSHTarget = resolved
+	return resolved, nil
 }
 
 type EntryKind string
@@ -101,6 +144,15 @@ type FstRecord struct {
 	WriteRateMB     float64
 }
 
+type MgmRecord struct {
+	HostPort   string
+	Role       string
+	Geotag     string
+	Status     string
+	Heartbeat  string
+	EOSVersion string
+}
+
 type FileSystemRecord struct {
 	Host          string
 	Port          uint64
@@ -141,6 +193,7 @@ type SpaceStatusRecord struct {
 }
 
 type NamespaceStats struct {
+	MasterHost              string
 	TotalFiles              uint64
 	TotalDirectories        uint64
 	CurrentFID              uint64
@@ -180,7 +233,7 @@ type IOShapingRecord struct {
 func New(_ context.Context, cfg Config) (*Client, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		timeout = 15 * time.Second
 	}
 
 	return &Client{
@@ -198,10 +251,199 @@ func (c *Client) NodeStats(ctx context.Context) (NodeStats, error) {
 	return c.nodeStatsViaCLI()
 }
 
+func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
+	_ = ctx
+
+	// Run redis-cli raft-info directly via runCommand.
+	// The SSH target (if set) is always the MGM or an MGM leader node,
+	// so we do not need a separate SSH hop.
+	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
+	if err != nil {
+		return nil, fmt.Errorf("redis-cli raft-info: %w\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	info := parseRaftInfo(output)
+
+	if info.Leader == "" && len(info.Nodes) == 0 {
+		return nil, fmt.Errorf("no MGM cluster info from raft-info")
+	}
+
+	// Determine leader hostname (strip raft port :7777)
+	leaderHost := hostOnly(info.Leader)
+
+	// Build replica status/version map keyed by hostname.
+	replicaMap := make(map[string]raftReplica)
+	for _, r := range info.Replicas {
+		replicaMap[hostOnly(r.Host)] = r
+	}
+
+	// Use NODES list; fall back to just MYSELF if NODES is empty.
+	nodes := info.Nodes
+	if len(nodes) == 0 && info.Myself != "" {
+		nodes = []string{info.Myself}
+	}
+
+	seen := make(map[string]bool)
+	mgms := make([]MgmRecord, 0, len(nodes))
+
+	for _, node := range nodes {
+		host := hostOnly(node)
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+
+		role := "follower"
+		if host == leaderHost {
+			role = "leader"
+		}
+
+		status := "online"
+		version := ""
+
+		if r, ok := replicaMap[host]; ok {
+			if strings.ToUpper(r.Status) == "OFFLINE" {
+				status = "offline"
+			}
+			version = r.Version
+		}
+
+		// The leader runs as MYSELF — use the version from that section.
+		if host == leaderHost && info.MyVersion != "" {
+			version = info.MyVersion
+		}
+
+		mgms = append(mgms, MgmRecord{
+			HostPort:   node,
+			Role:       role,
+			Status:     status,
+			EOSVersion: version,
+		})
+	}
+
+	// Sort: leader first, then alphabetically.
+	sort.Slice(mgms, func(i, j int) bool {
+		if mgms[i].Role != mgms[j].Role {
+			return mgms[i].Role == "leader"
+		}
+		return mgms[i].HostPort < mgms[j].HostPort
+	})
+
+	return mgms, nil
+}
+
+// raftReplica holds the parsed status of a single replica node from raft-info.
+type raftReplica struct {
+	Host    string
+	Status  string // ONLINE or OFFLINE
+	Sync    string // UP-TO-DATE or LAGGING
+	Version string
+}
+
+// raftInfo holds parsed output of `redis-cli -p 7777 raft-info`.
+type raftInfo struct {
+	Leader    string
+	Myself    string
+	MyRole    string
+	MyVersion string
+	MyHealth  string
+	Nodes     []string
+	Replicas  []raftReplica
+}
+
+// parseRaftInfo parses the output of `redis-cli -p 7777 raft-info`.
+//
+// Example output (multi-node):
+//
+//	LEADER   eospilot-ns-02.cern.ch:7777
+//	MYSELF   eospilot-ns-02.cern.ch:7777
+//	STATUS   LEADER
+//	VERSION  5.3.29.1
+//	NODE-HEALTH GREEN
+//	NODES    eospilot-ns-ip700.cern.ch:7777,eospilot-ns-01.cern.ch:7777,...
+//	REPLICA  eospilot-ns-01.cern.ch:7777 | ONLINE | UP-TO-DATE | LOG-SIZE ... | VERSION 5.3.29.1
+func parseRaftInfo(output []byte) raftInfo {
+	var info raftInfo
+	inMyselfSection := false
+
+	for _, raw := range strings.Split(string(output), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "----------" {
+			inMyselfSection = false
+			continue
+		}
+
+		// Each line is "KEY value" separated by whitespace.
+		idx := strings.IndexAny(line, " \t")
+		if idx < 0 {
+			continue
+		}
+		key := line[:idx]
+		value := strings.TrimSpace(line[idx+1:])
+
+		switch key {
+		case "LEADER":
+			info.Leader = value
+		case "MYSELF":
+			info.Myself = value
+			inMyselfSection = true
+		case "STATUS":
+			if inMyselfSection {
+				info.MyRole = strings.ToLower(value)
+			}
+		case "VERSION":
+			if inMyselfSection {
+				info.MyVersion = value
+			}
+		case "NODE-HEALTH":
+			if inMyselfSection {
+				info.MyHealth = value
+			}
+		case "NODES":
+			for _, n := range strings.Split(value, ",") {
+				n = strings.TrimSpace(n)
+				if n != "" {
+					info.Nodes = append(info.Nodes, n)
+				}
+			}
+		case "REPLICA":
+			// Format: host:port | ONLINE | UP-TO-DATE | LOG-SIZE ... | VERSION x.y.z
+			parts := strings.Split(value, "|")
+			if len(parts) < 2 {
+				continue
+			}
+			rep := raftReplica{
+				Host:   strings.TrimSpace(parts[0]),
+				Status: strings.TrimSpace(parts[1]),
+			}
+			if len(parts) >= 3 {
+				rep.Sync = strings.TrimSpace(parts[2])
+			}
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "VERSION ") {
+					rep.Version = strings.TrimPrefix(p, "VERSION ")
+				}
+			}
+			info.Replicas = append(info.Replicas, rep)
+		}
+	}
+
+	return info
+}
+
+// hostOnly strips the port suffix from a host:port string.
+func hostOnly(hostPort string) string {
+	if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+		return hostPort[:idx]
+	}
+	return hostPort
+}
+
 func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 	_ = ctx
 
-	output, err := c.runCommand("eos", "-j", "-b", "node", "ls")
+	output, err := c.runCommand("eos", "-j", "node", "ls")
 	if err != nil {
 		return nil, fmt.Errorf("eos node ls: %w", err)
 	}
@@ -254,8 +496,8 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(output, &payload); err != nil {
-		return nil, err
+	if err := json.Unmarshal(stripEOSPreamble(output), &payload); err != nil {
+		return nil, fmt.Errorf("parse node ls: %w (output: %.200s)", err, output)
 	}
 
 	nodes := make([]FstRecord, 0, len(payload.Result))
@@ -340,8 +582,8 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(output, &payload); err != nil {
-		return nil, err
+	if err := json.Unmarshal(stripEOSPreamble(output), &payload); err != nil {
+		return nil, fmt.Errorf("parse fs ls: %w (output: %.200s)", err, output)
 	}
 
 	fileSystems := make([]FileSystemRecord, 0, len(payload.Result))
@@ -405,8 +647,8 @@ func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
 		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(output, &payload); err != nil {
-		return nil, err
+	if err := json.Unmarshal(stripEOSPreamble(output), &payload); err != nil {
+		return nil, fmt.Errorf("parse space ls: %w (output: %.200s)", err, output)
 	}
 
 	spaces := make([]SpaceRecord, 0, len(payload.Result))
@@ -493,7 +735,8 @@ func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 
 	var payload struct {
 		Result []struct {
-			NS struct {
+			Master string `json:"master_id"`
+			NS     struct {
 				Total struct {
 					Files       any `json:"files"`
 					Directories any `json:"directories"`
@@ -528,12 +771,13 @@ func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(output, &payload); err != nil {
-		return NamespaceStats{}, err
+	if err := json.Unmarshal(stripEOSPreamble(output), &payload); err != nil {
+		return NamespaceStats{}, fmt.Errorf("parse ns stat: %w (output: %.200s)", err, output)
 	}
 
 	stats := NamespaceStats{}
 	for _, item := range payload.Result {
+		stats.MasterHost = item.Master
 		if val := toUint64(item.NS.Total.Files); val > 0 {
 			stats.TotalFiles = val
 		}
@@ -603,6 +847,30 @@ func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
 	return stats, nil
 }
 
+func (c *Client) EOSVersion(ctx context.Context) (string, error) {
+	_ = ctx
+	output, err := c.runCommand("eos", "version")
+	if err != nil {
+		return "", fmt.Errorf("eos version: %w", err)
+	}
+	return parseEOSServerVersion(output), nil
+}
+
+// parseEOSServerVersion extracts the server version from `eos version` output.
+// Example line: "EOS_SERVER_VERSION=5.3.27 EOS_SERVER_RELEASE=unknown"
+func parseEOSServerVersion(output []byte) string {
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "EOS_SERVER_VERSION=") {
+			rest := strings.TrimPrefix(line, "EOS_SERVER_VERSION=")
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				return fields[0]
+			}
+		}
+	}
+	return ""
+}
+
 func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShapingRecord, error) {
 	flag := "--apps"
 	switch mode {
@@ -625,7 +893,7 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 		ReadIOPS  float64 `json:"read_iops"`
 		WriteIOPS float64 `json:"write_iops"`
 	}
-	if err := json.Unmarshal(output, &raw); err != nil {
+	if err := json.Unmarshal(stripEOSPreamble(output), &raw); err != nil {
 		return nil, fmt.Errorf("parse io shaping: %w", err)
 	}
 
@@ -646,36 +914,103 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 
 func (c *Client) runCommand(args ...string) ([]byte, error) {
 	c.logCommand(args)
-	if c.sshTarget == "" {
-		return exec.Command(args[0], args[1:]...).CombinedOutput()
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	target := c.effectiveSSHTarget()
+	var out []byte
+	var err error
+	if target == "" {
+		out, err = exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
+	} else {
+		remoteCommand := strings.Join(args, " ")
+		out, err = exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", target, remoteCommand).CombinedOutput()
 	}
 
-	remoteCommand := strings.Join(args, " ")
-	return exec.Command("ssh", "-o", "BatchMode=yes", c.sshTarget, remoteCommand).CombinedOutput()
+	if err != nil {
+		c.logResponse(args, out, err)
+	}
+	return out, err
+}
+
+func (c *Client) openLogFile() (*os.File, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	logDir := filepath.Join(home, ".eos-tui")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, err
+	}
+	logFile := filepath.Join(logDir, "history.log")
+	return os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 }
 
 func (c *Client) logCommand(args []string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-
-	logDir := filepath.Join(home, ".eos-tui")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return
-	}
-
-	logFile := filepath.Join(logDir, "history.log")
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := c.openLogFile()
 	if err != nil {
 		return
 	}
 	defer f.Close()
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	command := strings.Join(args, " ")
-	line := fmt.Sprintf("[%s] %s\n", timestamp, command)
-	_, _ = f.WriteString(line)
+	var command string
+	if target := c.effectiveSSHTarget(); target != "" {
+		// Log as a fully copy-pasteable SSH invocation.
+		remoteCmd := strings.Join(args, " ")
+		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellQuote(remoteCmd))
+	} else {
+		command = strings.Join(args, " ")
+	}
+	_, _ = f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, command))
+}
+
+func (c *Client) logResponse(args []string, output []byte, err error) {
+	f, ferr := c.openLogFile()
+	if ferr != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	// Abbreviate very long output to avoid flooding the log.
+	preview := strings.TrimSpace(string(output))
+	const maxPreview = 500
+	if len(preview) > maxPreview {
+		preview = preview[:maxPreview] + "...(truncated)"
+	}
+	var cmdStr string
+	if len(args) > 0 {
+		cmdStr = args[len(args)-1] // last arg as a short label
+	}
+	_, _ = f.WriteString(fmt.Sprintf("[%s] ERROR (%s): %v\n", timestamp, cmdStr, err))
+	if preview != "" {
+		_, _ = f.WriteString(fmt.Sprintf("[%s]   output: %s\n", timestamp, preview))
+	}
+}
+
+// stripEOSPreamble removes leading lines that are not part of a JSON payload.
+// EOS commands occasionally emit `* <message>` lines on stdout (e.g. error or
+// info annotations) before or after the JSON.  This function returns the first
+// contiguous block that looks like JSON (starts with `[` or `{`).
+func stripEOSPreamble(b []byte) []byte {
+	for _, line := range strings.SplitAfter(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
+			// Return from this point to end-of-output.
+			idx := strings.Index(string(b), trimmed)
+			if idx >= 0 {
+				return []byte(strings.TrimSpace(string(b[idx:])))
+			}
+		}
+	}
+	return b
+}
+
+// shellQuote wraps s in single quotes, escaping any embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func parseStatusHealth(output string) string {
@@ -832,8 +1167,8 @@ func (c *Client) fetchCLIFileInfo(rawPath string) (cliFileInfo, error) {
 	}
 
 	var info cliFileInfo
-	if err := json.Unmarshal(output, &info); err != nil {
-		return cliFileInfo{}, err
+	if err := json.Unmarshal(stripEOSPreamble(output), &info); err != nil {
+		return cliFileInfo{}, fmt.Errorf("parse fileinfo: %w (output: %.200s)", err, output)
 	}
 
 	return info, nil

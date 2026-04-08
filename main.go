@@ -18,15 +18,10 @@ func main() {
 	var (
 		sshTarget   = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
 		rootPath    = flag.String("path", envOrDefault("EOS_TUI_PATH", "/"), "initial namespace path")
-		timeout     = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 5*time.Second), "per-request timeout")
+		timeout     = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
 		noAltScreen = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
 	)
 	flag.Parse()
-
-	displayTarget := "local eos cli"
-	if *sshTarget != "" {
-		displayTarget = fmt.Sprintf("ssh %s", *sshTarget)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -40,6 +35,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer client.Close()
+
+	displayTarget := "local eos cli"
+	if *sshTarget != "" {
+		displayTarget = fmt.Sprintf("ssh %s", *sshTarget)
+
+		// Discover the MGM/QDB master so all subsequent commands go directly
+		// to the leader node rather than through the gateway.
+		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), *timeout)
+		defer discoverCancel()
+		if resolved, err := client.DiscoverMGMMaster(discoverCtx); err == nil && resolved != "" {
+			displayTarget = fmt.Sprintf("ssh %s  →  %s", *sshTarget, resolved)
+		}
+	}
 
 	useAltScreen := !*noAltScreen && terminalSupportsAltScreen()
 

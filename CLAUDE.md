@@ -27,3 +27,13 @@ This repository contains a Go TUI for EOS, inspired by k9s.
 - Prefer reusable Bubble Tea / Bubbles components where they fit naturally.
 - Optimize for fast perceived performance: render views incrementally as data arrives.
 
+## Style Rules (enforced by tests)
+
+- `m.styles.header` (bold green, color 86) is **only** for the application title bar
+  ("EOS TUI"). Never use it for column header rows inside views.
+- All column header rows must go through `m.renderSimpleHeaderRow(columns, labels)`
+  or `m.renderSelectableHeaderRow(...)`. Adding a `m.styles.header.Render(...)` call
+  inside `renderBody` or any view-render function is a bug.
+- The test `TestColumnHeadersUseConsistentStyle` enforces this rule across all views;
+  add new views to the checklist in that test when adding new tabs.
+

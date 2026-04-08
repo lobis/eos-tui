@@ -2,6 +2,7 @@ package eos
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -158,6 +159,197 @@ func TestNamespaceStatsJSONConflict(t *testing.T) {
 	}
 }
 
+func TestParseRaftInfoSingleNode(t *testing.T) {
+	// Output from a single-node cluster (lobis-eos-dev / lobisapa-dev.cern.ch).
+	input := `TERM 6
+LOG-START 0
+LOG-SIZE 1710314
+LEADER lobisapa-dev.cern.ch:7777
+CLUSTER-ID eosdev
+COMMIT-INDEX 1710313
+LAST-APPLIED 1710313
+BLOCKED-WRITES 0
+LAST-STATE-CHANGE 2302767 (26 days, 15 hours, 39 minutes, 27 seconds)
+----------
+MYSELF lobisapa-dev.cern.ch:7777
+VERSION 5.4.0.1
+STATUS LEADER
+NODE-HEALTH GREEN
+JOURNAL-FSYNC-POLICY sync-important-updates
+----------
+MEMBERSHIP-EPOCH 0
+NODES lobisapa-dev.cern.ch:7777
+OBSERVERS
+QUORUM-SIZE 1
+`
+	info := parseRaftInfo([]byte(input))
+
+	if info.Leader != "lobisapa-dev.cern.ch:7777" {
+		t.Errorf("Leader: got %q, want lobisapa-dev.cern.ch:7777", info.Leader)
+	}
+	if info.Myself != "lobisapa-dev.cern.ch:7777" {
+		t.Errorf("Myself: got %q, want lobisapa-dev.cern.ch:7777", info.Myself)
+	}
+	if info.MyRole != "leader" {
+		t.Errorf("MyRole: got %q, want leader", info.MyRole)
+	}
+	if info.MyVersion != "5.4.0.1" {
+		t.Errorf("MyVersion: got %q, want 5.4.0.1", info.MyVersion)
+	}
+	if info.MyHealth != "GREEN" {
+		t.Errorf("MyHealth: got %q, want GREEN", info.MyHealth)
+	}
+	if len(info.Nodes) != 1 || info.Nodes[0] != "lobisapa-dev.cern.ch:7777" {
+		t.Errorf("Nodes: got %v, want [lobisapa-dev.cern.ch:7777]", info.Nodes)
+	}
+	if len(info.Replicas) != 0 {
+		t.Errorf("Replicas: got %d, want 0", len(info.Replicas))
+	}
+}
+
+func TestParseRaftInfoMultiNode(t *testing.T) {
+	// Output from a multi-node cluster (eospilot).
+	input := `TERM 214
+LOG-START 13282600000
+LOG-SIZE 13332650191
+LEADER eospilot-ns-02.cern.ch:7777
+CLUSTER-ID 9cd69709-1dac-475e-bee6-86e4c9e1f286
+COMMIT-INDEX 13332650190
+LAST-APPLIED 13332650190
+BLOCKED-WRITES 0
+LAST-STATE-CHANGE 3431852 (1 months, 9 days, 17 hours, 17 minutes, 32 seconds)
+----------
+MYSELF eospilot-ns-02.cern.ch:7777
+VERSION 5.3.29.1
+STATUS LEADER
+NODE-HEALTH GREEN
+JOURNAL-FSYNC-POLICY sync-important-updates
+----------
+MEMBERSHIP-EPOCH 13091436169
+NODES eospilot-ns-ip700.cern.ch:7777,eospilot-ns-01.cern.ch:7777,eospilot-ns-02.cern.ch:7777
+OBSERVERS
+QUORUM-SIZE 2
+----------
+REPLICA eospilot-ns-01.cern.ch:7777 | ONLINE | UP-TO-DATE | LOG-SIZE 13332650191 | VERSION 5.3.29.1
+REPLICA eospilot-ns-ip700.cern.ch:7777 | ONLINE | UP-TO-DATE | LOG-SIZE 13332650191 | VERSION 5.3.29.1
+`
+	info := parseRaftInfo([]byte(input))
+
+	if info.Leader != "eospilot-ns-02.cern.ch:7777" {
+		t.Errorf("Leader: got %q, want eospilot-ns-02.cern.ch:7777", info.Leader)
+	}
+	if info.MyRole != "leader" {
+		t.Errorf("MyRole: got %q, want leader", info.MyRole)
+	}
+	if info.MyVersion != "5.3.29.1" {
+		t.Errorf("MyVersion: got %q, want 5.3.29.1", info.MyVersion)
+	}
+	if len(info.Nodes) != 3 {
+		t.Errorf("Nodes count: got %d, want 3", len(info.Nodes))
+	}
+	if len(info.Replicas) != 2 {
+		t.Fatalf("Replicas count: got %d, want 2", len(info.Replicas))
+	}
+
+	// Replicas should have the follower nodes (not the leader).
+	rep0 := info.Replicas[0]
+	if rep0.Host != "eospilot-ns-01.cern.ch:7777" {
+		t.Errorf("Replicas[0].Host: got %q", rep0.Host)
+	}
+	if rep0.Status != "ONLINE" {
+		t.Errorf("Replicas[0].Status: got %q, want ONLINE", rep0.Status)
+	}
+	if rep0.Version != "5.3.29.1" {
+		t.Errorf("Replicas[0].Version: got %q, want 5.3.29.1", rep0.Version)
+	}
+}
+
+func TestParseRaftInfoBuildsMGMRecords(t *testing.T) {
+	// Verify that the raftInfo → MgmRecord mapping produces correct roles/versions.
+	input := `LEADER eospilot-ns-02.cern.ch:7777
+----------
+MYSELF eospilot-ns-02.cern.ch:7777
+VERSION 5.3.29.1
+STATUS LEADER
+NODE-HEALTH GREEN
+----------
+NODES eospilot-ns-ip700.cern.ch:7777,eospilot-ns-01.cern.ch:7777,eospilot-ns-02.cern.ch:7777
+----------
+REPLICA eospilot-ns-01.cern.ch:7777 | ONLINE | UP-TO-DATE | LOG-SIZE 100 | VERSION 5.3.29.1
+REPLICA eospilot-ns-ip700.cern.ch:7777 | OFFLINE | LAGGING | LOG-SIZE 99 | VERSION 5.3.29.0
+`
+	info := parseRaftInfo([]byte(input))
+
+	leaderHost := hostOnly(info.Leader)
+	replicaMap := make(map[string]raftReplica)
+	for _, r := range info.Replicas {
+		replicaMap[hostOnly(r.Host)] = r
+	}
+
+	type want struct {
+		role    string
+		status  string
+		version string
+	}
+	expectations := map[string]want{
+		"eospilot-ns-02.cern.ch":    {role: "leader", status: "online", version: "5.3.29.1"},
+		"eospilot-ns-01.cern.ch":    {role: "follower", status: "online", version: "5.3.29.1"},
+		"eospilot-ns-ip700.cern.ch": {role: "follower", status: "offline", version: "5.3.29.0"},
+	}
+
+	for _, node := range info.Nodes {
+		host := hostOnly(node)
+		exp, ok := expectations[host]
+		if !ok {
+			t.Errorf("unexpected node %q", host)
+			continue
+		}
+
+		role := "follower"
+		if host == leaderHost {
+			role = "leader"
+		}
+		if role != exp.role {
+			t.Errorf("%s role: got %q, want %q", host, role, exp.role)
+		}
+
+		status := "online"
+		version := ""
+		if r, found := replicaMap[host]; found {
+			if strings.ToUpper(r.Status) == "OFFLINE" {
+				status = "offline"
+			}
+			version = r.Version
+		}
+		if host == leaderHost && info.MyVersion != "" {
+			version = info.MyVersion
+		}
+
+		if status != exp.status {
+			t.Errorf("%s status: got %q, want %q", host, status, exp.status)
+		}
+		if version != exp.version {
+			t.Errorf("%s version: got %q, want %q", host, version, exp.version)
+		}
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"eos -j node ls", "'eos -j node ls'"},
+		{"it's a test", `'it'\''s a test'`},
+		{"simple", "'simple'"},
+	}
+	for _, tt := range tests {
+		if got := shellQuote(tt.input); got != tt.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestToUint64(t *testing.T) {
 	tests := []struct {
 		input any
@@ -174,6 +366,244 @@ func TestToUint64(t *testing.T) {
 	for _, tt := range tests {
 		if got := toUint64(tt.input); got != tt.want {
 			t.Errorf("toUint64(%v) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+// ---- stripEOSPreamble tests ------------------------------------------------
+
+func TestStripEOSPreambleNoPreamble(t *testing.T) {
+	input := `{"result":[]}`
+	got := string(stripEOSPreamble([]byte(input)))
+	if got != input {
+		t.Errorf("expected no change, got %q", got)
+	}
+}
+
+func TestStripEOSPreambleArrayNoPreamble(t *testing.T) {
+	input := `[{"id":"app1"}]`
+	got := string(stripEOSPreamble([]byte(input)))
+	if got != input {
+		t.Errorf("expected no change for array, got %q", got)
+	}
+}
+
+func TestStripEOSPreambleSingleStarLine(t *testing.T) {
+	input := "* warning: something\n{\"result\":[]}"
+	got := string(stripEOSPreamble([]byte(input)))
+	if got != `{"result":[]}` {
+		t.Errorf("expected preamble stripped, got %q", got)
+	}
+}
+
+func TestStripEOSPreambleMultipleStarLines(t *testing.T) {
+	input := "* info: connecting\n* warning: slow\n[{\"id\":\"x\"}]"
+	got := string(stripEOSPreamble([]byte(input)))
+	if got != `[{"id":"x"}]` {
+		t.Errorf("expected all preamble lines stripped, got %q", got)
+	}
+}
+
+func TestStripEOSPreamblePreservesTrailingContent(t *testing.T) {
+	// A trailing * line after JSON should not truncate JSON.
+	input := "{\"result\":[{\"name\":\"default\"}]}"
+	got := string(stripEOSPreamble([]byte(input)))
+	if !strings.Contains(got, "default") {
+		t.Errorf("expected JSON content preserved, got %q", got)
+	}
+}
+
+func TestStripEOSPreambleEmptyInput(t *testing.T) {
+	got := stripEOSPreamble([]byte{})
+	if len(got) != 0 {
+		t.Errorf("expected empty output for empty input, got %q", got)
+	}
+}
+
+// ---- JSON parsing with EOS preamble ----------------------------------------
+
+func TestNodesParseWithPreamble(t *testing.T) {
+	// Simulate EOS emitting a `* <msg>` line before the JSON payload.
+	raw := `* error: cannot connect to localhost
+{
+  "errormsg": "",
+  "result": [
+    {
+      "type": "nodesview",
+      "hostport": "fst01:1095",
+      "status": "online",
+      "heartbeatdelta": 1,
+      "nofs": 5,
+      "cfg": {"status": "on", "stat": {"geotag": "local", "sys": {"kernel": "5.x", "rss": 1024, "threads": 50, "uptime": "10h", "vsize": 2048, "eos": {"version": "5.3.27"}}}},
+      "avg": {"stat": {"disk": {"load": 0.1}}},
+      "sum": {"stat": {"disk": {"readratemb": 1.5, "writeratemb": 2.0}, "statfs": {"capacity": 1000000, "freebytes": 500000, "usedbytes": 500000}, "usedfiles": 100}}
+    }
+  ]
+}`
+	var payload struct {
+		Result []struct {
+			HostPort string `json:"hostport"`
+			NoFS     int    `json:"nofs"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble([]byte(raw)), &payload); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if len(payload.Result) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(payload.Result))
+	}
+	if payload.Result[0].HostPort != "fst01:1095" {
+		t.Errorf("expected hostport fst01:1095, got %q", payload.Result[0].HostPort)
+	}
+}
+
+func TestFileSystemsParseWithPreamble(t *testing.T) {
+	raw := "* warning: fallback mode\n" + `{
+  "errormsg": "",
+  "result": [
+    {
+      "host": "fst01", "port": 1095, "id": 3,
+      "path": "/data/fst.1/01",
+      "schedgroup": "default.0",
+      "configstatus": "rw",
+      "local": {"drain": {"status": "nodrain"}},
+      "stat": {"active": "online", "boot": "booted", "geotag": "local",
+               "health": {"status": "ok"},
+               "disk": {"bw": 0.0, "iops": 0.0, "readratemb": 0.0, "writeratemb": 0.0},
+               "statfs": {"capacity": 1000, "freebytes": 500, "usedbytes": 500},
+               "usedfiles": 10}
+    }
+  ]
+}`
+	var payload struct {
+		Result []struct {
+			ID   uint64 `json:"id"`
+			Host string `json:"host"`
+			Path string `json:"path"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble([]byte(raw)), &payload); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if len(payload.Result) != 1 || payload.Result[0].Path != "/data/fst.1/01" {
+		t.Errorf("unexpected result: %+v", payload.Result)
+	}
+}
+
+func TestSpacesParseWithPreamble(t *testing.T) {
+	raw := "* info: connected\n" + `{
+  "errormsg": "",
+  "result": [
+    {
+      "name": "default",
+      "type": "groupbalancer",
+      "cfg": {"groupsize": 24},
+      "sum": {"n_rw": 2, "stat": {"statfs": {"capacity": 1000, "usedbytes": 400, "freebytes": 600, "files": 78}}}
+    }
+  ]
+}`
+	var payload struct {
+		Result []struct {
+			Name string `json:"name"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble([]byte(raw)), &payload); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if len(payload.Result) != 1 || payload.Result[0].Name != "default" {
+		t.Errorf("unexpected result: %+v", payload.Result)
+	}
+}
+
+func TestNamespaceStatsParseWithPreamble(t *testing.T) {
+	raw := "* msg: ns booted\n" + `{
+  "errormsg": "",
+  "result": [
+    {
+      "master_id": "mgm01:1094",
+      "ns": {
+        "total": {"files": 78, "directories": 19},
+        "current": {"fid": 7661, "cid": 1000},
+        "generated": {"fid": 7662, "cid": 1001},
+        "contention": {"read": 0.1, "write": 0.2},
+        "cache": {
+          "files": {"maxsize": 1000, "occupancy": 500, "requests": 200, "hits": 180},
+          "containers": {"maxsize": 500, "occupancy": 250, "requests": 100, "hits": 90}
+        }
+      }
+    }
+  ]
+}`
+	var payload struct {
+		Result []struct {
+			Master string `json:"master_id"`
+			NS     struct {
+				Total struct {
+					Files any `json:"files"`
+				} `json:"total"`
+			} `json:"ns"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble([]byte(raw)), &payload); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if len(payload.Result) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(payload.Result))
+	}
+	if payload.Result[0].Master != "mgm01:1094" {
+		t.Errorf("expected master mgm01:1094, got %q", payload.Result[0].Master)
+	}
+	if v := toUint64(payload.Result[0].NS.Total.Files); v != 78 {
+		t.Errorf("expected files=78, got %d", v)
+	}
+}
+
+func TestParseEOSServerVersion(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "standard output",
+			input: "EOS_INSTANCE=eosdev\nEOS_SERVER_VERSION=5.3.27 EOS_SERVER_RELEASE=unknown\nEOS_CLIENT_VERSION=5.3.27 EOS_CLIENT_RELEASE=unknown\n",
+			want:  "5.3.27",
+		},
+		{
+			name:  "with preamble star line",
+			input: "* info: something\nEOS_SERVER_VERSION=5.4.1 EOS_SERVER_RELEASE=1\n",
+			want:  "5.4.1",
+		},
+		{
+			name:  "no version line",
+			input: "EOS_INSTANCE=eosdev\n",
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseEOSServerVersion([]byte(tt.input))
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostOnly(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"eospilot-ns-02.cern.ch:7777", "eospilot-ns-02.cern.ch"},
+		{"lobisapa-dev.cern.ch:7777", "lobisapa-dev.cern.ch"},
+		{"hostname", "hostname"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := hostOnly(tt.input)
+		if got != tt.want {
+			t.Errorf("hostOnly(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

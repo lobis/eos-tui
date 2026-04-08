@@ -22,21 +22,32 @@ const refreshInterval = 5 * time.Second
 type viewID int
 
 const (
-	viewMGM viewID = iota
-	viewFST
-	viewFileSystems
-	viewNamespace
-	viewSpaces
-	viewNamespaceStats
-	viewSpaceStatus
-	viewIOShaping
+	viewMGM            viewID = iota // tab 1: MGM nodes (EOS version)
+	viewQDB                          // tab 2: QDB cluster (raft-info)
+	viewFST                          // tab 3: FST nodes
+	viewFileSystems                  // tab 4: File systems
+	viewNamespace                    // tab 5: Namespace browser
+	viewSpaces                       // tab 6: Spaces
+	viewNamespaceStats               // tab 7: NS stats
+	viewSpaceStatus                  // tab 8: Space status
+	viewIOShaping                    // tab 9: IO Traffic
 )
 
+const viewCount = 9
+
 type infraLoadedMsg struct {
-	stats eos.NodeStats
-	fsts  []eos.FstRecord
-	fs    []eos.FileSystemRecord
-	err   error
+	stats      eos.NodeStats
+	fsts       []eos.FstRecord
+	mgms       []eos.MgmRecord
+	fs         []eos.FileSystemRecord
+	eosVersion string
+	// Per-component errors so a failure in one component does not hide others.
+	statsErr error
+	fstsErr  error
+	mgmsErr  error
+	fsErr    error
+	// Legacy single-error field kept for callers that return early.
+	err error
 }
 
 type nodeStatsLoadedMsg struct {
@@ -52,6 +63,11 @@ type fstsLoadedMsg struct {
 type fileSystemsLoadedMsg struct {
 	fs  []eos.FileSystemRecord
 	err error
+}
+
+type mgmsLoadedMsg struct {
+	mgms []eos.MgmRecord
+	err  error
 }
 
 type spacesLoadedMsg struct {
@@ -84,6 +100,10 @@ type ioShapingLoadedMsg struct {
 	err     error
 }
 
+type eosVersionLoadedMsg struct {
+	version string
+}
+
 type ioShapingTickMsg struct{}
 
 type tickMsg time.Time
@@ -105,11 +125,18 @@ type model struct {
 	fileSystemsErr     error
 	nodeStats          eos.NodeStats
 	fsts               []eos.FstRecord
-	fstSelected        int
-	fstColumnSelected  int
-	fileSystems        []eos.FileSystemRecord
-	fsSelected         int
-	fsColumnSelected   int
+
+	mgmsLoading bool
+	mgmsErr     error
+	mgms        []eos.MgmRecord
+
+	eosVersion string
+
+	fstSelected       int
+	fstColumnSelected int
+	fileSystems       []eos.FileSystemRecord
+	fsSelected        int
+	fsColumnSelected  int
 
 	spaces               []eos.SpaceRecord
 	spacesLoading        bool
@@ -360,33 +387,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "tab":
-			m.activeView = (m.activeView + 1) % 8
+			m.activeView = (m.activeView + 1) % viewCount
 			return m.onViewChanged()
 		case "shift+tab":
-			m.activeView = (m.activeView + 7) % 8
+			m.activeView = (m.activeView + viewCount - 1) % viewCount
 			return m.onViewChanged()
 		case "1":
 			m.activeView = viewMGM
 			return m.onViewChanged()
 		case "2":
-			m.activeView = viewFST
+			m.activeView = viewQDB
 			return m.onViewChanged()
 		case "3":
-			m.activeView = viewFileSystems
+			m.activeView = viewFST
 			return m.onViewChanged()
 		case "4":
-			m.activeView = viewNamespace
+			m.activeView = viewFileSystems
 			return m.onViewChanged()
 		case "5":
-			m.activeView = viewSpaces
+			m.activeView = viewNamespace
 			return m.onViewChanged()
 		case "6":
-			m.activeView = viewNamespaceStats
+			m.activeView = viewSpaces
 			return m.onViewChanged()
 		case "7":
-			m.activeView = viewSpaceStatus
+			m.activeView = viewNamespaceStats
 			return m.onViewChanged()
 		case "8":
+			m.activeView = viewSpaceStatus
+			return m.onViewChanged()
+		case "9":
 			m.activeView = viewIOShaping
 			return m.onViewChanged()
 		case "r":
@@ -394,6 +424,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.activeView {
+		case viewMGM, viewQDB:
+			// read-only views
 		case viewFST:
 			return m.updateFSTKeys(msg)
 		case viewFileSystems:
@@ -403,7 +435,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewSpaces:
 			return m.updateSpacesKeys(msg)
 		case viewNamespaceStats:
-			// namespace stats view is read-only, just refresh on 'r'
+			// read-only
 		case viewSpaceStatus:
 			if msg.String() == "enter" {
 				return m.startSpaceStatusEdit()
@@ -412,22 +444,61 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewIOShaping:
 			return m.updateIOShapingKeys(msg)
 		}
+	case mgmsLoadedMsg:
+		m.mgmsLoading = false
+		m.mgms = msg.mgms
+		m.mgmsErr = msg.err
+		return m, nil
+
 	case infraLoadedMsg:
 		m.fstStatsLoading = false
 		m.fstsLoading = false
+		m.mgmsLoading = false
 		m.fileSystemsLoading = false
+		if msg.eosVersion != "" {
+			m.eosVersion = msg.eosVersion
+		}
+		// Apply per-component results independently so a failure in one
+		// component does not hide data from the others.
+		m.nodeStatsErr = msg.statsErr
+		if msg.statsErr == nil {
+			m.nodeStats = msg.stats
+		}
+		m.fstsErr = msg.fstsErr
+		if msg.fstsErr == nil {
+			m.fsts = msg.fsts
+			m.fstSelected = clampIndex(m.fstSelected, len(m.visibleFSTs()))
+		}
+		m.mgmsErr = msg.mgmsErr
+		if msg.mgmsErr == nil {
+			m.mgms = msg.mgms
+		}
+		m.fileSystemsErr = msg.fsErr
+		if msg.fsErr == nil {
+			m.fileSystems = msg.fs
+			m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
+		}
+		// Legacy single-error path (early-return failures).
 		if msg.err != nil {
-			m.nodeStatsErr = msg.err
-			m.fstsErr = msg.err
-			m.fileSystemsErr = msg.err
+			if m.nodeStatsErr == nil {
+				m.nodeStatsErr = msg.err
+			}
+			if m.fstsErr == nil {
+				m.fstsErr = msg.err
+			}
+			if m.mgmsErr == nil {
+				m.mgmsErr = msg.err
+			}
+			if m.fileSystemsErr == nil {
+				m.fileSystemsErr = msg.err
+			}
 			m.status = fmt.Sprintf("Infrastructure refresh failed: %v", msg.err)
 		} else {
-			m.nodeStats = msg.stats
-			m.fsts = msg.fsts
-			m.fileSystems = msg.fs
-			m.fstSelected = clampIndex(m.fstSelected, len(m.visibleFSTs()))
-			m.fsSelected = clampIndex(m.fsSelected, len(m.visibleFileSystems()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
+	case eosVersionLoadedMsg:
+		if msg.version != "" {
+			m.eosVersion = msg.version
 		}
 	case nodeStatsLoadedMsg:
 		m.fstStatsLoading = false
@@ -595,6 +666,20 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 	switch m.activeView {
 	case viewNamespace:
 		return m.maybeLoadNamespace()
+	case viewSpaces:
+		if !m.spacesLoading && len(m.spaces) == 0 && m.spacesErr == nil {
+			m.spacesLoading = true
+			m.spacesErr = nil
+			return m, loadSpacesCmd(m.client)
+		}
+		return m, nil
+	case viewNamespaceStats:
+		if !m.nsStatsLoading && m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsErr == nil {
+			m.nsStatsLoading = true
+			m.nsStatsErr = nil
+			return m, loadNamespaceStatsCmd(m.client)
+		}
+		return m, nil
 	case viewSpaceStatus:
 		return m.maybeLoadSpaceStatus()
 	case viewIOShaping:
@@ -637,11 +722,17 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 	default:
 		m.fstStatsLoading = true
 		m.fstsLoading = true
+		m.mgmsLoading = true
 		m.fileSystemsLoading = true
+		m.spacesLoading = true
+		m.nsStatsLoading = true
 		m.nodeStatsErr = nil
 		m.fstsErr = nil
+		m.mgmsErr = nil
 		m.fileSystemsErr = nil
-		m.status = "Refreshing node and filesystem state..."
+		m.spacesErr = nil
+		m.nsStatsErr = nil
+		m.status = "Refreshing..."
 		return m, loadInfraCmd(m.client)
 	}
 }
@@ -1022,116 +1113,115 @@ func (m model) updateSpaceStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) renderHeader() string {
-	tabMGM := m.styles.tab.Render("1 MGM")
-	tabFST := m.styles.tab.Render("2 FST")
-	tabFS := m.styles.tab.Render("3 FS")
-	tabNS := m.styles.tab.Render("4 Namespace")
-	tabSpaces := m.styles.tab.Render("5 Spaces")
-	tabNSStats := m.styles.tab.Render("6 NS Stats")
-	tabSpaceStatus := m.styles.tab.Render("7 Space Status")
-	tabIO := m.styles.tab.Render("8 IO Traffic")
-
-	switch m.activeView {
-	case viewMGM:
-		tabMGM = m.styles.tabActive.Render("1 MGM")
-	case viewFST:
-		tabFST = m.styles.tabActive.Render("2 FST")
-	case viewFileSystems:
-		tabFS = m.styles.tabActive.Render("3 FS")
-	case viewNamespace:
-		tabNS = m.styles.tabActive.Render("4 Namespace")
-	case viewSpaces:
-		tabSpaces = m.styles.tabActive.Render("5 Spaces")
-	case viewNamespaceStats:
-		tabNSStats = m.styles.tabActive.Render("6 NS Stats")
-	case viewSpaceStatus:
-		tabSpaceStatus = m.styles.tabActive.Render("7 Space Status")
-	case viewIOShaping:
-		tabIO = m.styles.tabActive.Render("8 IO Traffic")
+	type tabDef struct {
+		label string
+		view  viewID
+	}
+	tabs := []tabDef{
+		{"1 MGM", viewMGM},
+		{"2 QDB", viewQDB},
+		{"3 FST", viewFST},
+		{"4 FS", viewFileSystems},
+		{"5 Namespace", viewNamespace},
+		{"6 Spaces", viewSpaces},
+		{"7 NS Stats", viewNamespaceStats},
+		{"8 Space Status", viewSpaceStatus},
+		{"9 IO Traffic", viewIOShaping},
 	}
 
-	left := lipgloss.JoinHorizontal(
-		lipgloss.Left,
-		m.styles.header.Render("EOS TUI"),
-		"  ",
-		tabMGM,
-		" ",
-		tabFST,
-		" ",
-		tabFS,
-		" ",
-		tabNS,
-		" ",
-		tabSpaces,
-		" ",
-		tabNSStats,
-		" ",
-		tabSpaceStatus,
-		" ",
-		tabIO,
-	)
+	parts := []string{m.styles.header.Render("EOS TUI"), "  "}
+	for i, t := range tabs {
+		if i > 0 {
+			parts = append(parts, " ")
+		}
+		if m.activeView == t.view {
+			parts = append(parts, m.styles.tabActive.Render(t.label))
+		} else {
+			parts = append(parts, m.styles.tab.Render(t.label))
+		}
+	}
+
+	left := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
 	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
 
 	return lipgloss.JoinHorizontal(lipgloss.Left, left, strings.Repeat(" ", spacerWidth), right)
 }
 
+// renderMGMView shows the MGM nodes with their EOS server version.
+// The MGM hosts are the same nodes that participate in the QDB cluster.
+// The EOS server version is fetched via `eos version` (applies to all MGMs).
 func (m model) renderMGMView(height int) string {
 	width := m.contentWidth()
 	contentWidth := panelContentWidth(width)
 
-	mgms := []eos.FstRecord{}
-	for _, node := range m.fsts {
-		if node.Type == "mgm" {
-			mgms = append(mgms, node)
-		}
-	}
-
-	dataRows := make([][]string, len(mgms))
-	for i, node := range mgms {
-		role := "follower"
-		if strings.Contains(strings.ToLower(node.Status), "master") ||
-			strings.Contains(strings.ToLower(node.Activated), "master") ||
-			strings.Contains(strings.ToLower(node.Status), "leader") {
-			role = "leader"
-		}
-		dataRows[i] = []string{
-			node.HostPort,
-			role,
-			node.Geotag,
-			node.Status,
-			fmt.Sprintf("%d", node.HeartbeatDelta),
-			node.EOSVersion,
-		}
-	}
+	mgms := m.mgms
 
 	columns := allocateTableColumns(contentWidth, []tableColumn{
 		{title: "hostport", min: 20, weight: 1},
-		{title: "role", min: 12, weight: 0},
-		{title: "geotag", min: 12, weight: 0},
-		{title: "status", min: 12, weight: 0},
-		{title: "heartbeat", min: 12, weight: 0, right: true},
-		{title: "version", min: 12, weight: 0},
+		{title: "status", min: 10, weight: 0},
+		{title: "eos version", min: 14, weight: 0},
 	})
 
-	title := m.styles.label.Render("Management Nodes (MGM)")
+	title := m.styles.label.Render("management nodes (mgm)")
 	lines := []string{
 		title,
 		"",
-		m.styles.header.Render(formatTableRow(columns, []string{"hostport", "role", "geotag", "status", "heartbeat", "version"})),
+		m.renderSimpleHeaderRow(columns, []string{"hostport", "status", "eos version"}),
 	}
 
-	if m.fstsLoading && len(mgms) == 0 {
-		lines = append(lines, "Loading MGM info...")
+	if m.mgmsLoading && len(mgms) == 0 {
+		lines = append(lines, "loading mgm info...")
 	} else if len(mgms) == 0 {
-		lines = append(lines, "(no mgms found)")
+		lines = append(lines, "(no mgm nodes found)")
 	} else {
-		for _, row := range dataRows {
-			line := formatTableRow(columns, row)
-			if row[1] == "leader" {
-				line = m.styles.selected.Width(contentWidth).Render("★ " + line[2:])
-			}
-			lines = append(lines, line)
+		for _, node := range mgms {
+			lines = append(lines, formatTableRow(columns, []string{
+				node.HostPort,
+				strings.ToLower(node.Status),
+				m.eosVersion,
+			}))
+		}
+	}
+
+	return m.styles.panel.Width(width).Render(fitLines(lines, height))
+}
+
+// renderQDBView shows the QDB cluster topology from `redis-cli raft-info`.
+func (m model) renderQDBView(height int) string {
+	width := m.contentWidth()
+	contentWidth := panelContentWidth(width)
+
+	mgms := m.mgms
+
+	columns := allocateTableColumns(contentWidth, []tableColumn{
+		{title: "hostport", min: 20, weight: 1},
+		{title: "role", min: 10, weight: 0},
+		{title: "status", min: 10, weight: 0},
+		{title: "qdb version", min: 14, weight: 0},
+	})
+
+	title := m.styles.label.Render("quarkdb cluster (qdb)")
+	lines := []string{
+		title,
+		"",
+		m.renderSimpleHeaderRow(columns, []string{"hostport", "role", "status", "qdb version"}),
+	}
+
+	if m.mgmsLoading && len(mgms) == 0 {
+		lines = append(lines, "loading qdb info...")
+	} else if m.mgmsErr != nil {
+		lines = append(lines, m.styles.error.Render(m.mgmsErr.Error()))
+	} else if len(mgms) == 0 {
+		lines = append(lines, "(no qdb nodes found)")
+	} else {
+		for _, node := range mgms {
+			lines = append(lines, formatTableRow(columns, []string{
+				node.HostPort,
+				strings.ToLower(node.Role),
+				strings.ToLower(node.Status),
+				node.EOSVersion,
+			}))
 		}
 	}
 
@@ -1142,6 +1232,8 @@ func (m model) renderBody(availableHeight int) string {
 	switch m.activeView {
 	case viewMGM:
 		return m.renderMGMView(availableHeight)
+	case viewQDB:
+		return m.renderQDBView(availableHeight)
 	case viewFST:
 		return m.renderFSTView(availableHeight)
 	case viewFileSystems:
@@ -1209,7 +1301,7 @@ func (m model) renderNodesList(width, height int) string {
 		m.metricLine("Files", fmt.Sprintf("%d", m.nodeStats.FileCount), "Dirs", fmt.Sprintf("%d", m.nodeStats.DirCount)),
 		m.metricLine("Uptime", formatDuration(m.nodeStats.Uptime), "FDs", fmt.Sprintf("%d", m.nodeStats.FileDescs)),
 		"",
-		m.renderNodeHeaderRow(columns),
+		m.renderFstHeaderRow(columns),
 	}
 
 	if m.fstStatsLoading {
@@ -1460,18 +1552,7 @@ func (m model) renderSpacesList(width, height int) string {
 }
 
 func (m model) renderSpaceHeaderRow(columns []tableColumn) string {
-	labels := []string{"name", "type", "status", "groups", "files", "dirs", "usage %"}
-	cells := make([]string, 0, len(columns))
-	for i, column := range columns {
-		label := ""
-		if i < len(labels) {
-			label = labels[i]
-		}
-		cell := padRight(label, column.min)
-		cell = m.styles.label.Render(cell)
-		cells = append(cells, cell)
-	}
-	return strings.Join(cells, " ")
+	return m.renderSimpleHeaderRow(columns, []string{"name", "type", "status", "groups", "files", "dirs", "usage %"})
 }
 
 func (m model) renderSpaceDetails(width, height int) string {
@@ -1551,7 +1632,7 @@ func (m model) renderSpaceStatusView(height int) string {
 	lines := []string{
 		title,
 		"",
-		m.styles.header.Render(formatTableRow(columns, []string{"parameter", "value"})),
+		m.renderSimpleHeaderRow(columns, []string{"parameter", "value"}),
 	}
 
 	start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, height-len(lines)))
@@ -1613,23 +1694,6 @@ func (m model) renderIOShapingView(height int) string {
 		{title: "write iops", min: 10, weight: 0, right: true},
 	}, dataRows))
 
-	headerRow := func() string {
-		labels := []string{idLabel, "read rate", "write rate", "read iops", "write iops"}
-		cells := make([]string, len(columns))
-		for i, col := range columns {
-			label := ""
-			if i < len(labels) {
-				label = labels[i]
-			}
-			cell := padRight(label, col.min)
-			if col.right {
-				cell = padLeft(label, col.min)
-			}
-			cells[i] = m.styles.label.Render(cell)
-		}
-		return strings.Join(cells, " ")
-	}
-
 	title := m.styles.label.Render("IO Traffic  ") +
 		m.styles.label.Render("5s window  ") +
 		modeTabLabel(m.ioShapingMode, eos.IOShapingApps, "a apps", m.styles) + "  " +
@@ -1637,7 +1701,7 @@ func (m model) renderIOShapingView(height int) string {
 		modeTabLabel(m.ioShapingMode, eos.IOShapingGroups, "g groups", m.styles) +
 		indicator
 
-	lines := []string{title, "", headerRow()}
+	lines := []string{title, "", m.renderSimpleHeaderRow(columns, []string{idLabel, "read rate", "write rate", "read iops", "write iops"})}
 
 	if m.ioShapingLoading && len(records) == 0 {
 		lines = append(lines, "Loading...")
@@ -1889,7 +1953,15 @@ func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) visibleFSTs() []eos.FstRecord {
-	fsts := append([]eos.FstRecord(nil), m.fsts...)
+	fsts := make([]eos.FstRecord, 0, len(m.fsts))
+	for _, node := range m.fsts {
+		t := strings.ToLower(node.Type)
+		// A node is an FST if it's explicitly type 'fst' OR if it has registered filesystems.
+		if t == "fst" || node.FileSystemCount > 0 {
+			fsts = append(fsts, node)
+		}
+	}
+
 	if len(m.fstFilter.filters) > 0 {
 		filtered := make([]eos.FstRecord, 0, len(fsts))
 		for _, node := range fsts {
@@ -2120,8 +2192,10 @@ func sortDirectionLabel(desc bool) string {
 	return "asc"
 }
 
-func (m model) renderNodeHeaderRow(columns []tableColumn) string {
-	labels := []string{"type", "hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs"}
+// NOTE: When adding or removing columns, ensure the labels slice here
+// remains in exact sync with the dataRows in renderNodesList (renderFstView).
+func (m model) renderFstHeaderRow(columns []tableColumn) string {
+	labels := []string{"hostport", "geotag", "status", "activated", "heartbeatdelta", "nofs"}
 	return m.renderSelectableHeaderRow(columns, labels, m.fstColumnSelected, m.fstSort, m.fstFilter)
 }
 
@@ -2130,18 +2204,31 @@ func (m model) renderFileSystemHeaderRow(columns []tableColumn) string {
 	return m.renderSelectableHeaderRow(columns, labels, m.fsColumnSelected, m.fsSort, m.fsFilter)
 }
 
-func (m model) renderNamespaceHeaderRow(columns []tableColumn) string {
-	labels := []string{"type", "name", "size", "uid", "gid", "modified"}
-	cells := make([]string, 0, len(columns))
+// renderSimpleHeaderRow renders a plain (non-selectable, non-sortable) column
+// header row using the label style.  ALL column headers MUST go through either
+// this function, renderSelectableHeaderRow, or a view-specific wrapper that
+// calls one of those two — never m.styles.header (that is for the app title bar
+// only).
+func (m model) renderSimpleHeaderRow(columns []tableColumn, labels []string) string {
+	cells := make([]string, len(columns))
 	for i, col := range columns {
 		label := ""
 		if i < len(labels) {
 			label = labels[i]
 		}
-		cell := padRight(label, col.min)
-		cells = append(cells, m.styles.label.Render(cell))
+		var cell string
+		if col.right {
+			cell = padLeft(label, col.min)
+		} else {
+			cell = padRight(label, col.min)
+		}
+		cells[i] = m.styles.label.Render(cell)
 	}
 	return strings.Join(cells, " ")
+}
+
+func (m model) renderNamespaceHeaderRow(columns []tableColumn) string {
+	return m.renderSimpleHeaderRow(columns, []string{"type", "name", "size", "uid", "gid", "modified"})
 }
 
 func (m model) renderSelectableHeaderRow(columns []tableColumn, labels []string, selected int, sortState sortState, filterState filterState) string {
@@ -2346,8 +2433,10 @@ func (m *model) openFilterPopup() {
 	m.popup.input.CursorEnd()
 	m.popup.input.Focus()
 	m.popup.table.Focus()
-	m.popup.table.SetCursor(0)
+	// Populate rows immediately so the table is ready for keyboard navigation
+	// without requiring a text-input event first.
 	m.updatePopupRows()
+	m.popup.table.SetCursor(0)
 	m.status = fmt.Sprintf("Select filter for %s", m.activeFilterColumnLabel())
 }
 
@@ -2556,14 +2645,19 @@ func (m model) fsColumnIsEnum(column int) bool {
 	}
 }
 
-func loadInfraCmd(client *eos.Client) tea.Cmd {
+// loadInfraCmd fans out all infrastructure fetches in parallel.  Each
+// component delivers its own typed message to the Bubble Tea runtime as soon
+// as it completes, so a slow or timing-out command (e.g. NodeStats) never
+// delays the display of faster data (e.g. FST node list).
+func loadInfraCmd(c *eos.Client) tea.Cmd {
 	return tea.Batch(
-		loadNodeStatsCmd(client),
-		loadNodesCmd(client),
-		loadFileSystemsCmd(client),
-		loadSpacesCmd(client),
-		loadNamespaceStatsCmd(client),
-		loadSpaceStatusCmd(client),
+		loadNodeStatsCmd(c),
+		loadFSTsCmd(c),
+		loadMGMsCmd(c),
+		loadFileSystemsCmd(c),
+		loadEOSVersionCmd(c),
+		loadSpacesCmd(c),
+		loadNamespaceStatsCmd(c),
 	)
 }
 
@@ -2574,10 +2668,24 @@ func loadNodeStatsCmd(client *eos.Client) tea.Cmd {
 	}
 }
 
-func loadNodesCmd(client *eos.Client) tea.Cmd {
+func loadFSTsCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		fsts, err := client.Nodes(context.Background())
 		return fstsLoadedMsg{fsts: fsts, err: err}
+	}
+}
+
+func loadMGMsCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		mgms, err := client.MGMs(context.Background())
+		return mgmsLoadedMsg{mgms: mgms, err: err}
+	}
+}
+
+func loadEOSVersionCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		version, _ := client.EOSVersion(context.Background())
+		return eosVersionLoadedMsg{version: version}
 	}
 }
 

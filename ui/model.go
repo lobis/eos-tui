@@ -394,7 +394,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case commandLogTickMsg:
 		if m.commandLog.active {
-			m.commandLog.loading = true
 			return m, tea.Batch(loadCommandHistoryCmd(m.client), commandLogTickCmd())
 		}
 	case tickMsg:

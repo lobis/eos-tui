@@ -11,7 +11,7 @@ import (
 	"github.com/lobis/eos-tui/eos"
 )
 
-const commandLogRefreshInterval = time.Second
+const commandLogRefreshInterval = 300 * time.Millisecond
 const commandLogTailLines = 200
 
 // loadInfraCmd fans out all infrastructure fetches in parallel.  Each

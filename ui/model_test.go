@@ -1239,7 +1239,7 @@ func TestGroupsViewRendersWithData(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "0 Groups"} {
+	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "0 Groups", "Selected Group", "Free"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected groups view to contain %q, got:\n%s", needle, view)
 		}
@@ -1713,7 +1713,33 @@ func TestGroupsViewDoesNotInsertBlankLineBeforeCommandPanel(t *testing.T) {
 	if commandTitleLine == 0 {
 		t.Fatalf("unexpected command title line")
 	}
+	if commandTitleLine < 2 {
+		t.Fatalf("unexpected command title line %d", commandTitleLine)
+	}
 	if prev := strings.TrimSpace(lines[commandTitleLine-1]); prev == "" {
 		t.Fatalf("expected no blank spacer line before command panel, got:\n%s", view)
+	}
+	if prevPrev := strings.TrimSpace(lines[commandTitleLine-2]); prevPrev == "" {
+		t.Fatalf("expected no extra blank line between group details and command panel, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Free") {
+		t.Fatalf("expected selected group details to include the Free row, got:\n%s", view)
+	}
+}
+
+func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.commandLog.active = true
+	m.commandLog.loading = false
+	m.commandLog.lines = []string{"[2026-04-09 12:22:08] eos -j fs ls"}
+
+	updated, cmd := m.Update(commandLogTickMsg{})
+	m = updated.(model)
+
+	if m.commandLog.loading {
+		t.Fatalf("expected command log refresh to keep existing content visible without setting loading=true")
+	}
+	if cmd == nil {
+		t.Fatalf("expected refresh tick to schedule the next command log load")
 	}
 }

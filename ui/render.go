@@ -64,15 +64,15 @@ func (m model) renderFooter() string {
 	var keys string
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ nav  •  enter open  •  backspace back  •  g root  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→ nav  •  enter open  •  backspace back  •  g root  •  L commands  •  q quit"
 	case viewIOShaping:
-		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  a apps  •  u users  •  g groups  •  r refresh  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:
-		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
 	default:
-		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  L commands  •  q quit"
 		if hostViews {
-			keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  l logs  •  L commands  •  s shell  •  q quit"
+			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  l logs  •  L commands  •  s shell  •  q quit"
 		}
 	}
 
@@ -138,12 +138,31 @@ func (m model) renderOverlay(body string, popup string, height int) string {
 	return strings.Join(bodyLines, "\n")
 }
 
+func (m model) normalizeRenderedBlock(block string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(block, "\n")
+	width := m.contentWidth()
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i := range lines {
+		lines[i] = padVisibleWidth(lines[i], width)
+	}
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) splitMainAndCommandHeights(total int) (mainHeight, commandHeight int) {
 	if !m.commandLog.active {
 		return total, 0
 	}
 
-	commandHeight = min(8, max(5, total/3))
+	commandHeight = min(11, max(6, total/3))
 	if total-commandHeight < 4 {
 		commandHeight = total - 4
 	}

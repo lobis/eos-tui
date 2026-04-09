@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -17,6 +18,36 @@ func lineCount(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
+}
+
+func assertCommandPanelAnchored(t *testing.T, m model, view string) {
+	t.Helper()
+
+	if got := lineCount(view); got != m.height {
+		t.Fatalf("expected rendered view to fill height %d, got %d lines", m.height, got)
+	}
+
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	if len(lines) == 0 || !strings.Contains(lines[len(lines)-1], "L commands") {
+		t.Fatalf("expected footer to remain on the last line, got:\n%s", view)
+	}
+
+	headerHeight := lipgloss.Height(m.renderHeader())
+	footerHeight := lipgloss.Height(m.renderFooter())
+	middleHeight := max(0, m.height-headerHeight-footerHeight)
+	availableHeight := max(4, middleHeight-2)
+	_, commandHeight := m.splitMainAndCommandHeights(availableHeight)
+	if commandHeight == 0 {
+		t.Fatalf("expected command panel to have non-zero height")
+	}
+
+	wantTitleLine := headerHeight + (middleHeight - commandHeight) + 1
+	if wantTitleLine >= len(lines) {
+		t.Fatalf("expected command panel title line index %d within %d lines", wantTitleLine, len(lines))
+	}
+	if !strings.Contains(lines[wantTitleLine], "Recent commands") {
+		t.Fatalf("expected command panel title on line %d, got %q\nfull view:\n%s", wantTitleLine+1, lines[wantTitleLine], view)
+	}
 }
 
 func TestNewModelRendersMenuWithoutWindowSize(t *testing.T) {
@@ -1236,6 +1267,22 @@ func TestGroupsViewFitsWindowHeight(t *testing.T) {
 	}
 }
 
+func TestGroupsViewFillsWindowHeightExactly(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.groupsLoading = false
+	m.groups = []eos.GroupRecord{
+		{Name: "default.0", Status: "online", NoFS: 3},
+	}
+
+	view := m.View()
+	if got := lineCount(view); got != m.height {
+		t.Fatalf("expected groups view to fill height %d, got %d lines", m.height, got)
+	}
+}
+
 func TestGroupsViewShowsLoadingState(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.width = 120
@@ -1399,6 +1446,26 @@ func TestLegendShowsSlashFilterNotF(t *testing.T) {
 	}
 }
 
+func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+
+	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups} {
+		m.activeView = v
+		footer := m.renderFooter()
+		if !strings.Contains(footer, "tab/0-9") {
+			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
+		}
+		if strings.Contains(footer, "tab/1-0") {
+			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
+		}
+		if strings.Contains(footer, "ctrl+d/u") {
+			t.Errorf("view %d: footer should not show ctrl+d/u, got: %s", v, footer)
+		}
+	}
+}
+
 func TestFSConfigStatusEditOpensOnEnter(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFileSystems
@@ -1552,5 +1619,101 @@ func TestCommandPanelRendersRecentCommands(t *testing.T) {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected command panel view to contain %q, got:\n%s", needle, view)
 		}
+	}
+}
+
+func TestCommandPanelLayoutKeepsFooterAnchored(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewFST
+	m.commandLog.active = true
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos -j node ls",
+	}
+	m.fstsLoading = false
+	m.fsts = []eos.FstRecord{
+		{Host: "fst01", Port: 1095, Status: "online", Activated: "on", FileSystemCount: 1},
+	}
+
+	view := m.View()
+	assertCommandPanelAnchored(t, m, view)
+}
+
+func TestCommandPanelStaysBottomAnchoredInGroupsView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.commandLog.active = true
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos group ls",
+	}
+	m.groupsLoading = false
+	m.groups = []eos.GroupRecord{
+		{Name: "default.0", Status: "online", NoFS: 3},
+	}
+
+	view := m.View()
+	assertCommandPanelAnchored(t, m, view)
+}
+
+func TestCommandPanelStaysBottomAnchoredWithFSConfigPopup(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewFileSystems
+	m.commandLog.active = true
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos fs config 7 configstatus=rw",
+	}
+	m.fileSystemsLoading = false
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Port: 1095, Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+	m.fsSelected = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if !m.fsEdit.active {
+		t.Fatalf("expected fs config popup to open")
+	}
+
+	view := m.View()
+	assertCommandPanelAnchored(t, m, view)
+	if !strings.Contains(view, "/data/01") {
+		t.Fatalf("expected filesystem mount path to remain visible with popup open, got:\n%s", view)
+	}
+}
+
+func TestGroupsViewDoesNotInsertBlankLineBeforeCommandPanel(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.commandLog.active = true
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos group ls",
+	}
+	m.groupsLoading = false
+	m.groups = []eos.GroupRecord{
+		{Name: "default.0", Status: "online", NoFS: 3},
+	}
+
+	view := m.View()
+	assertCommandPanelAnchored(t, m, view)
+
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	headerHeight := lipgloss.Height(m.renderHeader())
+	footerHeight := lipgloss.Height(m.renderFooter())
+	middleHeight := max(0, m.height-headerHeight-footerHeight)
+	availableHeight := max(4, middleHeight-2)
+	_, commandHeight := m.splitMainAndCommandHeights(availableHeight)
+	commandTitleLine := headerHeight + (middleHeight - commandHeight) + 1
+	if commandTitleLine == 0 {
+		t.Fatalf("unexpected command title line")
+	}
+	if prev := strings.TrimSpace(lines[commandTitleLine-1]); prev == "" {
+		t.Fatalf("expected no blank spacer line before command panel, got:\n%s", view)
 	}
 }

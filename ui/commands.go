@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 
 	"github.com/lobis/eos-tui/eos"
 )
+
+const commandLogRefreshInterval = time.Second
+const commandLogTailLines = 200
 
 // loadInfraCmd fans out all infrastructure fetches in parallel.  Each
 // component delivers its own typed message to the Bubble Tea runtime as soon
@@ -156,4 +160,24 @@ func loadLogCmd(client *eos.Client, host, filePath string) tea.Cmd {
 		lines := strings.Split(raw, "\n")
 		return logLoadedMsg{filePath: filePath, lines: lines}
 	}
+}
+
+func loadCommandHistoryCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return commandHistoryLoadedMsg{err: fmt.Errorf("command logging unavailable")}
+		}
+		lines, err := client.SessionCommands(commandLogTailLines)
+		return commandHistoryLoadedMsg{
+			filePath: client.SessionLogPath(),
+			lines:    lines,
+			err:      err,
+		}
+	}
+}
+
+func commandLogTickCmd() tea.Cmd {
+	return tea.Tick(commandLogRefreshInterval, func(time.Time) tea.Msg {
+		return commandLogTickMsg{}
+	})
 }

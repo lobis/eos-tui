@@ -1,6 +1,7 @@
 package eos
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,59 @@ func (c *Client) openLogFile() (*os.File, error) {
 		return nil, fmt.Errorf("logging disabled")
 	}
 	return os.OpenFile(c.sessionLogPath, os.O_APPEND|os.O_WRONLY, 0644)
+}
+
+func (c *Client) SessionLogPath() string {
+	return c.sessionLogPath
+}
+
+func (c *Client) SessionCommands(n int) ([]string, error) {
+	if c.sessionLogPath == "" {
+		return nil, fmt.Errorf("logging disabled")
+	}
+	if n <= 0 {
+		return nil, nil
+	}
+
+	f, err := os.Open(c.sessionLogPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	lines := make([]string, 0, n)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !isSessionCommandLine(line) {
+			continue
+		}
+		if len(lines) == n {
+			copy(lines, lines[1:])
+			lines = lines[:n-1]
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return lines, nil
+}
+
+func isSessionCommandLine(line string) bool {
+	if !strings.HasPrefix(line, "[") {
+		return false
+	}
+	if strings.Contains(line, "] ERROR ") {
+		return false
+	}
+	if strings.Contains(line, "]   output: ") {
+		return false
+	}
+	return true
 }
 
 func (c *Client) logCommand(args []string) {

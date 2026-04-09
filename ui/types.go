@@ -115,8 +115,15 @@ type logLoadedMsg struct {
 	err      error
 }
 
+type commandHistoryLoadedMsg struct {
+	filePath string
+	lines    []string
+	err      error
+}
+
 type ioShapingTickMsg struct{}
 type ioShapingPolicyTickMsg struct{}
+type commandLogTickMsg struct{}
 
 type tickMsg time.Time
 
@@ -185,6 +192,14 @@ type logOverlay struct {
 	input     textinput.Model
 	err       error
 	loading   bool
+}
+
+type commandPanel struct {
+	active   bool
+	loading  bool
+	filePath string
+	lines    []string
+	err      error
 }
 
 type filterState struct {
@@ -406,6 +421,7 @@ type model struct {
 	fsEdit      fsConfigStatusEdit
 	alert       errorAlert
 	log         logOverlay
+	commandLog  commandPanel
 
 	styles styles
 }

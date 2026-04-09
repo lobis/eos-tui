@@ -2,6 +2,8 @@ package eos
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -505,6 +507,55 @@ func TestSpacesParseWithPreamble(t *testing.T) {
 	}
 	if len(payload.Result) != 1 || payload.Result[0].Name != "default" {
 		t.Errorf("unexpected result: %+v", payload.Result)
+	}
+}
+
+func TestSessionCommandsReturnsOnlyCommandLines(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "session.log")
+	content := strings.Join([]string{
+		"[2026-04-09 10:00:00] eos -j node ls",
+		"[2026-04-09 10:00:01] ERROR (node ls): boom",
+		"[2026-04-09 10:00:01]   output: failed",
+		"[2026-04-09 10:00:02] ssh -o BatchMode=yes root@host 'eos -j fs ls'",
+	}, "\n") + "\n"
+	if err := os.WriteFile(logPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	client := &Client{sessionLogPath: logPath}
+	lines, err := client.SessionCommands(10)
+	if err != nil {
+		t.Fatalf("SessionCommands error: %v", err)
+	}
+
+	if got := strings.Join(lines, "\n"); strings.Contains(got, "ERROR") || strings.Contains(got, "output:") {
+		t.Fatalf("expected errors/output lines to be filtered out, got:\n%s", got)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 command lines, got %d", len(lines))
+	}
+}
+
+func TestSessionCommandsKeepsLastNEntries(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "session.log")
+	content := strings.Join([]string{
+		"[2026-04-09 10:00:00] cmd-1",
+		"[2026-04-09 10:00:01] cmd-2",
+		"[2026-04-09 10:00:02] cmd-3",
+	}, "\n") + "\n"
+	if err := os.WriteFile(logPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	client := &Client{sessionLogPath: logPath}
+	lines, err := client.SessionCommands(2)
+	if err != nil {
+		t.Fatalf("SessionCommands error: %v", err)
+	}
+	if got := strings.Join(lines, ","); got != "[2026-04-09 10:00:01] cmd-2,[2026-04-09 10:00:02] cmd-3" {
+		t.Fatalf("unexpected tail result: %s", got)
 	}
 }
 

@@ -56,7 +56,7 @@ func (m model) renderFooter() string {
 		if m.log.filtering {
 			keys = "type to filter  •  enter apply  •  esc cancel"
 		}
-		return m.styles.status.Width(m.contentWidth()).Render(keys)
+		return m.styles.status.Render(padVisibleWidth(keys, m.contentWidth()))
 	}
 
 	hostViews := m.activeView == viewMGM || m.activeView == viewQDB ||
@@ -64,19 +64,19 @@ func (m model) renderFooter() string {
 	var keys string
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  q quit"
+		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ nav  •  enter open  •  backspace back  •  g root  •  L commands  •  q quit"
 	case viewIOShaping:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  q quit"
+		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  a apps  •  u users  •  g groups  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  enter edit configstatus  •  l logs  •  s shell  •  q quit"
+		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
 	default:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  q quit"
+		keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  L commands  •  q quit"
 		if hostViews {
-			keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  l logs  •  s shell  •  q quit"
+			keys = "tab/1-0  •  ↑↓/jk  •  ctrl+d/u  •  ←→ col  •  S sort  •  /filter  •  l logs  •  L commands  •  s shell  •  q quit"
 		}
 	}
 
-	return m.styles.status.Width(m.contentWidth()).Render(keys)
+	return m.styles.status.Render(padVisibleWidth(keys, m.contentWidth()))
 }
 
 func (m model) renderBody(availableHeight int) string {
@@ -136,6 +136,21 @@ func (m model) renderOverlay(body string, popup string, height int) string {
 		bodyLines = bodyLines[:height]
 	}
 	return strings.Join(bodyLines, "\n")
+}
+
+func (m model) splitMainAndCommandHeights(total int) (mainHeight, commandHeight int) {
+	if !m.commandLog.active {
+		return total, 0
+	}
+
+	commandHeight = min(8, max(5, total/3))
+	if total-commandHeight < 4 {
+		commandHeight = total - 4
+	}
+	if commandHeight < 4 || total-commandHeight < 4 {
+		return total, 0
+	}
+	return total - commandHeight, commandHeight
 }
 
 func (m model) metricLine(leftLabel, leftValue, rightLabel, rightValue string) string {
@@ -244,6 +259,47 @@ func (m model) renderFilterPopup() string {
 	)
 
 	return m.styles.panelDim.Width(contentWidth).Render(box)
+}
+
+func (m model) renderCommandPanel(height int) string {
+	width := m.contentWidth()
+	innerWidth := max(1, width-4)
+	innerHeight := max(1, height-2)
+
+	title := m.styles.label.Render("Recent commands")
+	if m.commandLog.filePath != "" {
+		title += m.styles.status.Render("  " + m.commandLog.filePath)
+	}
+
+	lines := []string{padVisibleWidth(title, innerWidth)}
+	entrySlots := max(0, innerHeight-1)
+
+	var entries []string
+	switch {
+	case m.commandLog.loading:
+		entries = []string{m.styles.status.Render("Loading command history...")}
+	case m.commandLog.err != nil:
+		entries = []string{m.styles.error.Render(m.commandLog.err.Error())}
+	case len(m.commandLog.lines) == 0:
+		entries = []string{m.styles.status.Render("No commands recorded yet.")}
+	default:
+		entries = make([]string, len(m.commandLog.lines))
+		for i, line := range m.commandLog.lines {
+			entries[i] = m.styles.value.Render(line)
+		}
+	}
+
+	if len(entries) > entrySlots {
+		entries = entries[len(entries)-entrySlots:]
+	}
+	for _, line := range entries {
+		lines = append(lines, padVisibleWidth(line, innerWidth))
+	}
+	for len(lines) < innerHeight {
+		lines = append(lines, strings.Repeat(" ", innerWidth))
+	}
+
+	return m.styles.panelDim.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func padVisibleWidth(s string, width int) string {

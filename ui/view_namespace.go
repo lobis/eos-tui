@@ -20,16 +20,17 @@ func (m model) renderNamespaceView(height int) string {
 
 	// Metadata detail pane has a stable natural height; attrs now live in a
 	// dedicated right-hand pane so they no longer resize the metadata area.
-	naturalDetailContent := 9
+	// Keep a little extra vertical room here so both panes stay easier to scan.
+	naturalDetailContent := 12
 	if selected, ok := m.selectedNamespaceEntry(); ok {
 		if selected.Kind != eos.EntryKindContainer {
 			if selected.LinkName != "" {
-				naturalDetailContent = 10
+				naturalDetailContent = 13
 			}
 		}
 	} else if m.directory.Self.Kind != eos.EntryKindContainer {
 		if m.directory.Self.LinkName != "" {
-			naturalDetailContent = 10
+			naturalDetailContent = 13
 		}
 	}
 

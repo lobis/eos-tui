@@ -1,138 +1,138 @@
 # EOS TUI
 
-A terminal user interface for monitoring and managing EOS storage clusters.
-
-## Features
-
-- **MGM & QDB Monitoring**: specialized views for Management Nodes and the QuarkDB cluster (Raft quorum).
-- **FST View**: monitor storage nodes, disk load, and traffic.
-- **Namespace Browser**: browse the EOS file system, inspect file metadata, and view layouts.
-- **Space Management**: view space distribution, quotas, and health.
-- **Group Monitoring**: monitor EOS groups, capacity usage, and file counts.
-- **Real-time IO Traffic**: live tracking of IO shaping and traffic by app, user, or group.
-- **Interactive Logs**: tail and grep logs from any node directly in the TUI.
-- **Integrated Shell**: open an interactive SSH shell to any node with a single keypress.
+A terminal user interface for monitoring and managing [EOS](https://eos-web.web.cern.ch/) storage clusters, inspired by [k9s](https://k9scli.io/).
 
 ## Installation
 
-### Via Go Install
+### One-liner (Linux & macOS)
 
-You can install the latest version directly using `go install`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/lobis/eos-tui/main/install.sh | bash
+```
+
+Downloads the correct binary for your OS and architecture, verifies the SHA256 checksum, and installs to `/usr/local/bin`. Use `INSTALL_DIR` to override the destination:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lobis/eos-tui/main/install.sh | INSTALL_DIR=~/.local/bin bash
+```
+
+### Homebrew (macOS)
+
+```bash
+brew install lobis/tap/eos-tui
+```
+
+### RPM (AlmaLinux / RHEL)
+
+Pre-built RPMs for AlmaLinux 9 and 10 (x86\_64 and aarch64) are attached to every [GitHub release](https://github.com/lobis/eos-tui/releases/latest):
+
+```bash
+# AlmaLinux 9, x86_64 — replace the version and filename as needed
+VERSION=v0.0.3
+curl -fsSL "https://github.com/lobis/eos-tui/releases/download/${VERSION}/eos-tui-${VERSION#v}-1.el9.x86_64.rpm" -o eos-tui.rpm
+sudo rpm -i eos-tui.rpm
+```
+
+### From source
 
 ```bash
 go install github.com/lobis/eos-tui@latest
 ```
 
-*Note: Ensure `$GOPATH/bin` is in your `PATH`.*
+Requires Go 1.21+. Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH`.
 
-### Via Homebrew
-
-You can install EOS TUI from the `lobis` tap:
-
-```bash
-brew tap lobis/tap
-brew install eos-tui
-```
-
-### From Source
-
-Clone the repository and build using the provided Makefile:
-
-```bash
-git clone https://github.com/lobis/eos-tui.git
-cd eos-tui
-make build
-```
-
-The binary will be available in the `./bin` directory.
-
-## Releases
-
-Creating and pushing a tag that matches `vMAJOR.MINOR.PATCH`, for example
-`v0.1.2`, triggers the GitHub release workflow.
-
-Each release publishes downloadable binaries for:
-
-- macOS amd64
-- Windows amd64
-- Linux amd64
-- Linux arm64
-
-The Linux release binary is built with `CGO_ENABLED=0`, so the same artifact is
-intended to work across Ubuntu and AlmaLinux 9/10 without separate distro-specific
-builds.
-
-Each release also attaches RPM packages built from `eos-tui.spec` for:
-
-- AlmaLinux 9 x86_64
-- AlmaLinux 9 aarch64
-- AlmaLinux 10 x86_64
-- AlmaLinux 10 aarch64
-
-The workflow also attaches a `SHA256SUMS.txt` file to the GitHub Release so the
-artifacts can be verified after download.
-
-If you want release tags to update the Homebrew formula automatically, add a
-repository secret named `HOMEBREW_TAP_GITHUB_TOKEN` with `contents:write` access
-to `lobis/homebrew-tap`.
+---
 
 ## Usage
 
-Start the TUI by specifying an SSH target (gateway) for the EOS cluster:
+```bash
+eos-tui --ssh <gateway>
+```
+
+The tool connects to the cluster via SSH, discovers the MGM leader automatically, and routes all subsequent commands directly to it.
+
+### Examples
 
 ```bash
+# Connect via an SSH alias defined in ~/.ssh/config
 eos-tui --ssh eospilot
-```
 
-If you want EOS TUI to automatically trust first-seen SSH host keys instead of
-showing the OpenSSH confirmation prompt, enable:
-
-```bash
+# Auto-accept first-seen SSH host keys (useful for new hosts)
 eos-tui --ssh eospilot --ssh-accept-new-host-keys
+
+# Run against a local EOS instance (no SSH)
+eos-tui
 ```
 
-### Command Line Arguments
+### Options
 
-- `--ssh`: gateway/initial SSH host (e.g. `eospilot`). The tool will automatically discover the MGM leader and route subsequent commands directly.
-- `--ssh-accept-new-host-keys`: opt in to `StrictHostKeyChecking=accept-new` for SSH connections. This auto-accepts new host keys but still rejects changed keys.
-- `--timeout`: per-request timeout (default `15s`).
-- `--no-alt-screen`: disable alternate screen mode.
+| Flag | Env variable | Default | Description |
+|---|---|---|---|
+| `--ssh` | `EOS_TUI_SSH` | _(local)_ | SSH gateway / initial target |
+| `--ssh-accept-new-host-keys` | `EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS` | `false` | Accept new host keys automatically |
+| `--timeout` | `EOS_TUI_TIMEOUT` | `15s` | Per-request timeout |
+| `--no-alt-screen` | `EOS_TUI_NO_ALT_SCREEN` | `false` | Disable alternate screen |
+| `--version` | — | — | Print version and exit |
 
-Environment variables:
+---
 
-- `EOS_TUI_SSH`: same as `--ssh`.
-- `EOS_TUI_SSH_TARGET`: compatibility alias for `--ssh`.
-- `EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS`: same as `--ssh-accept-new-host-keys`.
-- `EOS_TUI_TIMEOUT`: same as `--timeout`.
-- `EOS_TUI_NO_ALT_SCREEN`: same as `--no-alt-screen`.
+## Features
+
+- **MGM & QDB view** — Raft quorum status, leader election, per-node EOS version
+- **FST view** — storage nodes, disk load, net traffic
+- **Filesystem view** — per-filesystem status, configstatus editing (`rw`/`ro`/`drain`/`empty`)
+- **Namespace browser** — browse the EOS namespace, inspect file metadata and layouts
+- **Space & group monitoring** — capacity, usage, quotas, health
+- **Real-time IO traffic** — live IO shaping by app, user, or group
+- **Log viewer** — tail and grep logs from any node, with live updates
+- **Integrated shell** — open an interactive SSH shell to any selected node
+- **Apollon drain** — trigger drain workflows directly from the filesystem view
+- **Recent commands panel** — full history of every command issued this session
 
 ## Keybindings
 
 ### Global
 
-- `tab` / `0-9`: Switch between views.
-- `r`: Refresh current view.
-- `l`: Open log overlay for the selected node.
-- `s`: Open an interactive SSH shell to the selected node.
-- `q` / `ctrl+c`: Quit.
+| Key | Action |
+|---|---|
+| `tab` / `0`–`9` | Switch view |
+| `r` | Refresh current view |
+| `l` | Open log overlay for selected node |
+| `s` | Open SSH shell to selected node |
+| `L` | Toggle recent-commands panel |
+| `q` / `ctrl+c` | Quit |
 
-### Navigation
+### Navigation & filtering
 
-- `↑/↓` (or `j/k`): Scroll through lists.
-- `←/→`: Change selected columns for filtering/sorting.
-- `S`: Cycle through sort modes for the selected column.
-- `f` (or `/`): Filter the current view.
-- `esc`: Clear active filter or close popups.
+| Key | Action |
+|---|---|
+| `↑` / `↓` (or `j` / `k`) | Move selection |
+| `←` / `→` | Move column focus |
+| `S` | Cycle sort on focused column |
+| `/` | Filter current view |
+| `esc` | Clear filter / close overlay |
+| `enter` | Edit selected value (where applicable) |
 
-## Logging
+---
 
-History of all executed EOS commands is kept per session in `~/.eos-tui/sessions/`.
-The latest session is also symlinked at `~/.eos-tui/latest.log`.
+## Session data
 
-## Session State
+| Path | Contents |
+|---|---|
+| `~/.eos-tui/sessions/` | Per-session command logs (timestamped) |
+| `~/.eos-tui/latest.log` | Symlink to the most recent session log |
+| `~/.eos-tui/ui-state.json` | Persisted UI state (active view, namespace path, panel visibility) |
 
-EOS TUI restores lightweight UI state from `~/.eos-tui/ui-state.json`, including:
+---
 
-- the last browsed namespace path
-- the last active view
-- whether the recent-commands panel was open
+## Releasing
+
+Push a tag matching `vMAJOR.MINOR.PATCH` to trigger the release workflow:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+The workflow builds binaries for Linux (amd64/arm64), macOS (arm64), and Windows (amd64), produces RPMs for AlmaLinux 9/10, publishes a GitHub release with `SHA256SUMS.txt`, and updates the Homebrew formula automatically.
+
+Set the `HOMEBREW_TAP_GITHUB_TOKEN` repository secret (with `contents:write` on `lobis/homebrew-tap`) to enable automatic Homebrew formula updates.

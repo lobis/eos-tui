@@ -2625,6 +2625,21 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 	}
 }
 
+func TestLogHotkeyIsNoOpOnViewsWithoutHost(t *testing.T) {
+	noHostViews := []viewID{viewNamespace, viewNamespaceStats, viewSpaces, viewSpaceStatus, viewIOShaping, viewGroups}
+	for _, v := range noHostViews {
+		m := NewModel(nil, "local eos cli", "/").(model)
+		m.activeView = v
+		m.splash.active = false
+
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+		m = updated.(model)
+		if m.log.active {
+			t.Errorf("view %d: expected 'l' to be a no-op (no host), but log overlay opened", v)
+		}
+	}
+}
+
 func TestLegendShowsSlashFilterNotF(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.width = 120

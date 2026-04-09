@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -309,13 +310,24 @@ func (m model) renderErrorAlert() string {
 	if m.alert.fatal {
 		footer = "press any key to quit"
 	}
+	// Clamp content lines to a reasonable popup width so no single long line
+	// (e.g. a gRPC error) breaks the box layout or causes a missing border.
+	maxContentWidth := min(max(40, m.contentWidth()-12), 100)
 	lines := []string{
 		m.styles.popupTitle.Render("Error"),
 		"",
-		m.alert.message,
-		"",
-		m.styles.status.Render(footer),
 	}
+	// Split the message so embedded newlines become separate elements;
+	// passing a multi-line string as a single lipgloss element breaks the box.
+	// Also strip \r (SSH stderr uses \r\n line endings) and ANSI escape codes
+	// from each line — a \r in rendered output moves the terminal cursor to
+	// column 0, causing the popup's closing border to overwrite the line start.
+	for _, msgLine := range strings.Split(m.alert.message, "\n") {
+		msgLine = strings.TrimRight(msgLine, "\r")
+		msgLine = ansi.Strip(msgLine)
+		lines = append(lines, ansi.Truncate(msgLine, maxContentWidth, "…"))
+	}
+	lines = append(lines, "", m.styles.status.Render(footer))
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("196")).

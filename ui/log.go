@@ -54,8 +54,13 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	if m.client == nil {
 		return m, nil
 	}
-	filePath, title := m.logFileForView()
 	host := m.selectedHostForView()
+	if host == "" {
+		// Views without an associated host (namespace, spaces, stats, …) do not
+		// support log tailing — 'l' is a no-op there.
+		return m, nil
+	}
+	filePath, title := m.logFileForView()
 
 	logInput := textinput.New()
 	logInput.Prompt = "grep> "
@@ -91,14 +96,19 @@ func (m model) logViewportWidth() int {
 }
 
 func renderWrappedLogLines(lines []string, width int, wrap bool) []string {
-	if !wrap || width <= 0 {
+	if width <= 0 {
 		return append([]string(nil), lines...)
 	}
 
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
-		wrapped := ansi.Hardwrap(line, width, true)
-		out = append(out, strings.Split(wrapped, "\n")...)
+		if wrap {
+			wrapped := ansi.Hardwrap(line, width, true)
+			out = append(out, strings.Split(wrapped, "\n")...)
+		} else {
+			// Truncate so long lines never overflow the panel and eat the right border.
+			out = append(out, ansi.Truncate(line, width, ""))
+		}
 	}
 	return out
 }
@@ -136,10 +146,9 @@ func (m model) renderLogOverlay(height int) string {
 		vpHeight = max(4, height-filterHeight)
 	} else if m.log.err != nil && !m.log.loading {
 		vpHeight = 1
-	} else {
-		contentLines := max(1, m.log.vp.TotalLineCount())
-		vpHeight = min(contentLines, maxBoxViewportHeight)
 	}
+	// Always use the full available height so the panel fills the screen
+	// even when only a few log lines have been loaded.
 	m.log.vp.Width = vpWidth
 	m.log.vp.Height = vpHeight
 	m.log.vp.SetYOffset(m.log.vp.YOffset)
@@ -166,11 +175,15 @@ func (m model) renderLogOverlay(height int) string {
 	titleLine := m.styles.popupTitle.Render(m.log.title) +
 		m.styles.label.Render("  "+m.log.filePath) +
 		m.styles.value.Render(totalInfo+filterInfo)
+	// Ensure the title line never overflows the inner panel width — if it does,
+	// lipgloss v1 silently expands the panel box, shifting the right border off screen.
+	titleLine = padVisibleWidth(titleLine, vpWidth)
 
 	lines := []string{titleLine}
 
 	if m.log.err != nil && !m.log.loading {
-		lines = append(lines, m.styles.error.Render(m.log.err.Error()))
+		// Truncate error messages so they don't overflow the panel width.
+		lines = append(lines, padVisibleWidth(m.styles.error.Render(ansi.Truncate(m.log.err.Error(), vpWidth, "…")), vpWidth))
 	} else {
 		lines = append(lines, m.renderLogViewport())
 	}
@@ -189,16 +202,30 @@ func (m model) renderLogOverlay(height int) string {
 }
 
 func (m model) renderLogViewport() string {
-	lines := renderWrappedLogLines(m.log.filtered, m.logViewportWidth(), m.log.wrap)
-	if len(lines) == 0 {
-		return ""
-	}
+	w := m.logViewportWidth()
+	lines := renderWrappedLogLines(m.log.filtered, w, m.log.wrap)
 	top := max(0, min(m.log.vp.YOffset, len(lines)))
 	bottom := min(top+m.log.vp.Height, len(lines))
-	if top >= bottom {
-		return ""
+
+	var visible []string
+	if top < bottom {
+		visible = lines[top:bottom]
 	}
-	return strings.Join(lines[top:bottom], "\n")
+
+	// Prepend blank lines so content is bottom-aligned within the viewport.
+	// This keeps the panel box full-height while the newest lines sit
+	// naturally at the bottom, matching tail(1) behaviour.
+	for len(visible) < m.log.vp.Height {
+		visible = append([]string{""}, visible...)
+	}
+
+	// Explicitly pad every line to the viewport width so that lipgloss draws
+	// the right border correctly even when lines are shorter than the panel.
+	for i, line := range visible {
+		visible[i] = padVisibleWidth(line, w)
+	}
+
+	return strings.Join(visible, "\n")
 }
 
 // applyLogFilter returns lines that case-insensitively contain filter.

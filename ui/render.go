@@ -28,6 +28,7 @@ var splashTUI = []string{
 }
 
 func (m model) renderHeader() string {
+	maxWidth := m.contentWidth()
 	parts := []string{m.styles.header.Render("EOS TUI"), "  "}
 	for i, t := range orderedViewTabs {
 		if i > 0 {
@@ -41,10 +42,16 @@ func (m model) renderHeader() string {
 	}
 
 	left := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
-	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
-	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
+	rightLabel := m.styles.label.Render("target ")
+	maxLeftWidth := max(0, maxWidth-1-lipgloss.Width(rightLabel))
+	if lipgloss.Width(left) > maxLeftWidth {
+		left = padVisibleWidth(left, maxLeftWidth)
+	}
+	availableRightValue := max(0, maxWidth-lipgloss.Width(left)-1-lipgloss.Width(rightLabel))
+	right := rightLabel + m.styles.value.Render(truncate(m.endpoint, availableRightValue))
+	spacerWidth := max(1, maxWidth-lipgloss.Width(left)-lipgloss.Width(right))
 
-	return lipgloss.JoinHorizontal(lipgloss.Left, left, strings.Repeat(" ", spacerWidth), right)
+	return padVisibleWidth(lipgloss.JoinHorizontal(lipgloss.Left, left, strings.Repeat(" ", spacerWidth), right), maxWidth)
 }
 
 func (m model) renderFooter() string {
@@ -219,6 +226,10 @@ func (m model) contentWidth() int {
 	return max(20, m.width-2)
 }
 
+func (m model) panelWidth() int {
+	return max(18, m.contentWidth()-2)
+}
+
 func (m model) renderSimpleHeaderRow(columns []tableColumn, labels []string) string {
 	cells := make([]string, len(columns))
 	for i, col := range columns {
@@ -314,7 +325,7 @@ func (m model) renderFilterPopup() string {
 }
 
 func (m model) renderCommandPanel(height int) string {
-	width := m.contentWidth()
+	width := max(18, m.contentWidth()-2)
 	innerWidth := max(1, width-4)
 	innerHeight := max(1, height-2)
 

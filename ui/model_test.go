@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -2138,6 +2140,125 @@ func TestNamespaceStatsViewDoesNotInsertBlankLineBeforeCommandPanel(t *testing.T
 	}
 }
 
+func TestHeaderTruncatesLongEndpointToFitContentWidth(t *testing.T) {
+	m := NewModel(nil, "ssh eospilot  \u2192  root@eospilot-ns-02.cern.ch", "/").(model)
+	m.width = 120
+
+	header := m.renderHeader()
+	if got := lipgloss.Width(header); got > m.contentWidth() {
+		t.Fatalf("expected header width <= content width %d, got %d\nheader:\n%s", m.contentWidth(), got, header)
+	}
+	if !strings.Contains(header, "target") {
+		t.Fatalf("expected header to still show target label, got:\n%s", header)
+	}
+}
+
+func TestLongEndpointDoesNotClipStatsRightBorder(t *testing.T) {
+	m := NewModel(nil, "ssh eospilot  \u2192  root@eospilot-ns-02.cern.ch", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.activeView = viewNamespaceStats
+	m.splash.active = false
+	m.fstStatsLoading = false
+	m.nsStatsLoading = false
+	m.nodeStats = eos.NodeStats{
+		State:       "WARN",
+		ThreadCount: 846,
+		FileCount:   23382256,
+		DirCount:    352325,
+		FileDescs:   1072,
+		Uptime:      523*time.Hour + 11*time.Minute + 16*time.Second,
+	}
+	m.namespaceStats = eos.NamespaceStats{
+		TotalFiles:       23382256,
+		TotalDirectories: 352325,
+	}
+
+	view := m.View()
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "General Statistics") || strings.Contains(line, "Cluster Summary") || strings.Contains(line, "Namespace Statistics") {
+			trimmed := strings.TrimRight(line, " ")
+			if !strings.HasSuffix(trimmed, "│") {
+				t.Fatalf("expected stats content line to keep right border, got %q\nfull view:\n%s", trimmed, view)
+			}
+		}
+	}
+}
+
+func TestLongEndpointDoesNotClipMainViewRightBorders(t *testing.T) {
+	m := NewModel(nil, "ssh eospilot  \u2192  root@eospilot-ns-02.cern.ch", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.splash.active = false
+
+	cases := []struct {
+		name   string
+		view   viewID
+		setup  func(*model)
+		needle string
+	}{
+		{
+			name: "fst",
+			view: viewFST,
+			setup: func(m *model) {
+				m.fstsLoading = false
+				m.fsts = []eos.FstRecord{{Host: "fst01", Port: 1095, Status: "online", Activated: "on", FileSystemCount: 1}}
+			},
+			needle: "FST Nodes",
+		},
+		{
+			name: "namespace",
+			view: viewNamespace,
+			setup: func(m *model) {
+				m.nsLoaded = true
+				m.nsLoading = false
+				m.directory = eos.Directory{
+					Path: "/eos/dev",
+					Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+					Entries: []eos.Entry{
+						{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+					},
+				}
+			},
+			needle: "Namespace Path /eos/dev",
+		},
+		{
+			name: "groups",
+			view: viewGroups,
+			setup: func(m *model) {
+				m.groupsLoading = false
+				m.groups = []eos.GroupRecord{{Name: "default.0", Status: "online", NoFS: 3}}
+			},
+			needle: "EOS Groups",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			local := m
+			local.activeView = tc.view
+			tc.setup(&local)
+
+			view := local.View()
+			lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+			found := false
+			for _, line := range lines {
+				if strings.Contains(line, tc.needle) {
+					found = true
+					trimmed := strings.TrimRight(line, " ")
+					if !strings.HasSuffix(trimmed, "│") {
+						t.Fatalf("expected %s line to keep right border, got %q\nfull view:\n%s", tc.name, trimmed, view)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("expected to find %q in rendered view, got:\n%s", tc.needle, view)
+			}
+		})
+	}
+}
+
 func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.commandLog.active = true
@@ -2152,5 +2273,50 @@ func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected refresh tick to schedule the next command log load")
+	}
+}
+
+func TestLogTickReloadsWhileOverlayIsOpen(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.log.active = true
+	m.log.host = "mgm01"
+	m.log.filePath = "/var/log/eos/mgm/xrdlog.mgm"
+	m.log.loading = false
+
+	updated, cmd := m.Update(logTickMsg{})
+	m = updated.(model)
+
+	if m.log.loading {
+		t.Fatalf("expected log tick to keep existing log content visible without setting loading=true")
+	}
+	if cmd == nil {
+		t.Fatalf("expected log tick to schedule the next log refresh")
+	}
+}
+
+func TestLogRefreshPreservesScrollWhenNotAtBottom(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.log.active = true
+	m.log.filter = ""
+	m.log.vp = viewport.New(80, 4)
+	m.log.allLines = []string{"one", "two", "three", "four", "five", "six"}
+	m.log.filtered = m.log.allLines
+	m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+	m.log.vp.SetYOffset(1)
+
+	updated, _ := m.Update(logLoadedMsg{
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		lines:    []string{"one", "two", "three", "four", "five", "six", "seven"},
+	})
+	m = updated.(model)
+
+	if m.log.vp.AtBottom() {
+		t.Fatalf("expected log refresh to preserve manual scroll position when not at bottom")
+	}
+	if m.log.vp.YOffset != 1 {
+		t.Fatalf("expected log refresh to preserve y offset 1, got %d", m.log.vp.YOffset)
+	}
+	if !strings.Contains(m.log.vp.View(), "two") {
+		t.Fatalf("expected viewport content to stay anchored near previous offset, got:\n%s", m.log.vp.View())
 	}
 }

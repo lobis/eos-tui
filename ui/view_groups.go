@@ -11,7 +11,7 @@ func (m model) renderGroupsView(height int) string {
 	const groupDetailContent = 5
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, groupDetailContent)
 
-	width := m.contentWidth()
+	width := m.panelWidth()
 	list := m.renderGroupsList(width, listHeight)
 	details := m.renderGroupDetails(width, detailHeight)
 

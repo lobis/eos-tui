@@ -10,7 +10,7 @@ import (
 )
 
 func (m model) renderNamespaceView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
 
 	fixedListLines := 3 // Title, blank, header
 	naturalListContent := fixedListLines + len(m.directory.Entries)

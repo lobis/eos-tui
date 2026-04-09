@@ -18,7 +18,7 @@ func (m model) renderFSTView(height int) string {
 	naturalListContent := fixedHeaderLines + len(m.visibleFSTs())
 	const fstDetailLines = 18 // fixed lines rendered by renderNodeDetails
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, fstDetailLines)
-	width := m.contentWidth()
+	width := m.panelWidth()
 
 	list := m.renderNodesList(width, listHeight)
 	details := m.renderNodeDetails(width, detailHeight)

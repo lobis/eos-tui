@@ -332,7 +332,7 @@ func (m model) renderNamespaceAttrEditPopup() string {
 				lines = append(lines, "  "+line)
 			}
 		}
-		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  enter edit  •  esc cancel"))
+		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  esc cancel"))
 	} else {
 		lines = append(lines,
 			fmt.Sprintf("Key:     %s", m.styles.value.Render(current.Key)),

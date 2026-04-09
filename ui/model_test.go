@@ -1356,6 +1356,29 @@ func TestIOShapingEditorPrefillsSelectedValueForEditing(t *testing.T) {
 	}
 }
 
+func TestIOShapingEditorSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.ioShapingEdit.selected != ioShapingEditFieldApply {
+		t.Fatalf("expected G to jump to apply field, got %d", m.ioShapingEdit.selected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.ioShapingEdit.selected != ioShapingEditFieldEnabled {
+		t.Fatalf("expected g to jump to enabled field, got %d", m.ioShapingEdit.selected)
+	}
+}
+
 func TestIOShapingEditorTogglesEnabledAndApplyReturnsCommand(t *testing.T) {
 	m := NewModel(&eos.Client{}, "local", "/").(model)
 	m.activeView = viewIOShaping
@@ -1429,6 +1452,29 @@ func TestIOShapingDeleteConfirmReturnsCommand(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected delete confirm to return an io shaping remove command")
+	}
+}
+
+func TestIOShapingDeleteConfirmSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.ioShapingEdit.button != buttonContinue {
+		t.Fatalf("expected G to jump to delete button, got %d", m.ioShapingEdit.button)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.ioShapingEdit.button != buttonCancel {
+		t.Fatalf("expected g to jump to cancel button, got %d", m.ioShapingEdit.button)
 	}
 }
 
@@ -1945,6 +1991,69 @@ func TestNamespaceAttrEditorPrefillsExistingValue(t *testing.T) {
 	}
 }
 
+func TestNamespaceAttrEditorSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+		{Key: "user.owner", Value: "team-a"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.nsAttrEdit.selected != 2 {
+		t.Fatalf("expected G to jump to last attribute, got %d", m.nsAttrEdit.selected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.nsAttrEdit.selected != 0 {
+		t.Fatalf("expected g to jump to first attribute, got %d", m.nsAttrEdit.selected)
+	}
+}
+
+func TestNamespaceViewGoesToTopNotRoot(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "a", Path: "/eos/dev/a", Kind: eos.EntryKindFile},
+			{Name: "b", Path: "/eos/dev/b", Kind: eos.EntryKindFile},
+			{Name: "c", Path: "/eos/dev/c", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 2
+	m.nsAttrsTargetPath = "/eos/dev/c"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+
+	if m.nsSelected != 0 {
+		t.Fatalf("expected g in namespace view to jump to first entry, got %d", m.nsSelected)
+	}
+	if m.directory.Path != "/eos/dev" {
+		t.Fatalf("expected g in namespace view not to change directory path, got %q", m.directory.Path)
+	}
+}
+
 // ---- hotkey / legend regression tests -------------------------------------
 
 func TestFKeyDoesNotOpenFilterInFSTView(t *testing.T) {
@@ -2075,6 +2184,21 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	}
 }
 
+func TestNamespaceLegendDoesNotShowGoToRoot(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewNamespace
+
+	footer := m.renderFooter()
+	if strings.Contains(footer, "g root") {
+		t.Fatalf("namespace footer should not show g root anymore, got: %s", footer)
+	}
+	if !strings.Contains(footer, "g/G top/bottom") {
+		t.Fatalf("namespace footer should show g/G top/bottom, got: %s", footer)
+	}
+}
+
 func TestFSConfigStatusEditOpensOnEnter(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFileSystems
@@ -2150,6 +2274,58 @@ func TestFSConfigStatusEditNavigation(t *testing.T) {
 	m = updated.(model)
 	if m.fsEdit.active {
 		t.Fatalf("expected fsEdit to close on esc")
+	}
+}
+
+func TestFSConfigStatusEditSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 3, Host: "h", Path: "/p", ConfigStatus: "rw", Active: "online"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.fsEdit.selected != len(configStatusOptions)-1 {
+		t.Fatalf("expected G to jump to last configstatus option, got %d", m.fsEdit.selected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.fsEdit.selected != 0 {
+		t.Fatalf("expected g to jump to first configstatus option, got %d", m.fsEdit.selected)
+	}
+}
+
+func TestSpaceStatusEditConfirmSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "groupbalancer.threshold", Value: "5"}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if !m.edit.active {
+		t.Fatalf("expected space status edit popup to open")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.edit.stage != editStageConfirm {
+		t.Fatalf("expected enter from focused input to advance to confirm stage, got %d", m.edit.stage)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.edit.button != buttonContinue {
+		t.Fatalf("expected G to jump to confirm button, got %d", m.edit.button)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.edit.button != buttonCancel {
+		t.Fatalf("expected g to jump to cancel button, got %d", m.edit.button)
 	}
 }
 

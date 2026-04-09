@@ -172,7 +172,7 @@ func (m model) renderFSConfigStatusEditPopup() string {
 			lines = append(lines, "  "+opt)
 		}
 	}
-	lines = append(lines, "", m.styles.status.Render("↑↓ select  •  enter apply  •  esc cancel"))
+	lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter apply  •  esc cancel"))
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).

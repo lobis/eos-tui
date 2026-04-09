@@ -89,6 +89,14 @@ func (m model) updateIOShapingPolicyEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 			m.ioShapingEdit.active = false
 			m.ioShapingEdit.err = ""
 			return m, nil
+		case "g":
+			m.ioShapingEdit.selected = ioShapingEditFieldEnabled
+			m.ioShapingEdit.err = ""
+			return m, nil
+		case "G":
+			m.ioShapingEdit.selected = ioShapingEditFieldApply
+			m.ioShapingEdit.err = ""
+			return m, nil
 		case "d":
 			if !m.ioShapingEdit.hadPolicy {
 				m.ioShapingEdit.err = "No existing policy to delete."
@@ -132,6 +140,10 @@ func (m model) updateIOShapingPolicyEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		case "esc":
 			m.ioShapingEdit.active = false
 			return m, nil
+		case "g":
+			m.ioShapingEdit.button = buttonCancel
+		case "G":
+			m.ioShapingEdit.button = buttonContinue
 		case "left", "right", "tab", "shift+tab":
 			if m.ioShapingEdit.button == buttonCancel {
 				m.ioShapingEdit.button = buttonContinue
@@ -295,9 +307,11 @@ func (m model) renderIOShapingPolicyEditPopup() string {
 			"This will remove the configured shaping policy.",
 			"",
 			lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", deleteBtn),
+			"",
+			m.styles.status.Render("g cancel  •  G delete  •  enter confirm  •  esc close"),
 		}
 	} else {
-		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  enter edit/toggle/apply  •  d delete  •  esc cancel"))
+		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit/toggle/apply  •  d delete  •  esc cancel"))
 	}
 	if m.ioShapingEdit.stage != ioShapingEditStageDeleteConfirm {
 		lines = append(lines, m.styles.status.Render("values accept raw bytes/s or KB/MB/GB suffixes"))

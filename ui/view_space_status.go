@@ -96,6 +96,8 @@ func (m model) renderSpaceStatusEditPopup() string {
 		m.edit.input.View(),
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", continueBtn),
+		"",
+		m.styles.status.Render("tab switch focus  •  g cancel  •  G continue  •  enter next"),
 	}
 
 	return m.styles.panel.
@@ -125,6 +127,8 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 		m.styles.value.Render(command),
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+		"",
+		m.styles.status.Render("g cancel  •  G confirm  •  enter apply"),
 	}
 
 	return m.styles.panel.

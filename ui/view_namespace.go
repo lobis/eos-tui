@@ -92,12 +92,13 @@ func (m model) renderNamespaceDetails(width, height int) string {
 		return m.renderNamespaceMetadataPanel(width, height)
 	}
 
+	totalWidth := width + 2
 	gap := 1
-	availableWidth := max(1, width-gap)
+	availableWidth := max(1, totalWidth-gap)
 	const minLeftWidth = 38
 	const minRightWidth = 28
 
-	leftWidth := availableWidth / 2
+	leftWidth := max(minLeftWidth, availableWidth/2-2)
 	rightWidth := availableWidth - leftWidth
 
 	leftNaturalWidth := m.namespaceMetadataNaturalWidth()
@@ -128,11 +129,11 @@ func (m model) renderNamespaceDetails(width, height int) string {
 	right := m.renderNamespaceAttrsPanel(rightWidth, height)
 	for i := 0; i < 4; i++ {
 		combinedWidth := lipgloss.Width(left) + gap + lipgloss.Width(right)
-		if combinedWidth <= width {
+		if combinedWidth <= totalWidth {
 			break
 		}
 
-		overflow := combinedWidth - width
+		overflow := combinedWidth - totalWidth
 		if lipgloss.Width(left) >= lipgloss.Width(right) && leftWidth > minLeftWidth {
 			shrink := min(overflow, leftWidth-minLeftWidth)
 			leftWidth -= shrink
@@ -151,12 +152,12 @@ func (m model) renderNamespaceDetails(width, height int) string {
 	}
 
 	combinedWidth := lipgloss.Width(left) + gap + lipgloss.Width(right)
-	if deficit := width - combinedWidth; deficit > 0 {
+	if deficit := totalWidth - combinedWidth; deficit > 0 {
 		rightWidth += deficit
 		right = m.renderNamespaceAttrsPanel(rightWidth, height)
 	}
 
-	return normalizeBlockWidth(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), width)
+	return normalizeBlockWidth(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), totalWidth)
 }
 
 func (m model) namespaceMetadataNaturalWidth() int {

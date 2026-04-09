@@ -1,0 +1,98 @@
+package ui
+
+import (
+	"fmt"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+func (m model) renderSpacesView(height int) string {
+	const fixedHeaderLines = 3 // title, blank, column headers
+	naturalListContent := fixedHeaderLines + len(m.spaces)
+	const spaceDetailLines = 8 // fixed lines rendered by renderSpaceDetails
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, spaceDetailLines)
+	width := m.contentWidth()
+
+	list := m.renderSpacesList(width, listHeight)
+	details := m.renderSpaceDetails(width, detailHeight)
+	return lipgloss.JoinVertical(lipgloss.Left, list, details)
+}
+
+func (m model) renderSpacesList(width, height int) string {
+	contentWidth := panelContentWidth(width)
+
+	dataRows := make([][]string, len(m.spaces))
+	for i, space := range m.spaces {
+		dataRows[i] = []string{
+			space.Name,
+			space.Type,
+			space.Status,
+			fmt.Sprintf("%d", space.Groups),
+			fmt.Sprintf("%d", space.NumFiles),
+			fmt.Sprintf("%d", space.NumContainers),
+			fmt.Sprintf("%.2f", usagePercent(space.UsedBytes, space.CapacityBytes)),
+		}
+	}
+	columnDefs := contentAwareColumns([]tableColumn{
+		{title: "name", min: 4, weight: 3},
+		{title: "type", min: 4, weight: 1},
+		{title: "status", min: 6, weight: 1},
+		{title: "groups", min: 6, weight: 0, right: true},
+		{title: "files", min: 5, weight: 0, right: true},
+		{title: "dirs", min: 4, weight: 0, right: true},
+		{title: "usage %", min: 7, weight: 0, right: true},
+	}, dataRows)
+	columns := allocateTableColumns(contentWidth, columnDefs)
+
+	title := m.styles.label.Render("EOS Spaces")
+	lines := []string{
+		title,
+		"",
+		m.renderSpaceHeaderRow(columns),
+	}
+
+	if m.spacesLoading {
+		lines = append(lines, "Loading spaces...")
+	} else if m.spacesErr != nil {
+		lines = append(lines, m.styles.error.Render(m.spacesErr.Error()))
+	} else if len(m.spaces) == 0 {
+		lines = append(lines, "(no spaces)")
+	} else {
+		start, end := visibleWindow(len(m.spaces), m.spacesSelected, max(1, panelContentHeight(height)-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(m.spaces))
+		for i := start; i < end; i++ {
+			line := formatTableRow(columns, dataRows[i])
+			if i == m.spacesSelected {
+				line = m.styles.selected.Width(contentWidth).Render(line)
+			}
+			lines = append(lines, line)
+		}
+	}
+
+	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderSpaceDetails(width, height int) string {
+	if len(m.spaces) == 0 || m.spacesSelected >= len(m.spaces) {
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{"No space selected"}, panelContentHeight(height)))
+	}
+
+	space := m.spaces[m.spacesSelected]
+
+	lines := []string{
+		m.styles.label.Render("Selected Space"),
+		truncate(space.Name, max(10, width-4)),
+		"",
+		m.metricLine("Type", space.Type, "Status", space.Status),
+		m.metricLine("Groups", fmt.Sprintf("%d", space.Groups), "Files", fmt.Sprintf("%d", space.NumFiles)),
+		m.metricLine("Directories", fmt.Sprintf("%d", space.NumContainers), "", ""),
+		m.metricLine("Capacity", humanBytes(space.CapacityBytes), "Used", humanBytes(space.UsedBytes)),
+		m.metricLine("Free", humanBytes(space.FreeBytes), "", ""),
+	}
+
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderSpaceHeaderRow(columns []tableColumn) string {
+	return m.renderSimpleHeaderRow(columns, []string{"name", "type", "status", "groups", "files", "dirs", "usage %"})
+}

@@ -1,0 +1,780 @@
+package ui
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/table"
+
+	"github.com/lobis/eos-tui/eos"
+)
+
+func (m model) visibleFSTs() []eos.FstRecord {
+	fsts := make([]eos.FstRecord, 0, len(m.fsts))
+	for _, node := range m.fsts {
+		t := strings.ToLower(node.Type)
+		// A node is an FST if it's explicitly type 'fst' OR if it has registered filesystems.
+		if t == "fst" || node.FileSystemCount > 0 {
+			fsts = append(fsts, node)
+		}
+	}
+
+	if len(m.fstFilter.filters) > 0 {
+		filtered := make([]eos.FstRecord, 0, len(fsts))
+		for _, node := range fsts {
+			if m.matchesNodeFilters(node) {
+				filtered = append(filtered, node)
+			}
+		}
+		fsts = filtered
+	}
+	if m.fstSort.column >= 0 {
+		sort.SliceStable(fsts, func(i, j int) bool {
+			return m.lessNode(fsts[i], fsts[j])
+		})
+	}
+	return fsts
+}
+
+func (m model) visibleFileSystems() []eos.FileSystemRecord {
+	fileSystems := append([]eos.FileSystemRecord(nil), m.fileSystems...)
+	if len(m.fsFilter.filters) > 0 {
+		filtered := make([]eos.FileSystemRecord, 0, len(fileSystems))
+		for _, fs := range fileSystems {
+			if m.matchesFileSystemFilters(fs) {
+				filtered = append(filtered, fs)
+			}
+		}
+		fileSystems = filtered
+	}
+	if m.fsSort.column >= 0 {
+		sort.SliceStable(fileSystems, func(i, j int) bool {
+			return m.lessFileSystem(fileSystems[i], fileSystems[j])
+		})
+	}
+	return fileSystems
+}
+
+func (m model) visibleGroups() []eos.GroupRecord {
+	groups := append([]eos.GroupRecord(nil), m.groups...)
+	if len(m.groupFilter.filters) > 0 {
+		filtered := make([]eos.GroupRecord, 0, len(groups))
+		for _, g := range groups {
+			if m.matchesGroupFilters(g) {
+				filtered = append(filtered, g)
+			}
+		}
+		groups = filtered
+	}
+	if m.groupSort.column >= 0 {
+		sort.SliceStable(groups, func(i, j int) bool {
+			return m.lessGroup(groups[i], groups[j])
+		})
+	}
+	return groups
+}
+
+func (m model) matchesNodeFilters(node eos.FstRecord) bool {
+	for column, query := range m.fstFilter.filters {
+		if query == "" {
+			continue
+		}
+		value := strings.ToLower(m.fstFilterValueForColumn(node, column))
+		if !strings.Contains(value, strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesNodeFiltersExcept(node eos.FstRecord, excludeColumn int) bool {
+	for col, query := range m.fstFilter.filters {
+		if col == excludeColumn || query == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(m.fstFilterValueForColumn(node, col)), strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesFileSystemFilters(fs eos.FileSystemRecord) bool {
+	for column, query := range m.fsFilter.filters {
+		if query == "" {
+			continue
+		}
+		value := strings.ToLower(m.fsFilterValueForColumn(fs, column))
+		if !strings.Contains(value, strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeColumn int) bool {
+	for col, query := range m.fsFilter.filters {
+		if col == excludeColumn || query == "" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(m.fsFilterValueForColumn(fs, col)), strings.ToLower(query)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesGroupFilters(g eos.GroupRecord) bool {
+	for col, filter := range m.groupFilter.filters {
+		val := strings.ToLower(m.groupFilterValueForColumn(g, col))
+		if !strings.Contains(val, strings.ToLower(filter)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) fstFilterValue(node eos.FstRecord) string {
+	return m.fstFilterValueForColumn(node, m.fstFilter.column)
+}
+
+func (m model) fstFilterValueForColumn(node eos.FstRecord, column int) string {
+	switch fstFilterColumn(column) {
+	case fstFilterHost:
+		return node.Host
+	case fstFilterPort:
+		return fmt.Sprintf("%d", node.Port)
+	case fstFilterGeotag:
+		return node.Geotag
+	case fstFilterStatus:
+		return node.Status
+	case fstFilterActivated:
+		return node.Activated
+	case fstFilterHeartbeatDelta:
+		return fmt.Sprintf("%d", node.HeartbeatDelta)
+	case fstFilterNoFS:
+		return fmt.Sprintf("%d", node.FileSystemCount)
+	case fstFilterEOSVersion:
+		return node.EOSVersion
+	case fstFilterType:
+		return node.Type
+	default:
+		return node.Host
+	}
+}
+
+func (m model) fsFilterValue(fs eos.FileSystemRecord) string {
+	return m.fsFilterValueForColumn(fs, m.fsFilter.column)
+}
+
+func (m model) fsFilterValueForColumn(fs eos.FileSystemRecord, column int) string {
+	switch fsFilterColumn(column) {
+	case fsFilterPort:
+		return fmt.Sprintf("%d", fs.Port)
+	case fsFilterID:
+		return fmt.Sprintf("%d", fs.ID)
+	case fsFilterPath:
+		return fs.Path
+	case fsFilterGroup:
+		return fs.SchedGroup
+	case fsFilterGeotag:
+		return fs.Geotag
+	case fsFilterBoot:
+		return fs.Boot
+	case fsFilterConfigStatus:
+		return fs.ConfigStatus
+	case fsFilterDrain:
+		return fs.DrainStatus
+	case fsFilterUsage:
+		return fmt.Sprintf("%.2f", usagePercent(fs.UsedBytes, fs.CapacityBytes))
+	case fsFilterStatus:
+		return fs.Active
+	case fsFilterHealth:
+		return fs.Health
+	default:
+		return fs.Host
+	}
+}
+
+func (m model) groupFilterValue(g eos.GroupRecord) string {
+	return m.groupFilterValueForColumn(g, m.groupFilter.column)
+}
+
+func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
+	switch groupFilterColumn(column) {
+	case groupFilterName:
+		return g.Name
+	case groupFilterStatus:
+		return g.Status
+	case groupFilterNoFS:
+		return fmt.Sprintf("%d", g.NoFS)
+	case groupFilterCapacity:
+		return humanBytes(g.CapacityBytes)
+	case groupFilterUsed:
+		return humanBytes(g.UsedBytes)
+	case groupFilterFree:
+		return humanBytes(g.FreeBytes)
+	case groupFilterFiles:
+		return fmt.Sprintf("%d", g.NumFiles)
+	default:
+		return g.Name
+	}
+}
+
+func (m model) lessNode(a, b eos.FstRecord) bool {
+	var less bool
+	switch fstSortColumn(m.fstSort.column) {
+	case fstSortType:
+		less = strings.Compare(a.Type, b.Type) < 0
+	case fstSortHost:
+		less = strings.Compare(a.Host, b.Host) < 0
+	case fstSortPort:
+		less = a.Port < b.Port
+	case fstSortStatus:
+		less = strings.Compare(a.Status, b.Status) < 0
+	case fstSortGeotag:
+		less = strings.Compare(a.Geotag, b.Geotag) < 0
+	case fstSortActivated:
+		less = strings.Compare(a.Activated, b.Activated) < 0
+	case fstSortNoFS:
+		less = a.FileSystemCount < b.FileSystemCount
+	case fstSortHeartbeat:
+		less = a.HeartbeatDelta < b.HeartbeatDelta
+	case fstSortEOSVersion:
+		less = strings.Compare(a.EOSVersion, b.EOSVersion) < 0
+	default:
+		less = strings.Compare(a.Host, b.Host) < 0
+	}
+	if equivalentNodeSortValue(m.fstSort.column, a, b) {
+		less = strings.Compare(a.Host, b.Host) < 0
+	}
+	if m.fstSort.desc {
+		return !less
+	}
+	return less
+}
+
+func (m model) lessFileSystem(a, b eos.FileSystemRecord) bool {
+	var less bool
+	switch fsSortColumn(m.fsSort.column) {
+	case fsSortHost:
+		less = strings.Compare(a.Host, b.Host) < 0
+	case fsSortPort:
+		less = a.Port < b.Port
+	case fsSortID:
+		less = a.ID < b.ID
+	case fsSortPath:
+		less = strings.Compare(a.Path, b.Path) < 0
+	case fsSortGroup:
+		less = strings.Compare(a.SchedGroup, b.SchedGroup) < 0
+	case fsSortGeotag:
+		less = strings.Compare(a.Geotag, b.Geotag) < 0
+	case fsSortBoot:
+		less = strings.Compare(a.Boot, b.Boot) < 0
+	case fsSortConfigStatus:
+		less = strings.Compare(a.ConfigStatus, b.ConfigStatus) < 0
+	case fsSortDrain:
+		less = strings.Compare(a.DrainStatus, b.DrainStatus) < 0
+	case fsSortUsed:
+		less = usagePercent(a.UsedBytes, a.CapacityBytes) < usagePercent(b.UsedBytes, b.CapacityBytes)
+	case fsSortStatus:
+		less = strings.Compare(a.Active, b.Active) < 0
+	case fsSortHealth:
+		less = strings.Compare(a.Health, b.Health) < 0
+	default:
+		less = a.ID < b.ID
+	}
+	if equivalentFileSystemSortValue(m.fsSort.column, a, b) {
+		less = a.ID < b.ID
+	}
+	if m.fsSort.desc {
+		return !less
+	}
+	return less
+}
+
+func (m model) lessGroup(a, b eos.GroupRecord) bool {
+	less := false
+	switch groupSortColumn(m.groupSort.column) {
+	case groupSortName:
+		less = a.Name < b.Name
+	case groupSortStatus:
+		less = a.Status < b.Status
+	case groupSortNoFS:
+		less = a.NoFS < b.NoFS
+	case groupSortCapacity:
+		less = a.CapacityBytes < b.CapacityBytes
+	case groupSortUsed:
+		less = a.UsedBytes < b.UsedBytes
+	case groupSortFree:
+		less = a.FreeBytes < b.FreeBytes
+	case groupSortFiles:
+		less = a.NumFiles < b.NumFiles
+	}
+	if m.groupSort.desc {
+		return !less
+	}
+	return less
+}
+
+func equivalentNodeSortValue(column int, a, b eos.FstRecord) bool {
+	switch fstSortColumn(column) {
+	case fstSortType:
+		return a.Type == b.Type
+	case fstSortHost:
+		return a.Host == b.Host
+	case fstSortStatus:
+		return a.Status == b.Status
+	case fstSortGeotag:
+		return a.Geotag == b.Geotag
+	case fstSortActivated:
+		return a.Activated == b.Activated
+	case fstSortNoFS:
+		return a.FileSystemCount == b.FileSystemCount
+	case fstSortHeartbeat:
+		return a.HeartbeatDelta == b.HeartbeatDelta
+	case fstSortEOSVersion:
+		return a.EOSVersion == b.EOSVersion
+	default:
+		return a.Host == b.Host
+	}
+}
+
+func equivalentFileSystemSortValue(column int, a, b eos.FileSystemRecord) bool {
+	switch fsSortColumn(column) {
+	case fsSortHost:
+		return a.Host == b.Host
+	case fsSortPort:
+		return a.Port == b.Port
+	case fsSortID:
+		return a.ID == b.ID
+	case fsSortPath:
+		return a.Path == b.Path
+	case fsSortGroup:
+		return a.SchedGroup == b.SchedGroup
+	case fsSortGeotag:
+		return a.Geotag == b.Geotag
+	case fsSortBoot:
+		return a.Boot == b.Boot
+	case fsSortConfigStatus:
+		return a.ConfigStatus == b.ConfigStatus
+	case fsSortDrain:
+		return a.DrainStatus == b.DrainStatus
+	case fsSortUsed:
+		return usagePercent(a.UsedBytes, a.CapacityBytes) == usagePercent(b.UsedBytes, b.CapacityBytes)
+	case fsSortStatus:
+		return a.Active == b.Active
+	case fsSortHealth:
+		return a.Health == b.Health
+	default:
+		return a.ID == b.ID
+	}
+}
+
+func (m model) nextNodeSortState() sortState {
+	selected := m.fstColumnSelected
+	if m.fstSort.column != selected {
+		return sortState{column: selected}
+	}
+	if !m.fstSort.desc {
+		return sortState{column: selected, desc: true}
+	}
+	return sortState{column: int(fstSortNone)}
+}
+
+func (m model) nextFileSystemSortState() sortState {
+	selected := m.fsColumnSelected
+	if m.fsSort.column != selected {
+		return sortState{column: selected}
+	}
+	if !m.fsSort.desc {
+		return sortState{column: selected, desc: true}
+	}
+	return sortState{column: int(fsSortNone)}
+}
+
+func (m model) nodeColumnIsEnum(column int) bool {
+	switch fstFilterColumn(column) {
+	case fstFilterType, fstFilterStatus, fstFilterActivated:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m model) fsColumnIsEnum(column int) bool {
+	switch fsFilterColumn(column) {
+	case fsFilterBoot, fsFilterConfigStatus, fsFilterDrain, fsFilterStatus:
+		return true
+	default:
+		return false
+	}
+}
+
+func nodeColumnCount() int {
+	return 8 // the 8 navigable visible columns; fstFilterType/fstSortType are not user-navigable
+}
+
+func fsColumnCount() int {
+	return 12
+}
+
+func groupColumnCount() int {
+	return 7
+}
+
+func (m model) uniqueGroupValues(column int) []string {
+	seen := make(map[string]bool)
+	var values []string
+	for _, g := range m.groups {
+		val := m.groupFilterValueForColumn(g, column)
+		if val != "" && !seen[val] {
+			seen[val] = true
+			values = append(values, val)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+func (m model) fstSelectedColumnLabel() string {
+	column := m.fstFilter.column
+	m.fstFilter.column = m.fstColumnSelected
+	label := m.fstFilterColumnLabel()
+	m.fstFilter.column = column
+	return label
+}
+
+func (m model) fsSelectedColumnLabel() string {
+	column := m.fsFilter.column
+	m.fsFilter.column = m.fsColumnSelected
+	label := m.fsFilterColumnLabel()
+	m.fsFilter.column = column
+	return label
+}
+
+func (m model) fstSortStateLabel() string {
+	if m.fstSort.column < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%s %s", m.fstSortColumnLabel(), sortDirectionLabel(m.fstSort.desc))
+}
+
+func (m model) fsSortStateLabel() string {
+	if m.fsSort.column < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%s %s", m.fsSortColumnLabel(), sortDirectionLabel(m.fsSort.desc))
+}
+
+func (m model) fstFilterColumnLabel() string {
+	switch fstFilterColumn(m.fstFilter.column) {
+	case fstFilterHost:
+		return "host"
+	case fstFilterPort:
+		return "port"
+	case fstFilterGeotag:
+		return "geotag"
+	case fstFilterStatus:
+		return "status"
+	case fstFilterActivated:
+		return "activated"
+	case fstFilterHeartbeatDelta:
+		return "heartbeatdelta"
+	case fstFilterNoFS:
+		return "nofs"
+	case fstFilterEOSVersion:
+		return "eos version"
+	case fstFilterType:
+		return "type"
+	default:
+		return "host"
+	}
+}
+
+func (m model) fstSortColumnLabel() string {
+	switch fstSortColumn(m.fstSort.column) {
+	case fstSortHost:
+		return "host"
+	case fstSortPort:
+		return "port"
+	case fstSortGeotag:
+		return "geotag"
+	case fstSortStatus:
+		return "status"
+	case fstSortActivated:
+		return "activated"
+	case fstSortHeartbeat:
+		return "heartbeatdelta"
+	case fstSortNoFS:
+		return "nofs"
+	case fstSortEOSVersion:
+		return "eos version"
+	case fstSortType:
+		return "type"
+	case fstSortNone:
+		return "none"
+	default:
+		return "host"
+	}
+}
+
+func (m model) fsFilterColumnLabel() string {
+	switch fsFilterColumn(m.fsFilter.column) {
+	case fsFilterPort:
+		return "port"
+	case fsFilterID:
+		return "id"
+	case fsFilterPath:
+		return "path"
+	case fsFilterGroup:
+		return "schedgroup"
+	case fsFilterGeotag:
+		return "geotag"
+	case fsFilterBoot:
+		return "boot"
+	case fsFilterConfigStatus:
+		return "configstatus"
+	case fsFilterDrain:
+		return "drain"
+	case fsFilterUsage:
+		return "usage %"
+	case fsFilterStatus:
+		return "active"
+	case fsFilterHealth:
+		return "health"
+	default:
+		return "host"
+	}
+}
+
+func (m model) fsSortColumnLabel() string {
+	switch fsSortColumn(m.fsSort.column) {
+	case fsSortHost:
+		return "host"
+	case fsSortPort:
+		return "port"
+	case fsSortID:
+		return "id"
+	case fsSortPath:
+		return "path"
+	case fsSortGroup:
+		return "schedgroup"
+	case fsSortGeotag:
+		return "geotag"
+	case fsSortBoot:
+		return "boot"
+	case fsSortConfigStatus:
+		return "configstatus"
+	case fsSortDrain:
+		return "drain"
+	case fsSortUsed:
+		return "usage %"
+	case fsSortStatus:
+		return "active"
+	case fsSortHealth:
+		return "health"
+	case fsSortNone:
+		return "none"
+	default:
+		return "host"
+	}
+}
+
+func (m model) groupFilterColumnLabel() string {
+	switch groupFilterColumn(m.groupFilter.column) {
+	case groupFilterName:
+		return "name"
+	case groupFilterStatus:
+		return "status"
+	case groupFilterNoFS:
+		return "nofs"
+	case groupFilterCapacity:
+		return "capacity"
+	case groupFilterUsed:
+		return "used"
+	case groupFilterFree:
+		return "free"
+	case groupFilterFiles:
+		return "files"
+	default:
+		return "name"
+	}
+}
+
+func (m model) groupSortColumnLabel() string {
+	switch groupSortColumn(m.groupSort.column) {
+	case groupSortName:
+		return "name"
+	case groupSortStatus:
+		return "status"
+	case groupSortNoFS:
+		return "nofs"
+	case groupSortCapacity:
+		return "capacity"
+	case groupSortUsed:
+		return "used"
+	case groupSortFree:
+		return "free"
+	case groupSortFiles:
+		return "files"
+	case groupSortNone:
+		return "none"
+	default:
+		return "name"
+	}
+}
+
+func (m model) activeFilterColumnLabel() string {
+	switch m.activeView {
+	case viewFileSystems:
+		return m.fsFilterColumnLabel()
+	case viewGroups:
+		return m.groupFilterColumnLabel()
+	default:
+		return m.fstFilterColumnLabel()
+	}
+}
+
+func (m *model) openFilterPopup() {
+	m.popup.active = true
+	m.popup.view = m.activeView
+	if m.activeView == viewFileSystems {
+		m.popup.column = m.fsColumnSelected
+		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else if m.activeView == viewGroups {
+		m.popup.column = m.groupsColumnSelected
+		m.popup.input.SetValue(m.groupFilter.filters[m.groupsColumnSelected])
+	} else {
+		m.popup.column = m.fstColumnSelected
+		m.popup.input.SetValue(m.fstFilter.filters[m.fstColumnSelected])
+	}
+	m.popup.input.CursorEnd()
+	m.popup.input.Focus()
+	m.popup.table.Focus()
+	// Populate rows immediately so the table is ready for keyboard navigation
+	// without requiring a text-input event first.
+	m.updatePopupRows()
+	m.popup.table.SetCursor(0)
+	m.status = fmt.Sprintf("Select filter for %s", m.activeFilterColumnLabel())
+}
+
+func (m *model) closeFilterPopup(status string) {
+	m.popup.active = false
+	m.popup.input.Blur()
+	m.popup.input.SetValue("")
+	m.popup.values = nil
+	m.popup.table.SetRows(nil)
+	m.status = status
+}
+
+func (m *model) applyPopupSelection() {
+	row := m.popup.table.SelectedRow()
+	if len(row) == 0 {
+		m.closeFilterPopup("No filter value selected")
+		return
+	}
+
+	value := row[0]
+	if value == "(no matches)" {
+		m.closeFilterPopup("No matching filter value")
+		return
+	}
+	if value == "(no filter)" {
+		value = ""
+	}
+
+	switch m.popup.view {
+	case viewFileSystems:
+		m.fsFilter.column = m.popup.column
+		if value == "" {
+			delete(m.fsFilter.filters, m.popup.column)
+		} else {
+			m.fsFilter.filters[m.popup.column] = value
+		}
+		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
+		m.closeFilterPopup(fmt.Sprintf("Filesystem filters active: %d", len(m.fsFilter.filters)))
+	case viewGroups:
+		m.groupFilter.column = m.popup.column
+		if value == "" {
+			delete(m.groupFilter.filters, m.popup.column)
+		} else {
+			m.groupFilter.filters[m.popup.column] = value
+		}
+		m.groupsSelected = clampIndex(0, len(m.visibleGroups()))
+		m.closeFilterPopup(fmt.Sprintf("Group filters active: %d", len(m.groupFilter.filters)))
+	default:
+		m.fstFilter.column = m.popup.column
+		if value == "" {
+			delete(m.fstFilter.filters, m.popup.column)
+		} else {
+			m.fstFilter.filters[m.popup.column] = value
+		}
+		m.fstSelected = clampIndex(0, len(m.visibleFSTs()))
+		m.closeFilterPopup(fmt.Sprintf("Node filters active: %d", len(m.fstFilter.filters)))
+	}
+}
+
+func (m *model) updatePopupRows() {
+	needle := strings.ToLower(strings.TrimSpace(m.popup.input.Value()))
+	values := m.popupValues()
+	rows := make([]table.Row, 0, len(values))
+	for _, value := range values {
+		label := value
+		if label == "" {
+			label = "(no filter)"
+		}
+		if needle == "" || strings.Contains(strings.ToLower(label), needle) {
+			rows = append(rows, table.Row{label})
+		}
+	}
+	if len(rows) == 0 {
+		rows = []table.Row{{"(no matches)"}}
+	}
+	m.popup.table.SetColumns([]table.Column{{Title: "value", Width: min(60, max(24, m.contentWidth()-16))}})
+	m.popup.table.SetRows(rows)
+	m.popup.table.SetHeight(min(14, max(6, m.height/3)))
+	m.popup.table.SetWidth(min(70, max(28, m.contentWidth()-12)))
+	m.popup.table.SetCursor(0)
+}
+
+func (m model) popupValues() []string {
+	values := []string{""}
+	seen := map[string]bool{"": true}
+	// Only show values that pass all *other* active filters so the list stays
+	// consistent with what the user would actually see after applying the filter.
+	switch m.popup.view {
+	case viewFileSystems:
+		for _, fs := range m.fileSystems {
+			if !m.matchesFileSystemFiltersExcept(fs, m.popup.column) {
+				continue
+			}
+			value := m.fsFilterValueForColumn(fs, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	default:
+		for _, node := range m.fsts {
+			if !m.matchesNodeFiltersExcept(node, m.popup.column) {
+				continue
+			}
+			value := m.fstFilterValueForColumn(node, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	}
+	sort.Strings(values[1:])
+	return values
+}
+
+func sortDirectionLabel(desc bool) string {
+	if desc {
+		return "desc"
+	}
+	return "asc"
+}

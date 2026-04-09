@@ -150,6 +150,12 @@ func (m model) renderNamespaceDetails(width, height int) string {
 		right = m.renderNamespaceAttrsPanel(rightWidth, height)
 	}
 
+	combinedWidth := lipgloss.Width(left) + gap + lipgloss.Width(right)
+	if deficit := width - combinedWidth; deficit > 0 {
+		rightWidth += deficit
+		right = m.renderNamespaceAttrsPanel(rightWidth, height)
+	}
+
 	return normalizeBlockWidth(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), width)
 }
 

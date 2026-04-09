@@ -21,11 +21,14 @@ func (m model) openShell() (tea.Model, tea.Cmd) {
 	sshTarget, jumpProxy := m.client.SSHTargetForHost(selectedHost)
 
 	var cmd *exec.Cmd
+	sshBaseArgs := m.client.SSHArgs(false)
 	switch {
 	case sshTarget != "" && jumpProxy != "":
-		cmd = exec.Command("ssh", "-o", "BatchMode=no", "-t", "-J", jumpProxy, sshTarget)
+		args := append(append([]string{}, sshBaseArgs...), "-t", "-J", jumpProxy, sshTarget)
+		cmd = exec.Command("ssh", args...)
 	case sshTarget != "":
-		cmd = exec.Command("ssh", "-o", "BatchMode=no", "-t", sshTarget)
+		args := append(append([]string{}, sshBaseArgs...), "-t", sshTarget)
+		cmd = exec.Command("ssh", args...)
 	default:
 		shell := os.Getenv("SHELL")
 		if shell == "" {

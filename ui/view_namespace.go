@@ -34,7 +34,7 @@ func (m model) renderNamespaceView(height int) string {
 	if m.nsAttrsLoading || m.nsAttrsErr != nil || len(m.nsAttrs) == 0 {
 		naturalDetailContent++
 	} else {
-		naturalDetailContent += min(4, len(m.nsAttrs))
+		naturalDetailContent += len(m.nsAttrs)
 	}
 
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
@@ -132,21 +132,58 @@ func (m model) renderNamespaceDetails(width, height int) string {
 	case m.nsAttrsLoaded && m.nsAttrsTargetPath == target.Path && len(m.nsAttrs) == 0:
 		lines = append(lines, "(no attributes)")
 	default:
-		attrSlots := max(1, panelContentHeight(height)-len(lines))
-		visibleAttrs := min(len(m.nsAttrs), attrSlots)
-		if len(m.nsAttrs) > attrSlots && attrSlots > 1 {
-			visibleAttrs = attrSlots - 1
-		}
-		for i := 0; i < visibleAttrs; i++ {
+		for i := 0; i < len(m.nsAttrs); i++ {
 			attr := m.nsAttrs[i]
 			lines = append(lines, truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), contentWidth))
-		}
-		if len(m.nsAttrs) > visibleAttrs && attrSlots > 0 {
-			lines = append(lines, truncate(fmt.Sprintf("... %d more attributes", len(m.nsAttrs)-visibleAttrs), contentWidth))
 		}
 	}
 
 	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderNamespaceAttrEditPopup() string {
+	if len(m.nsAttrEdit.attrs) == 0 {
+		return m.styles.panel.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(1, 2).
+			Render("No attributes available")
+	}
+
+	current := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
+	lines := []string{
+		m.styles.label.Render("Edit Attribute"),
+		truncate(m.nsAttrEdit.targetPath, 72),
+		"",
+	}
+
+	if m.nsAttrEdit.stage == attrEditStageSelect {
+		lines = append(lines, m.styles.label.Render("Select Key"))
+		for i, attr := range m.nsAttrEdit.attrs {
+			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
+			if i == m.nsAttrEdit.selected {
+				lines = append(lines, m.styles.selected.Render("▶ "+line))
+			} else {
+				lines = append(lines, "  "+line)
+			}
+		}
+		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  enter edit  •  esc cancel"))
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("Key:     %s", m.styles.value.Render(current.Key)),
+			fmt.Sprintf("Current: %s", m.styles.value.Render(current.Value)),
+			"",
+			m.nsAttrEdit.input.View(),
+			"",
+			m.styles.status.Render("enter apply  •  esc cancel"),
+		)
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) selectedNamespaceEntry() (eos.Entry, bool) {

@@ -1478,14 +1478,18 @@ func TestNamespaceDetailsRenderAttributes(t *testing.T) {
 	m.nsAttrs = []eos.NamespaceAttr{
 		{Key: "sys.acl", Value: "u:1000:rwx"},
 		{Key: "user.comment", Value: "hello"},
+		{Key: "user.owner", Value: "team-a"},
 	}
 	m.splash.active = false
 
 	view := m.View()
-	for _, needle := range []string{"Attributes", "sys.acl = u:1000:rwx", "user.comment = hello"} {
+	for _, needle := range []string{"Attributes", "sys.acl = u:1000:rwx", "user.comment = hello", "user.owner = team-a"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected namespace details to contain %q, got:\n%s", needle, view)
 		}
+	}
+	if strings.Contains(view, "... more attributes") {
+		t.Fatalf("expected namespace details to render all available attributes when space allows, got:\n%s", view)
 	}
 }
 
@@ -1532,6 +1536,76 @@ func TestNamespaceAttrResponseIgnoresStaleTarget(t *testing.T) {
 	}
 	if !m.nsAttrsLoading {
 		t.Fatalf("expected loading state to remain for current target")
+	}
+}
+
+func TestNamespaceEnterOpensAttributeEditor(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected namespace attr editor to open on enter")
+	}
+	if m.nsAttrEdit.stage != attrEditStageSelect {
+		t.Fatalf("expected attr editor to open in key selection stage, got %d", m.nsAttrEdit.stage)
+	}
+	if m.nsAttrEdit.targetPath != "/eos/dev/file-a" {
+		t.Fatalf("expected attr editor target path to match selection, got %q", m.nsAttrEdit.targetPath)
+	}
+}
+
+func TestNamespaceAttrEditorPrefillsExistingValue(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.nsAttrEdit.stage != attrEditStageInput {
+		t.Fatalf("expected enter on selected key to move to input stage, got %d", m.nsAttrEdit.stage)
+	}
+	if m.nsAttrEdit.input.Value() != "hello" {
+		t.Fatalf("expected attr editor input to start from existing value, got %q", m.nsAttrEdit.input.Value())
+	}
+	if cmd == nil {
+		t.Fatalf("expected attr editor to return a focus command when entering input mode")
 	}
 }
 

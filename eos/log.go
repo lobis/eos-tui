@@ -79,8 +79,7 @@ func (c *Client) logCommand(args []string) {
 	var command string
 	if target := c.effectiveSSHTarget(); target != "" {
 		// Log as a fully copy-pasteable SSH invocation.
-		remoteCmd := strings.Join(args, " ")
-		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellQuote(remoteCmd))
+		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellQuote(shellJoin(args)))
 	} else {
 		command = strings.Join(args, " ")
 	}

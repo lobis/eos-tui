@@ -625,6 +625,14 @@ sys.mask=755
 	}
 }
 
+func TestShellJoinQuotesEveryArgument(t *testing.T) {
+	got := shellJoin([]string{"eos", "attr", "set", "user.comment=hello world", "/eos/dev/file"})
+	want := "'eos' 'attr' 'set' 'user.comment=hello world' '/eos/dev/file'"
+	if got != want {
+		t.Fatalf("shellJoin() = %q, want %q", got, want)
+	}
+}
+
 func TestParseEOSServerVersion(t *testing.T) {
 	tests := []struct {
 		name  string

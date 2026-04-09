@@ -38,7 +38,7 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 	if target == "" {
 		out, err = exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
 	} else {
-		remoteCommand := strings.Join(args, " ")
+		remoteCommand := shellJoin(args)
 		sshArgs := append(c.SSHArgs(true), target, remoteCommand)
 		out, err = exec.CommandContext(ctx, "ssh", sshArgs...).CombinedOutput()
 	}
@@ -77,7 +77,7 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	// We need to reach a different host.  Use the effective target as a jump
 	// proxy (or SSH directly when running locally).
 	target := "root@" + host
-	tailCmd := strings.Join(tailArgs, " ")
+	tailCmd := shellJoin(tailArgs)
 
 	c.logCommand(append([]string{"→", target}, tailArgs...))
 	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)

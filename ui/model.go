@@ -139,6 +139,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.popup.active {
 			return m.updatePopup(msg)
 		}
+		if m.nsAttrEdit.active {
+			return m.updateNamespaceAttrEditKeys(msg)
+		}
 		if m.edit.active {
 			return m.updateSpaceStatusEditKeys(msg)
 		}
@@ -346,6 +349,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.nsAttrs = msg.attrs
 		}
+	case namespaceAttrSetResultMsg:
+		m.nsAttrEdit.active = false
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("attr set failed: %v", msg.err),
+			}
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
+		return m.startNamespaceAttrLoad(true)
 	case spaceStatusLoadedMsg:
 		m.spaceStatusLoading = false
 		m.spaceStatusErr = msg.err
@@ -463,6 +477,8 @@ func (m model) View() string {
 		body = m.renderBodyWithPopup(body, bodyTotalHeight)
 	} else if m.edit.active {
 		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
+	} else if m.nsAttrEdit.active {
+		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
 	} else if m.fsEdit.active {
 		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyTotalHeight)
 	} else if m.alert.active {

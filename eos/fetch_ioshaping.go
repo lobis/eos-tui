@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -81,4 +82,86 @@ func (c *Client) IOShapingPolicies(ctx context.Context) ([]IOShapingPolicyRecord
 		}
 	}
 	return records, nil
+}
+
+func (c *Client) SetIOShapingPolicy(ctx context.Context, update IOShapingPolicyUpdate) error {
+	_ = ctx
+
+	args, err := ioShapingPolicySetArgs(update)
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.runCommand(args...); err != nil {
+		return fmt.Errorf("eos io shaping policy set %s: %w", update.ID, err)
+	}
+	return nil
+}
+
+func (c *Client) RemoveIOShapingPolicy(ctx context.Context, mode IOShapingMode, id string) error {
+	_ = ctx
+
+	args, err := ioShapingPolicyRemoveArgs(mode, id)
+	if err != nil {
+		return err
+	}
+	if _, err := c.runCommand(args...); err != nil {
+		return fmt.Errorf("eos io shaping policy rm %s: %w", id, err)
+	}
+	return nil
+}
+
+func ioShapingPolicySetArgs(update IOShapingPolicyUpdate) ([]string, error) {
+	targetFlag, err := ioShapingPolicyTargetFlag(update.Mode)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(update.ID) == "" {
+		return nil, fmt.Errorf("io shaping policy id is required")
+	}
+
+	args := []string{
+		"eos", "io", "shaping", "policy", "set",
+		targetFlag, update.ID,
+	}
+	if update.Enabled {
+		args = append(args, "--enable")
+	} else {
+		args = append(args, "--disable")
+	}
+	args = append(args,
+		"--limit-read", strconv.FormatUint(update.LimitReadBytesPerSec, 10),
+		"--limit-write", strconv.FormatUint(update.LimitWriteBytesPerSec, 10),
+		"--reservation-read", strconv.FormatUint(update.ReservationReadBytesPerSec, 10),
+		"--reservation-write", strconv.FormatUint(update.ReservationWriteBytesPerSec, 10),
+	)
+	return args, nil
+}
+
+func ioShapingPolicyTargetFlag(mode IOShapingMode) (string, error) {
+	switch mode {
+	case IOShapingApps:
+		return "--app", nil
+	case IOShapingUsers:
+		return "--uid", nil
+	case IOShapingGroups:
+		return "--gid", nil
+	default:
+		return "", fmt.Errorf("unsupported io shaping mode %d", mode)
+	}
+}
+
+func ioShapingPolicyRemoveArgs(mode IOShapingMode, id string) ([]string, error) {
+	targetFlag, err := ioShapingPolicyTargetFlag(mode)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf("io shaping policy id is required")
+	}
+
+	return []string{
+		"eos", "io", "shaping", "policy", "rm",
+		targetFlag, id,
+	}, nil
 }

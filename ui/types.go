@@ -158,6 +158,12 @@ type ioShapingPoliciesLoadedMsg struct {
 	err     error
 }
 
+type ioShapingPolicyResultMsg struct {
+	id  string
+	op  string
+	err error
+}
+
 type eosVersionLoadedMsg struct {
 	version string
 }
@@ -239,6 +245,42 @@ type namespaceAttrEdit struct {
 	attrs      []eos.NamespaceAttr
 	selected   int
 	input      textinput.Model
+}
+
+type ioShapingEditStage int
+
+const (
+	ioShapingEditStageSelect ioShapingEditStage = iota
+	ioShapingEditStageInput
+	ioShapingEditStageDeleteConfirm
+)
+
+type ioShapingEditField int
+
+const (
+	ioShapingEditFieldEnabled ioShapingEditField = iota
+	ioShapingEditFieldLimitRead
+	ioShapingEditFieldLimitWrite
+	ioShapingEditFieldReservationRead
+	ioShapingEditFieldReservationWrite
+	ioShapingEditFieldApply
+)
+
+type ioShapingPolicyEdit struct {
+	active           bool
+	stage            ioShapingEditStage
+	mode             eos.IOShapingMode
+	targetID         string
+	hadPolicy        bool
+	enabled          bool
+	limitRead        string
+	limitWrite       string
+	reservationRead  string
+	reservationWrite string
+	selected         ioShapingEditField
+	input            textinput.Model
+	button           buttonID
+	err              string
 }
 
 type filterPopup struct {
@@ -493,6 +535,7 @@ type model struct {
 	ioShapingLoading  bool
 	ioShapingErr      error
 	ioShapingSelected int
+	ioShapingEdit     ioShapingPolicyEdit
 
 	status string
 

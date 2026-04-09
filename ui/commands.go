@@ -134,6 +134,20 @@ func loadIOShapingPoliciesCmd(client *eos.Client) tea.Cmd {
 	}
 }
 
+func runIOShapingPolicySetCmd(client *eos.Client, update eos.IOShapingPolicyUpdate) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SetIOShapingPolicy(context.Background(), update)
+		return ioShapingPolicyResultMsg{id: update.ID, op: "updated", err: err}
+	}
+}
+
+func runIOShapingPolicyRemoveCmd(client *eos.Client, mode eos.IOShapingMode, id string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.RemoveIOShapingPolicy(context.Background(), mode, id)
+		return ioShapingPolicyResultMsg{id: id, op: "deleted", err: err}
+	}
+}
+
 func runSpaceConfigCmd(client *eos.Client, key, value string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.SpaceConfig(context.Background(), "default", key, value)

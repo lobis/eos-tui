@@ -74,7 +74,7 @@ func (m model) renderFooter() string {
 	case viewNamespace:
 		keys = "tab/0-9  •  ↑↓/jk  •  → open  •  enter attrs  •  backspace back  •  g root  •  L commands  •  q quit"
 	case viewIOShaping:
-		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  r refresh  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  enter edit  •  d delete  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:
 		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
 	default:

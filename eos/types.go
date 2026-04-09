@@ -213,6 +213,16 @@ type IOShapingPolicyRecord struct {
 	ReservationWriteBytesPerSec float64
 }
 
+type IOShapingPolicyUpdate struct {
+	Mode                        IOShapingMode
+	ID                          string
+	Enabled                     bool
+	LimitReadBytesPerSec        uint64
+	LimitWriteBytesPerSec       uint64
+	ReservationReadBytesPerSec  uint64
+	ReservationWriteBytesPerSec uint64
+}
+
 // raftReplica holds the parsed status of a single replica node from raft-info.
 type raftReplica struct {
 	Host    string

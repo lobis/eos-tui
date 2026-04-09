@@ -51,5 +51,5 @@ func (m model) renderNamespaceStatsView(height int) string {
 		)
 	}
 
-	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, height))
 }

@@ -633,6 +633,22 @@ func TestShellJoinQuotesEveryArgument(t *testing.T) {
 	}
 }
 
+func TestShellDisplayJoinKeepsSimpleArgsReadable(t *testing.T) {
+	got := shellDisplayJoin([]string{"eos", "-j", "-b", "space", "ls"})
+	want := "eos -j -b space ls"
+	if got != want {
+		t.Fatalf("shellDisplayJoin() = %q, want %q", got, want)
+	}
+}
+
+func TestShellDisplayJoinQuotesOnlyUnsafeArgs(t *testing.T) {
+	got := shellDisplayJoin([]string{"eos", "attr", "set", "user.comment=hello world", "/eos/dev/file"})
+	want := "eos attr set 'user.comment=hello world' /eos/dev/file"
+	if got != want {
+		t.Fatalf("shellDisplayJoin() = %q, want %q", got, want)
+	}
+}
+
 func TestParseEOSServerVersion(t *testing.T) {
 	tests := []struct {
 		name  string

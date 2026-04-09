@@ -3508,3 +3508,578 @@ func TestLogRefreshPreservesScrollWhenNotAtBottom(t *testing.T) {
 		t.Fatalf("expected viewport content to stay anchored near previous offset, got:\n%s", m.log.vp.View())
 	}
 }
+
+func TestIOShapingViewRendersWithData(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShaping = []eos.IOShapingRecord{
+		{ID: "app1", Type: "app", ReadBps: 1000, WriteBps: 2000},
+		{ID: "app2", Type: "app", ReadBps: 3000, WriteBps: 4000},
+	}
+	body := m.renderIOShapingView(20)
+	if !strings.Contains(body, "app1") {
+		t.Fatalf("expected IO shaping view to contain 'app1', got:\n%s", body)
+	}
+	if !strings.Contains(body, "app2") {
+		t.Fatalf("expected IO shaping view to contain 'app2', got:\n%s", body)
+	}
+}
+
+func TestIOShapingViewShowsLoadingState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShapingLoading = true
+	body := m.renderIOShapingView(20)
+	if !strings.Contains(body, "Loading") {
+		t.Fatalf("expected IO shaping view to show loading state, got:\n%s", body)
+	}
+}
+
+func TestIOShapingViewShowsError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShapingErr = fmt.Errorf("some error")
+	body := m.renderIOShapingView(20)
+	if !strings.Contains(body, "some error") {
+		t.Fatalf("expected IO shaping view to show error message, got:\n%s", body)
+	}
+}
+
+func TestHumanBytesRate(t *testing.T) {
+	cases := []struct {
+		input float64
+		want  string
+	}{
+		{0, "0 B/s"},
+		{500, "500 B/s"},
+		{1500, "1.50 KB/s"},
+		{2e6, "2.00 MB/s"},
+		{3e9, "3.00 GB/s"},
+	}
+	for _, tc := range cases {
+		got := humanBytesRate(tc.input)
+		if got != tc.want {
+			t.Errorf("humanBytesRate(%v) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestModeTabLabel(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	active := modeTabLabel(eos.IOShapingApps, eos.IOShapingApps, "apps", m.styles)
+	inactive := modeTabLabel(eos.IOShapingApps, eos.IOShapingUsers, "users", m.styles)
+	if active == inactive {
+		t.Fatalf("expected different styling for active vs inactive mode tab, got same: %q", active)
+	}
+}
+
+func TestSpaceStatusViewRendersWithData(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatusLoading = false
+	m.spaceStatus = []eos.SpaceStatusRecord{
+		{Key: "cfg.balancer", Value: "on"},
+		{Key: "cfg.groupsize", Value: "4"},
+	}
+	body := m.renderSpaceStatusView(20)
+	if !strings.Contains(body, "cfg.balancer") {
+		t.Fatalf("expected space status view to contain 'cfg.balancer', got:\n%s", body)
+	}
+	if !strings.Contains(body, "on") {
+		t.Fatalf("expected space status view to contain value 'on', got:\n%s", body)
+	}
+}
+
+func TestSpaceStatusViewShowsLoadingState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatusLoading = true
+	body := m.renderSpaceStatusView(20)
+	if !strings.Contains(body, "Loading") {
+		t.Fatalf("expected space status view to show loading, got:\n%s", body)
+	}
+}
+
+func TestSpaceStatusViewShowsError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatusLoading = false
+	m.spaceStatusErr = fmt.Errorf("some error")
+	body := m.renderSpaceStatusView(20)
+	if !strings.Contains(body, "some error") {
+		t.Fatalf("expected space status view to show error, got:\n%s", body)
+	}
+}
+
+func TestSpaceStatusNavigationUpDown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatus = []eos.SpaceStatusRecord{
+		{Key: "cfg.balancer", Value: "on"},
+		{Key: "cfg.groupsize", Value: "4"},
+		{Key: "cfg.nominalsize", Value: "1000"},
+	}
+	m.spaceStatusSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.spaceStatusSelected != 1 {
+		t.Fatalf("expected spaceStatusSelected=1 after 'j', got %d", m.spaceStatusSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(model)
+	if m.spaceStatusSelected != 0 {
+		t.Fatalf("expected spaceStatusSelected=0 after 'k', got %d", m.spaceStatusSelected)
+	}
+}
+
+func TestSpaceStatusEditStartsOnEnter(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaceStatus
+	m.spaceStatus = []eos.SpaceStatusRecord{
+		{Key: "cfg.balancer", Value: "on"},
+	}
+	m.spaceStatusSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if !m.edit.active {
+		t.Fatalf("expected edit.active=true after pressing enter on space status")
+	}
+}
+
+func TestSpacesNavigationUpDown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaces
+	m.spaces = []eos.SpaceRecord{
+		{Name: "default"},
+		{Name: "spare"},
+		{Name: "test"},
+	}
+	m.spacesSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.spacesSelected != 1 {
+		t.Fatalf("expected spacesSelected=1 after 'j', got %d", m.spacesSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(model)
+	if m.spacesSelected != 0 {
+		t.Fatalf("expected spacesSelected=0 after 'k', got %d", m.spacesSelected)
+	}
+}
+
+func TestSpacesNavigationGAndG(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaces
+	m.spaces = []eos.SpaceRecord{
+		{Name: "default"},
+		{Name: "spare"},
+		{Name: "test"},
+	}
+	m.spacesSelected = 1
+
+	// "G" goes to last
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.spacesSelected != 2 {
+		t.Fatalf("expected spacesSelected=2 after 'G', got %d", m.spacesSelected)
+	}
+
+	// "g" goes to first
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.spacesSelected != 0 {
+		t.Fatalf("expected spacesSelected=0 after 'g', got %d", m.spacesSelected)
+	}
+}
+
+func TestSpacesNavigationLeftRight(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaces
+	m.spaces = []eos.SpaceRecord{{Name: "default"}}
+	m.spacesColumnSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if m.spacesColumnSelected != 1 {
+		t.Fatalf("expected spacesColumnSelected=1 after right, got %d", m.spacesColumnSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = updated.(model)
+	if m.spacesColumnSelected != 0 {
+		t.Fatalf("expected spacesColumnSelected=0 after left, got %d", m.spacesColumnSelected)
+	}
+}
+
+func TestIOShapingModeSwitchToUsers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = updated.(model)
+	if m.ioShapingMode != eos.IOShapingUsers {
+		t.Fatalf("expected ioShapingMode=IOShapingUsers after 'u', got %d", m.ioShapingMode)
+	}
+}
+
+func TestIOShapingModeSwitchToGroups(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.ioShapingMode != eos.IOShapingGroups {
+		t.Fatalf("expected ioShapingMode=IOShapingGroups after 'g', got %d", m.ioShapingMode)
+	}
+}
+
+func TestIOShapingNavigationUpDown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewIOShaping
+	m.ioShaping = []eos.IOShapingRecord{
+		{ID: "app1", Type: "app"},
+		{ID: "app2", Type: "app"},
+		{ID: "app3", Type: "app"},
+	}
+	m.ioShapingSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.ioShapingSelected != 1 {
+		t.Fatalf("expected ioShapingSelected=1 after 'j', got %d", m.ioShapingSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(model)
+	if m.ioShapingSelected != 0 {
+		t.Fatalf("expected ioShapingSelected=0 after 'k', got %d", m.ioShapingSelected)
+	}
+}
+
+func TestGroupsNavigationUpDown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{
+		{Name: "default.0"},
+		{Name: "default.1"},
+		{Name: "default.2"},
+	}
+	m.groupsSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.groupsSelected != 1 {
+		t.Fatalf("expected groupsSelected=1 after 'j', got %d", m.groupsSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(model)
+	if m.groupsSelected != 0 {
+		t.Fatalf("expected groupsSelected=0 after 'k', got %d", m.groupsSelected)
+	}
+}
+
+func TestGroupsSortToggle(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "default.0"}}
+	m.groupsColumnSelected = 0
+	origCol := m.groupSort.column
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = updated.(model)
+	if m.groupSort.column == int(groupSortNone) && origCol == int(groupSortNone) {
+		// After pressing S, sorting should be set to the selected column
+		if m.groupSort.column != int(groupSortName) {
+			t.Fatalf("expected groupSort.column to change after 'S', got %d", m.groupSort.column)
+		}
+	}
+}
+
+func TestGroupsFilterOpensPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "default.0"}}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(model)
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/' in groups view")
+	}
+}
+
+func TestBoolLabel(t *testing.T) {
+	if got := boolLabel(true); got != "yes" {
+		t.Errorf("boolLabel(true) = %q, want %q", got, "yes")
+	}
+	if got := boolLabel(false); got != "no" {
+		t.Errorf("boolLabel(false) = %q, want %q", got, "no")
+	}
+}
+
+func TestFormatIOShapingPolicyRate(t *testing.T) {
+	got := formatIOShapingPolicyRate(1234.5)
+	if got != "1235" {
+		t.Errorf("formatIOShapingPolicyRate(1234.5) = %q, want %q", got, "1235")
+	}
+}
+
+func TestIOShapingEditorValueForFieldAll(t *testing.T) {
+	edit := ioShapingPolicyEdit{
+		limitRead:        "100",
+		limitWrite:       "200",
+		reservationRead:  "300",
+		reservationWrite: "400",
+	}
+	cases := []struct {
+		field ioShapingEditField
+		want  string
+	}{
+		{ioShapingEditFieldLimitRead, "100"},
+		{ioShapingEditFieldLimitWrite, "200"},
+		{ioShapingEditFieldReservationRead, "300"},
+		{ioShapingEditFieldReservationWrite, "400"},
+		{ioShapingEditFieldEnabled, ""},
+	}
+	for _, tc := range cases {
+		got := edit.valueForField(tc.field)
+		if got != tc.want {
+			t.Errorf("valueForField(%d) = %q, want %q", tc.field, got, tc.want)
+		}
+	}
+}
+
+func TestIOShapingEditorSetValueForFieldAll(t *testing.T) {
+	edit := ioShapingPolicyEdit{}
+	edit.setValueForField(ioShapingEditFieldLimitRead, "10")
+	edit.setValueForField(ioShapingEditFieldLimitWrite, "20")
+	edit.setValueForField(ioShapingEditFieldReservationRead, "30")
+	edit.setValueForField(ioShapingEditFieldReservationWrite, "40")
+
+	if edit.limitRead != "10" {
+		t.Errorf("limitRead = %q, want %q", edit.limitRead, "10")
+	}
+	if edit.limitWrite != "20" {
+		t.Errorf("limitWrite = %q, want %q", edit.limitWrite, "20")
+	}
+	if edit.reservationRead != "30" {
+		t.Errorf("reservationRead = %q, want %q", edit.reservationRead, "30")
+	}
+	if edit.reservationWrite != "40" {
+		t.Errorf("reservationWrite = %q, want %q", edit.reservationWrite, "40")
+	}
+}
+
+func TestIOShapingEditorPolicyUpdateSuccess(t *testing.T) {
+	edit := ioShapingPolicyEdit{
+		mode:             eos.IOShapingApps,
+		targetID:         "myapp",
+		enabled:          true,
+		limitRead:        "1000",
+		limitWrite:       "2000",
+		reservationRead:  "500",
+		reservationWrite: "600",
+	}
+	result, err := edit.policyUpdate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ID != "myapp" {
+		t.Errorf("ID = %q, want %q", result.ID, "myapp")
+	}
+	if result.LimitReadBytesPerSec != 1000 {
+		t.Errorf("LimitReadBytesPerSec = %d, want 1000", result.LimitReadBytesPerSec)
+	}
+	if result.LimitWriteBytesPerSec != 2000 {
+		t.Errorf("LimitWriteBytesPerSec = %d, want 2000", result.LimitWriteBytesPerSec)
+	}
+	if !result.Enabled {
+		t.Errorf("Enabled = false, want true")
+	}
+}
+
+func TestIOShapingEditorPolicyUpdateInvalidRate(t *testing.T) {
+	edit := ioShapingPolicyEdit{
+		mode:             eos.IOShapingApps,
+		targetID:         "myapp",
+		enabled:          true,
+		limitRead:        "notanumber",
+		limitWrite:       "2000",
+		reservationRead:  "500",
+		reservationWrite: "600",
+	}
+	_, err := edit.policyUpdate()
+	if err == nil {
+		t.Fatalf("expected error for invalid rate, got nil")
+	}
+}
+
+func TestParseIOShapingRateEdgeCases(t *testing.T) {
+	cases := []struct {
+		input   string
+		want    uint64
+		wantErr bool
+	}{
+		{"", 0, false},
+		{"0", 0, false},
+		{"15B", 15, false},
+		{"1.5T", 1500000000000, false},
+		{"15TB", 15000000000000, false},
+		{"15XB", 0, true},  // invalid suffix
+		{"-5", 0, true},    // negative
+		{"15/s", 15, false}, // /s suffix stripped
+	}
+	for _, tc := range cases {
+		got, err := parseIOShapingRate(tc.input)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseIOShapingRate(%q) expected error, got %d", tc.input, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseIOShapingRate(%q) unexpected error: %v", tc.input, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("parseIOShapingRate(%q) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestRenderErrorAlertPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.alert = errorAlert{active: true, message: "something went wrong"}
+	out := m.renderErrorAlert()
+	if !strings.Contains(out, "something went wrong") {
+		t.Fatalf("expected error alert to contain message, got:\n%s", out)
+	}
+}
+
+func TestRenderApollonDrainConfirmPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.apollon = apollonDrainConfirm{
+		active:   true,
+		fsID:     42,
+		fsPath:   "/eos/data",
+		instance: "fst01.cern.ch",
+		command:  "eos fs config 42 configstatus=drain",
+		button:   buttonCancel,
+	}
+	out := m.renderApollonDrainConfirmPopup()
+	if !strings.Contains(out, "42") {
+		t.Fatalf("expected apollon drain popup to contain fs id, got:\n%s", out)
+	}
+	if !strings.Contains(out, "/eos/data") {
+		t.Fatalf("expected apollon drain popup to contain fs path, got:\n%s", out)
+	}
+}
+
+func TestRenderFilterPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "default.0"}}
+
+	// Open the filter popup via the '/' key so all fields are initialized properly.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(model)
+
+	out := m.renderFilterPopup()
+	if out == "" {
+		t.Fatalf("expected renderFilterPopup to produce output")
+	}
+}
+
+func TestComputeClusterHealth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cases := []struct {
+		name string
+		fsts []eos.FstRecord
+		fss  []eos.FileSystemRecord
+		want string
+	}{
+		{"no data", nil, nil, "-"},
+		{"all online/booted", []eos.FstRecord{{Status: "online"}}, []eos.FileSystemRecord{{Boot: "booted"}}, "OK"},
+		{"offline node", []eos.FstRecord{{Status: "offline"}}, nil, "WARN"},
+		{"unbooted fs", nil, []eos.FileSystemRecord{{Boot: "opserror"}}, "WARN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewModel(nil, "test", "/").(model)
+			m.fsts = tc.fsts
+			m.fileSystems = tc.fss
+			got := m.computeClusterHealth()
+			if got != tc.want {
+				t.Errorf("computeClusterHealth() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -25,15 +25,18 @@ func (m model) openShell() (tea.Model, tea.Cmd) {
 	switch {
 	case sshTarget != "" && jumpProxy != "":
 		args := append(append([]string{}, sshBaseArgs...), "-t", "-J", jumpProxy, sshTarget)
+		m.client.LogCommand(append([]string{"ssh"}, args...))
 		cmd = exec.Command("ssh", args...)
 	case sshTarget != "":
 		args := append(append([]string{}, sshBaseArgs...), "-t", sshTarget)
+		m.client.LogCommand(append([]string{"ssh"}, args...))
 		cmd = exec.Command("ssh", args...)
 	default:
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/bash"
 		}
+		m.client.LogCommand([]string{shell})
 		cmd = exec.Command(shell)
 	}
 	cmd.Stdin = os.Stdin

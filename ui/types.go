@@ -201,7 +201,12 @@ type apollonDrainResultMsg struct {
 
 type errorAlert struct {
 	active  bool
+	fatal   bool // if true, any keypress quits the program instead of dismissing
 	message string
+}
+
+type eosCheckResultMsg struct {
+	err error
 }
 
 type fsConfigStatusEdit struct {

@@ -527,7 +527,7 @@ func (m model) updateApollonDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		instance := m.apollon.instance
 		m.apollon.active = false
 		m.status = fmt.Sprintf("Starting Apollon drain for filesystem %d on %s...", fsID, instance)
-		return m, runApollonDrainCmd(fsID, instance)
+		return m, runApollonDrainCmd(m.client, fsID, instance)
 	}
 	return m, nil
 }

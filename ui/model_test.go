@@ -2952,6 +2952,55 @@ func TestErrorAlertDismissedByEsc(t *testing.T) {
 	}
 }
 
+func TestFatalAlertQuitsOnAnyKey(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.alert = errorAlert{active: true, fatal: true, message: "EOS not available"}
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyEnter},
+		{Type: tea.KeyEsc},
+		{Type: tea.KeyRunes, Runes: []rune{'q'}},
+	} {
+		_, cmd := m.Update(key)
+		if cmd == nil {
+			t.Fatalf("expected quit command for key %q, got nil", key)
+		}
+		// tea.Quit is a function; check it returns a QuitMsg.
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Fatalf("expected QuitMsg for key %q, got %T", key, msg)
+		}
+	}
+}
+
+func TestEOSCheckResultMsgShowsFatalAlertOnError(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, _ := m.Update(eosCheckResultMsg{err: fmt.Errorf("eos: command not found")})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected fatal alert to be shown when EOS is unavailable")
+	}
+	if !m.alert.fatal {
+		t.Fatalf("expected alert to be fatal (quit on keypress)")
+	}
+	if !strings.Contains(m.alert.message, "EOS is not available") {
+		t.Errorf("expected alert message to mention EOS, got %q", m.alert.message)
+	}
+}
+
+func TestEOSCheckResultMsgOKDoesNotAlert(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, _ := m.Update(eosCheckResultMsg{err: nil})
+	m = updated.(model)
+
+	if m.alert.active {
+		t.Fatalf("expected no alert when EOS check succeeds")
+	}
+}
+
 func TestFSConfigStatusResultMsgShowsAlertOnError(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsEdit = fsConfigStatusEdit{active: true, fsID: 5}

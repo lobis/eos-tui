@@ -18,6 +18,21 @@ const commandLogTailLines = 200
 const startupSplashTickInterval = 120 * time.Millisecond
 const apollonCommandTimeout = 30 * time.Second
 
+// checkEOSCmd verifies that `eos version` succeeds (locally or via SSH).
+// Must be the first command fired from Init so a helpful fatal popup is shown
+// before any other work starts if EOS is unreachable.
+func checkEOSCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return eosCheckResultMsg{}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_, err := client.EOSVersion(ctx)
+		return eosCheckResultMsg{err: err}
+	}
+}
+
 // loadInfraCmd fans out all infrastructure fetches in parallel.  Each
 // component delivers its own typed message to the Bubble Tea runtime as soon
 // as it completes, so a slow or timing-out command (e.g. NodeStats) never
@@ -164,12 +179,20 @@ func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd
 	}
 }
 
-func runApollonDrainCmd(fsID uint64, instance string) tea.Cmd {
+func runApollonDrainCmd(client *eos.Client, fsID uint64, instance string) tea.Cmd {
 	return func() tea.Msg {
+		args := apollonDrainSSHArgs(fsID, instance)
+		// Log using flat individual tokens so shellDisplayJoin renders them
+		// cleanly, matching the style of every other command in the panel.
+		if client != nil {
+			logArgs := append([]string{"ssh", apollonSSHTarget}, apollonDrainRemoteArgs(fsID, instance)...)
+			client.LogCommand(logArgs)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), apollonCommandTimeout)
 		defer cancel()
 
-		out, err := exec.CommandContext(ctx, "ssh", apollonDrainSSHArgs(fsID, instance)...).CombinedOutput()
+		out, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
 		return apollonDrainResultMsg{
 			fsID:     fsID,
 			instance: instance,

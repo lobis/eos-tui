@@ -68,6 +68,13 @@ func isSessionCommandLine(line string) bool {
 	return true
 }
 
+// LogCommand writes an arbitrary command line to the session log in the same
+// format used by runCommand. Use this for commands issued outside of the
+// normal eos.Client SSH path (e.g. direct exec.Command calls from the UI).
+func (c *Client) LogCommand(args []string) {
+	c.logCommand(args)
+}
+
 func (c *Client) logCommand(args []string) {
 	f, err := c.openLogFile()
 	if err != nil {

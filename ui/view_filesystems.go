@@ -305,12 +305,16 @@ func (m model) renderApollonDrainConfirmPopup() string {
 }
 
 func (m model) renderErrorAlert() string {
+	footer := "enter / esc  close"
+	if m.alert.fatal {
+		footer = "press any key to quit"
+	}
 	lines := []string{
 		m.styles.popupTitle.Render("Error"),
 		"",
 		m.alert.message,
 		"",
-		m.styles.status.Render("enter / esc  close"),
+		m.styles.status.Render(footer),
 	}
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).

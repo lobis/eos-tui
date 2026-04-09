@@ -86,7 +86,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{loadInfraCmd(m.client), tickCmd(), splashTickCmd()}
+	cmds := []tea.Cmd{checkEOSCmd(m.client), loadInfraCmd(m.client), tickCmd(), splashTickCmd()}
 	switch m.activeView {
 	case viewNamespace:
 		cmds = append(cmds, loadDirectoryCmd(m.client, m.directory.Path))
@@ -135,6 +135,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLogKeys(msg)
 		}
 		if m.alert.active {
+			if m.alert.fatal {
+				return m, tea.Quit
+			}
 			if msg.String() == "enter" || msg.String() == "esc" {
 				m.alert.active = false
 			}
@@ -453,6 +456,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ioShapingPolicyTickMsg:
 		if m.activeView == viewIOShaping {
 			return m, tea.Batch(loadIOShapingPoliciesCmd(m.client), ioShapingPolicyTickCmd())
+		}
+	case eosCheckResultMsg:
+		if msg.err != nil {
+			hint := "Make sure EOS is installed and available in PATH."
+			if m.client != nil && m.client.OriginalSSHTarget() != "" {
+				hint = fmt.Sprintf(
+					"Could not reach EOS via SSH target %q.\nCheck that the host is reachable and EOS is running.",
+					m.client.OriginalSSHTarget(),
+				)
+			} else {
+				hint += "\nUse --ssh <target> to connect to a remote EOS cluster."
+			}
+			m.alert = errorAlert{
+				active:  true,
+				fatal:   true,
+				message: fmt.Sprintf("EOS is not available: %v\n\n%s", msg.err, hint),
+			}
 		}
 	case logLoadedMsg:
 		m.log.loading = false

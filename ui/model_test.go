@@ -1594,6 +1594,39 @@ func TestNamespaceDetailsSplitStaysNearMiddleWhileFittingAttrs(t *testing.T) {
 	}
 }
 
+func TestNamespaceViewReservesMoreHeightForDetailsPane(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 32
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 0
+	m.splash.active = false
+
+	listHeight, detailHeight := adaptiveSplitHeights(28, 4, 12)
+	if detailHeight != 14 {
+		t.Fatalf("expected namespace details height 14, got %d", detailHeight)
+	}
+	if listHeight != 16 {
+		t.Fatalf("expected namespace list height 16, got %d", listHeight)
+	}
+
+	view := m.renderNamespaceView(28)
+	if !strings.Contains(view, "Selected Namespace Entry") {
+		t.Fatalf("expected namespace details pane to render, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Attributes") {
+		t.Fatalf("expected namespace attrs pane to render, got:\n%s", view)
+	}
+}
+
 func TestDirectoryLoadedStartsNamespaceAttrLoad(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.client = &eos.Client{}

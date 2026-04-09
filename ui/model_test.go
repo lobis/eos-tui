@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -4081,5 +4082,682 @@ func TestComputeClusterHealth(t *testing.T) {
 				t.Errorf("computeClusterHealth() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Key handler tests (keys.go)
+// ---------------------------------------------------------------------------
+
+func newSizedTestModel(t *testing.T) model {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	return updated.(model)
+}
+
+func sendKey(m model, k tea.KeyMsg) model {
+	updated, _ := m.Update(k)
+	return updated.(model)
+}
+
+func runeKey(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+}
+
+func TestFSTNavigationUpDown(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}, {Host: "b", Type: "fst"}, {Host: "c", Type: "fst"}}
+	m.fstSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.fstSelected != 2 {
+		t.Fatalf("expected fstSelected=2 after two downs, got %d", m.fstSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.fstSelected != 1 {
+		t.Fatalf("expected fstSelected=1 after up, got %d", m.fstSelected)
+	}
+}
+
+func TestFSTNavigationGAndG(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}, {Host: "b", Type: "fst"}, {Host: "c", Type: "fst"}}
+	m.fstSelected = 1
+
+	m = sendKey(m, runeKey('g'))
+	if m.fstSelected != 0 {
+		t.Fatalf("expected fstSelected=0 after 'g', got %d", m.fstSelected)
+	}
+	m = sendKey(m, runeKey('G'))
+	if m.fstSelected != 2 {
+		t.Fatalf("expected fstSelected=2 after 'G', got %d", m.fstSelected)
+	}
+}
+
+func TestFSTLeftRightColumnSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+	m.fstColumnSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.fstColumnSelected != 1 {
+		t.Fatalf("expected fstColumnSelected=1 after right, got %d", m.fstColumnSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.fstColumnSelected != 2 {
+		t.Fatalf("expected fstColumnSelected=2 after right, got %d", m.fstColumnSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.fstColumnSelected != 1 {
+		t.Fatalf("expected fstColumnSelected=1 after left, got %d", m.fstColumnSelected)
+	}
+}
+
+func TestFSTSortToggle(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}, {Host: "b", Type: "fst"}}
+	m.fstColumnSelected = 0
+
+	origSort := m.fstSort
+	m = sendKey(m, runeKey('S'))
+	if m.fstSort == origSort {
+		t.Fatalf("expected fstSort to change after 'S'")
+	}
+	afterFirst := m.fstSort
+	m = sendKey(m, runeKey('S'))
+	if m.fstSort == afterFirst {
+		t.Fatalf("expected fstSort to change again after second 'S'")
+	}
+}
+
+func TestFSTClearFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+	m.fstFilter.filters = map[int]string{0: "a"}
+	m.fstColumnSelected = 0
+
+	m = sendKey(m, runeKey('c'))
+	if _, ok := m.fstFilter.filters[0]; ok {
+		t.Fatalf("expected filter on column 0 to be cleared")
+	}
+}
+
+func TestFSTCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	fsts := make([]eos.FstRecord, 30)
+	for i := range fsts {
+		fsts[i] = eos.FstRecord{Host: fmt.Sprintf("h%d", i), Type: "fst"}
+	}
+	m.fsts = fsts
+	m.fstSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.fstSelected >= 15 {
+		t.Fatalf("expected fstSelected < 15 after ctrl+u, got %d", m.fstSelected)
+	}
+	prev := m.fstSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.fstSelected <= prev {
+		t.Fatalf("expected fstSelected > %d after ctrl+d, got %d", prev, m.fstSelected)
+	}
+}
+
+func TestFileSystemNavigationUpDown(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{Host: "a"}, {Host: "b"}, {Host: "c"}}
+	m.fsSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.fsSelected != 2 {
+		t.Fatalf("expected fsSelected=2 after two downs, got %d", m.fsSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.fsSelected != 1 {
+		t.Fatalf("expected fsSelected=1 after up, got %d", m.fsSelected)
+	}
+}
+
+func TestFileSystemLeftRightColumnSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{Host: "a"}}
+	m.fsColumnSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.fsColumnSelected != 1 {
+		t.Fatalf("expected fsColumnSelected=1 after right, got %d", m.fsColumnSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.fsColumnSelected != 0 {
+		t.Fatalf("expected fsColumnSelected=0 after left, got %d", m.fsColumnSelected)
+	}
+}
+
+func TestFileSystemSortToggle(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{Host: "a"}, {Host: "b"}}
+	m.fsColumnSelected = 0
+
+	origSort := m.fsSort
+	m = sendKey(m, runeKey('S'))
+	if m.fsSort == origSort {
+		t.Fatalf("expected fsSort to change after 'S'")
+	}
+}
+
+func TestFileSystemClearFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{Host: "a"}}
+	m.fsFilter.filters = map[int]string{0: "a"}
+	m.fsColumnSelected = 0
+
+	m = sendKey(m, runeKey('c'))
+	if _, ok := m.fsFilter.filters[0]; ok {
+		t.Fatalf("expected filesystem filter on column 0 to be cleared")
+	}
+}
+
+func TestFileSystemCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	fss := make([]eos.FileSystemRecord, 30)
+	for i := range fss {
+		fss[i] = eos.FileSystemRecord{Host: fmt.Sprintf("h%d", i)}
+	}
+	m.fileSystems = fss
+	m.fsSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.fsSelected >= 15 {
+		t.Fatalf("expected fsSelected < 15 after ctrl+u, got %d", m.fsSelected)
+	}
+	prev := m.fsSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.fsSelected <= prev {
+		t.Fatalf("expected fsSelected > %d after ctrl+d, got %d", prev, m.fsSelected)
+	}
+}
+
+func TestFileSystemGAndG(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{Host: "a"}, {Host: "b"}, {Host: "c"}}
+	m.fsSelected = 1
+
+	m = sendKey(m, runeKey('g'))
+	if m.fsSelected != 0 {
+		t.Fatalf("expected fsSelected=0 after 'g', got %d", m.fsSelected)
+	}
+	m = sendKey(m, runeKey('G'))
+	if m.fsSelected != 2 {
+		t.Fatalf("expected fsSelected=2 after 'G', got %d", m.fsSelected)
+	}
+}
+
+func TestSpaceStatusCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	records := make([]eos.SpaceStatusRecord, 30)
+	for i := range records {
+		records[i] = eos.SpaceStatusRecord{Key: fmt.Sprintf("k%d", i), Value: "v"}
+	}
+	m.spaceStatus = records
+	m.spaceStatusSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.spaceStatusSelected >= 15 {
+		t.Fatalf("expected spaceStatusSelected < 15 after ctrl+u, got %d", m.spaceStatusSelected)
+	}
+	prev := m.spaceStatusSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.spaceStatusSelected <= prev {
+		t.Fatalf("expected spaceStatusSelected > %d after ctrl+d, got %d", prev, m.spaceStatusSelected)
+	}
+}
+
+func TestSpaceStatusGAndG(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "a"}, {Key: "b"}, {Key: "c"}}
+	m.spaceStatusSelected = 1
+
+	m = sendKey(m, runeKey('g'))
+	if m.spaceStatusSelected != 0 {
+		t.Fatalf("expected spaceStatusSelected=0 after 'g', got %d", m.spaceStatusSelected)
+	}
+	m = sendKey(m, runeKey('G'))
+	if m.spaceStatusSelected != 2 {
+		t.Fatalf("expected spaceStatusSelected=2 after 'G', got %d", m.spaceStatusSelected)
+	}
+}
+
+func TestSpaceStatusEditNavUpDown(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		focusInput: true,
+		button:     buttonCancel,
+		record:     eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:      textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.edit.focusInput {
+		t.Fatalf("expected focusInput=false after up")
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if !m.edit.focusInput {
+		t.Fatalf("expected focusInput=true after down")
+	}
+}
+
+func TestSpaceStatusEditTabTogglesFocus(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		focusInput: true,
+		button:     buttonCancel,
+		record:     eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:      textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.edit.focusInput {
+		t.Fatalf("expected focusInput=false after tab")
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+	if !m.edit.focusInput {
+		t.Fatalf("expected focusInput=true after second tab")
+	}
+}
+
+func TestSpaceStatusEditLeftRightTogglesButton(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		focusInput: false,
+		button:     buttonCancel,
+		record:     eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:      textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.edit.button != buttonContinue {
+		t.Fatalf("expected button=buttonContinue after right, got %d", m.edit.button)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.edit.button != buttonCancel {
+		t.Fatalf("expected button=buttonCancel after left, got %d", m.edit.button)
+	}
+}
+
+func TestSpaceStatusEditEnterCancelDismisses(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		focusInput: false,
+		button:     buttonCancel,
+		record:     eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:      textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.edit.active {
+		t.Fatalf("expected edit.active=false after enter with cancel button")
+	}
+}
+
+func TestSpaceStatusEditEnterContinueAdvancesToConfirm(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		focusInput: false,
+		button:     buttonContinue,
+		record:     eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:      textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.edit.stage != editStageConfirm {
+		t.Fatalf("expected stage=editStageConfirm after enter with continue button, got %d", m.edit.stage)
+	}
+}
+
+func TestQDBNavigationCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewQDB
+	mgms := make([]eos.MgmRecord, 30)
+	for i := range mgms {
+		mgms[i] = eos.MgmRecord{Host: fmt.Sprintf("h%d", i)}
+	}
+	m.mgms = mgms
+	m.qdbSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.qdbSelected >= 15 {
+		t.Fatalf("expected qdbSelected < 15 after ctrl+u, got %d", m.qdbSelected)
+	}
+	prev := m.qdbSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.qdbSelected <= prev {
+		t.Fatalf("expected qdbSelected > %d after ctrl+d, got %d", prev, m.qdbSelected)
+	}
+}
+
+func TestIOShapingCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewIOShaping
+	records := make([]eos.IOShapingRecord, 30)
+	for i := range records {
+		records[i] = eos.IOShapingRecord{ID: fmt.Sprintf("app%d", i), Type: "app"}
+	}
+	m.ioShaping = records
+	m.ioShapingSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.ioShapingSelected >= 15 {
+		t.Fatalf("expected ioShapingSelected < 15 after ctrl+u, got %d", m.ioShapingSelected)
+	}
+	prev := m.ioShapingSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.ioShapingSelected <= prev {
+		t.Fatalf("expected ioShapingSelected > %d after ctrl+d, got %d", prev, m.ioShapingSelected)
+	}
+}
+
+func TestIOShapingModeSwitchToApps(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingUsers
+
+	m = sendKey(m, runeKey('a'))
+	if m.ioShapingMode != eos.IOShapingApps {
+		t.Fatalf("expected ioShapingMode=IOShapingApps after 'a', got %d", m.ioShapingMode)
+	}
+}
+
+func TestNamespaceNavigationUpDown(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "dir1", Path: "/eos/test/dir1"},
+			{Kind: eos.EntryKindFile, Name: "file1", Path: "/eos/test/file1"},
+			{Kind: eos.EntryKindFile, Name: "file2", Path: "/eos/test/file2"},
+		},
+	}
+	m.nsLoaded = true
+	m.nsSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.nsSelected != 1 {
+		t.Fatalf("expected nsSelected=1 after down, got %d", m.nsSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.nsSelected != 2 {
+		t.Fatalf("expected nsSelected=2 after second down, got %d", m.nsSelected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.nsSelected != 1 {
+		t.Fatalf("expected nsSelected=1 after up, got %d", m.nsSelected)
+	}
+}
+
+func TestNamespaceNavigationGAndG(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "dir1", Path: "/eos/test/dir1"},
+			{Kind: eos.EntryKindFile, Name: "file1", Path: "/eos/test/file1"},
+		},
+	}
+	m.nsLoaded = true
+	m.nsSelected = 0
+
+	m = sendKey(m, runeKey('G'))
+	if m.nsSelected != 1 {
+		t.Fatalf("expected nsSelected=1 after 'G', got %d", m.nsSelected)
+	}
+	m = sendKey(m, runeKey('g'))
+	if m.nsSelected != 0 {
+		t.Fatalf("expected nsSelected=0 after 'g', got %d", m.nsSelected)
+	}
+}
+
+func TestNamespaceNavigationCtrlUCtrlD(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	entries := make([]eos.Entry, 30)
+	for i := range entries {
+		entries[i] = eos.Entry{Kind: eos.EntryKindFile, Name: fmt.Sprintf("f%d", i), Path: fmt.Sprintf("/eos/test/f%d", i)}
+	}
+	m.directory = eos.Directory{Path: "/eos/test", Entries: entries}
+	m.nsLoaded = true
+	m.nsSelected = 15
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.nsSelected >= 15 {
+		t.Fatalf("expected nsSelected < 15 after ctrl+u, got %d", m.nsSelected)
+	}
+	prev := m.nsSelected
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.nsSelected <= prev {
+		t.Fatalf("expected nsSelected > %d after ctrl+d, got %d", prev, m.nsSelected)
+	}
+}
+
+func TestNamespaceBackspaceGoesToParent(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test/sub",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "f1", Path: "/eos/test/sub/f1"},
+		},
+	}
+	m.nsLoaded = true
+	m.nsSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if !m.nsLoading {
+		t.Fatalf("expected nsLoading=true after backspace to parent")
+	}
+	if m.nsSelected != 0 {
+		t.Fatalf("expected nsSelected=0 after backspace, got %d", m.nsSelected)
+	}
+}
+
+func TestNamespaceRightEntersSubdirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "dir1", Path: "/eos/test/dir1"},
+			{Kind: eos.EntryKindFile, Name: "file1", Path: "/eos/test/file1"},
+		},
+	}
+	m.nsLoaded = true
+	m.nsSelected = 0
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if !m.nsLoading {
+		t.Fatalf("expected nsLoading=true after right on container entry")
+	}
+	if m.nsSelected != 0 {
+		t.Fatalf("expected nsSelected=0 after entering subdir, got %d", m.nsSelected)
+	}
+}
+
+func TestNamespaceAttrEditNavUpDown(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/test",
+		attrs: []eos.NamespaceAttr{
+			{Key: "sys.owner.auth", Value: "*"},
+			{Key: "sys.acl", Value: "u:root:rwx"},
+			{Key: "sys.mask", Value: "700"},
+		},
+		selected: 0,
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.nsAttrEdit.selected != 1 {
+		t.Fatalf("expected nsAttrEdit.selected=1 after down, got %d", m.nsAttrEdit.selected)
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.nsAttrEdit.selected != 0 {
+		t.Fatalf("expected nsAttrEdit.selected=0 after up, got %d", m.nsAttrEdit.selected)
+	}
+}
+
+func TestNamespaceAttrEditEscCloses(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "k", Value: "v"}},
+		selected:   0,
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.nsAttrEdit.active {
+		t.Fatalf("expected nsAttrEdit.active=false after esc")
+	}
+}
+
+func TestPopupEscCancels(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+
+	// Open popup through the key handler so fields are initialized.
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after esc")
+	}
+}
+
+func TestPopupEnterAppliesSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "hostA", Type: "fst"}, {Host: "hostB", Type: "fst"}}
+
+	// Open popup through the key handler.
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	// Press enter to apply whatever is selected.
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+}
+
+func TestLogKeysEscCloses(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/test.log",
+		allLines: []string{"line1", "line2"},
+		filtered: []string{"line1", "line2"},
+		vp:       viewport.New(80, 20),
+		input:    textinput.New(),
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.log.active {
+		t.Fatalf("expected log.active=false after esc")
+	}
+}
+
+func TestLogKeysSlashOpensFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/test.log",
+		allLines: []string{"line1", "line2"},
+		filtered: []string{"line1", "line2"},
+		vp:       viewport.New(80, 20),
+		input:    textinput.New(),
+	}
+
+	m = sendKey(m, runeKey('/'))
+	if !m.log.filtering {
+		t.Fatalf("expected log.filtering=true after '/'")
+	}
+}
+
+func TestLogKeysRReloads(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/test.log",
+		allLines: []string{"line1"},
+		filtered: []string{"line1"},
+		vp:       viewport.New(80, 20),
+		input:    textinput.New(),
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if !m.log.loading {
+		t.Fatalf("expected log.loading=true after 'r'")
+	}
+}
+
+func TestLogKeysGAndG(t *testing.T) {
+	m := newSizedTestModel(t)
+	vp := viewport.New(80, 5)
+	vp.SetContent(strings.Repeat("line\n", 100))
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/test.log",
+		allLines: []string{"line"},
+		filtered: []string{"line"},
+		vp:       vp,
+		input:    textinput.New(),
+	}
+
+	// Go to bottom first, then 'g' should go to top.
+	m.log.vp.GotoBottom()
+	m = sendKey(m, runeKey('g'))
+	if m.log.vp.YOffset != 0 {
+		t.Fatalf("expected viewport at top after 'g', got offset %d", m.log.vp.YOffset)
+	}
+
+	m = sendKey(m, runeKey('G'))
+	if m.log.vp.YOffset == 0 {
+		t.Fatalf("expected viewport not at top after 'G'")
 	}
 }

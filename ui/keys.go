@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/lobis/eos-tui/eos"
@@ -181,7 +182,9 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Opening %s...", parent)
 			return m, loadDirectoryCmd(m.client, parent)
 		}
-	case "enter", "right":
+	case "enter":
+		return m.startNamespaceAttrEdit()
+	case "right":
 		entry, ok := m.selectedNamespaceEntry()
 		if ok && entry.Kind == eos.EntryKindContainer {
 			m.nsSelected = 0
@@ -196,6 +199,78 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) startNamespaceAttrEdit() (tea.Model, tea.Cmd) {
+	targetPath := m.currentNamespaceAttrTargetPath()
+	if m.nsAttrsLoading && m.nsAttrsTargetPath == targetPath {
+		m.status = "Attributes are still loading..."
+		return m, nil
+	}
+	if m.nsAttrsErr != nil && m.nsAttrsTargetPath == targetPath {
+		m.status = "Cannot edit attributes until they load successfully"
+		return m, nil
+	}
+	if !m.nsAttrsLoaded || m.nsAttrsTargetPath != targetPath || len(m.nsAttrs) == 0 {
+		m.status = "No attributes available to edit"
+		return m, nil
+	}
+
+	input := textinput.New()
+	input.Prompt = "value> "
+	input.CharLimit = 4096
+	input.Width = 48
+
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: targetPath,
+		attrs:      append([]eos.NamespaceAttr(nil), m.nsAttrs...),
+		selected:   0,
+		input:      input,
+	}
+	return m, nil
+}
+
+func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.nsAttrEdit.stage {
+	case attrEditStageSelect:
+		switch msg.String() {
+		case "esc":
+			m.nsAttrEdit.active = false
+			return m, nil
+		case "up", "k":
+			if m.nsAttrEdit.selected > 0 {
+				m.nsAttrEdit.selected--
+			}
+		case "down", "j":
+			if m.nsAttrEdit.selected < len(m.nsAttrEdit.attrs)-1 {
+				m.nsAttrEdit.selected++
+			}
+		case "enter":
+			attr := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
+			m.nsAttrEdit.stage = attrEditStageInput
+			m.nsAttrEdit.input.SetValue(attr.Value)
+			return m, m.nsAttrEdit.input.Focus()
+		}
+		return m, nil
+	case attrEditStageInput:
+		switch msg.String() {
+		case "esc":
+			m.nsAttrEdit.active = false
+			return m, nil
+		case "enter":
+			attr := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
+			m.nsAttrEdit.active = false
+			return m, runNamespaceAttrSetCmd(m.client, m.nsAttrEdit.targetPath, attr.Key, m.nsAttrEdit.input.Value())
+		}
+
+		var cmd tea.Cmd
+		m.nsAttrEdit.input, cmd = m.nsAttrEdit.input.Update(msg)
+		return m, cmd
+	default:
+		return m, nil
+	}
 }
 
 func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

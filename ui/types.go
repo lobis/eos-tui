@@ -133,6 +133,11 @@ type namespaceAttrsLoadedMsg struct {
 	err   error
 }
 
+type namespaceAttrSetResultMsg struct {
+	path string
+	err  error
+}
+
 type spaceStatusLoadedMsg struct {
 	records []eos.SpaceStatusRecord
 	err     error
@@ -217,6 +222,22 @@ type spaceStatusEdit struct {
 	input      textinput.Model
 	button     buttonID
 	focusInput bool
+}
+
+type namespaceAttrEditStage int
+
+const (
+	attrEditStageSelect namespaceAttrEditStage = iota
+	attrEditStageInput
+)
+
+type namespaceAttrEdit struct {
+	active     bool
+	stage      namespaceAttrEditStage
+	targetPath string
+	attrs      []eos.NamespaceAttr
+	selected   int
+	input      textinput.Model
 }
 
 type filterPopup struct {
@@ -458,6 +479,7 @@ type model struct {
 	nsAttrsTargetPath string
 	nsAttrsLoaded     bool
 	nsAttrsLoading    bool
+	nsAttrEdit        namespaceAttrEdit
 
 	spaceStatus         []eos.SpaceStatusRecord
 	spaceStatusLoading  bool

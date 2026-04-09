@@ -65,7 +65,7 @@ func (m model) renderFooter() string {
 	var keys string
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/0-9  •  ↑↓/jk  •  ←→ nav  •  enter open  •  backspace back  •  g root  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  → open  •  enter attrs  •  backspace back  •  g root  •  L commands  •  q quit"
 	case viewIOShaping:
 		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:

@@ -108,6 +108,16 @@ func (c *Client) ListAttrs(ctx context.Context, rawPath string) ([]NamespaceAttr
 	return parseNamespaceAttrs(output), nil
 }
 
+func (c *Client) SetAttr(ctx context.Context, rawPath, key, value string) error {
+	_ = ctx
+
+	_, err := c.runCommand("eos", "attr", "set", fmt.Sprintf("%s=%s", key, value), rawPath)
+	if err != nil {
+		return fmt.Errorf("eos attr set: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) statPathViaCLI(rawPath string) (Entry, error) {
 	info, err := c.fetchCLIFileInfo(rawPath)
 	if err != nil {

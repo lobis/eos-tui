@@ -101,6 +101,13 @@ func loadNamespaceAttrsCmd(client *eos.Client, path string) tea.Cmd {
 	}
 }
 
+func runNamespaceAttrSetCmd(client *eos.Client, path, key, value string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SetAttr(context.Background(), path, key, value)
+		return namespaceAttrSetResultMsg{path: path, err: err}
+	}
+}
+
 func loadSpaceStatusCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		records, err := client.SpaceStatus(context.Background(), "default")

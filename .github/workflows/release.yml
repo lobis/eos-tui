@@ -242,7 +242,7 @@ jobs:
         run: |
           set -euo pipefail
           cd release-artifacts
-          sha256sum * > SHA256SUMS.txt
+          find . -type f | sort | xargs sha256sum | sed 's|\./||' > SHA256SUMS.txt
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2

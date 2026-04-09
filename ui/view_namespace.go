@@ -30,6 +30,12 @@ func (m model) renderNamespaceView(height int) string {
 			naturalDetailContent = 10
 		}
 	}
+	naturalDetailContent += 3
+	if m.nsAttrsLoading || m.nsAttrsErr != nil || len(m.nsAttrs) == 0 {
+		naturalDetailContent++
+	} else {
+		naturalDetailContent += min(4, len(m.nsAttrs))
+	}
 
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
 
@@ -86,6 +92,7 @@ func (m model) renderNamespaceList(width, height int) string {
 }
 
 func (m model) renderNamespaceDetails(width, height int) string {
+	contentWidth := panelContentWidth(width)
 	target := m.directory.Self
 	if selected, ok := m.selectedNamespaceEntry(); ok {
 		target = selected
@@ -113,6 +120,29 @@ func (m model) renderNamespaceDetails(width, height int) string {
 		)
 		if target.LinkName != "" {
 			lines = append(lines, m.metricLine("Link", target.LinkName, "", ""))
+		}
+	}
+
+	lines = append(lines, "", m.styles.label.Render("Attributes"))
+	switch {
+	case m.nsAttrsLoading && m.nsAttrsTargetPath == target.Path:
+		lines = append(lines, "Loading attributes...")
+	case m.nsAttrsErr != nil && m.nsAttrsTargetPath == target.Path:
+		lines = append(lines, m.styles.error.Render(m.nsAttrsErr.Error()))
+	case m.nsAttrsLoaded && m.nsAttrsTargetPath == target.Path && len(m.nsAttrs) == 0:
+		lines = append(lines, "(no attributes)")
+	default:
+		attrSlots := max(1, panelContentHeight(height)-len(lines))
+		visibleAttrs := min(len(m.nsAttrs), attrSlots)
+		if len(m.nsAttrs) > attrSlots && attrSlots > 1 {
+			visibleAttrs = attrSlots - 1
+		}
+		for i := 0; i < visibleAttrs; i++ {
+			attr := m.nsAttrs[i]
+			lines = append(lines, truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), contentWidth))
+		}
+		if len(m.nsAttrs) > visibleAttrs && attrSlots > 0 {
+			lines = append(lines, truncate(fmt.Sprintf("... %d more attributes", len(m.nsAttrs)-visibleAttrs), contentWidth))
 		}
 	}
 

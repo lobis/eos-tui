@@ -486,8 +486,8 @@ func TestNewModelDoesNotEagerLoadNamespace(t *testing.T) {
 func TestSwitchingToNamespaceStartsLazyLoad(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 
-	// Key '5' switches to the Namespace view (tab 5 in the new layout).
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
+	// Key '4' switches to the Namespace view in the current layout.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
 	m = updated.(model)
 
 	if !m.nsLoading {
@@ -661,7 +661,7 @@ func TestSwitchingToSpacesTriggersLoad(t *testing.T) {
 	m.spaces = nil
 	m.spacesErr = nil
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'6'}})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
 	m = updated.(model)
 
 	if !m.spacesLoading {
@@ -681,7 +681,7 @@ func TestSwitchingToNsStatsTriggersLoad(t *testing.T) {
 	m.nodeStats = eos.NodeStats{}
 	m.nodeStatsErr = nil
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	m = updated.(model)
 
 	if !m.nsStatsLoading {
@@ -1306,7 +1306,7 @@ func TestGroupsViewRendersWithData(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "0 Groups", "Selected Group", "Free"} {
+	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "8 Groups", "Selected Group", "Free"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected groups view to contain %q, got:\n%s", needle, view)
 		}
@@ -1390,17 +1390,148 @@ func TestSwitchingToGroupsTriggersLoad(t *testing.T) {
 	m.groups = nil
 	m.groupsErr = nil
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = updated.(model)
 
 	if m.activeView != viewGroups {
-		t.Fatalf("expected activeView=viewGroups after pressing 0, got %d", m.activeView)
+		t.Fatalf("expected activeView=viewGroups after pressing 8, got %d", m.activeView)
 	}
 	if !m.groupsLoading {
 		t.Fatalf("expected groupsLoading=true after switching to groups view")
 	}
 	if cmd == nil {
 		t.Fatalf("expected a load command to be returned when switching to groups view")
+	}
+}
+
+func TestHotkeysFollowNewViewOrdering(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	cases := []struct {
+		key  rune
+		want viewID
+	}{
+		{'1', viewNamespaceStats},
+		{'2', viewFST},
+		{'3', viewFileSystems},
+		{'4', viewNamespace},
+		{'5', viewSpaces},
+		{'6', viewSpaceStatus},
+		{'7', viewIOShaping},
+		{'8', viewGroups},
+		{'9', viewMGM},
+		{'0', viewQDB},
+	}
+
+	for _, tc := range cases {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tc.key}})
+		m = updated.(model)
+		if m.activeView != tc.want {
+			t.Fatalf("expected key %q to switch to view %d, got %d", string(tc.key), tc.want, m.activeView)
+		}
+	}
+}
+
+func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewNamespaceStats
+
+	expected := []viewID{
+		viewFST,
+		viewFileSystems,
+		viewNamespace,
+		viewSpaces,
+		viewSpaceStatus,
+		viewIOShaping,
+		viewGroups,
+		viewMGM,
+		viewQDB,
+		viewNamespaceStats,
+	}
+
+	for _, want := range expected {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(model)
+		if m.activeView != want {
+			t.Fatalf("expected tab cycle to reach view %d, got %d", want, m.activeView)
+		}
+	}
+}
+
+func TestNamespaceDetailsRenderAttributes(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 28
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/eos/dev/example"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+	}
+	m.splash.active = false
+
+	view := m.View()
+	for _, needle := range []string{"Attributes", "sys.acl = u:1000:rwx", "user.comment = hello"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected namespace details to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestDirectoryLoadedStartsNamespaceAttrLoad(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.client = &eos.Client{}
+	m.activeView = viewNamespace
+
+	updated, cmd := m.Update(directoryLoadedMsg{
+		directory: eos.Directory{
+			Path: "/eos/dev",
+			Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+			Entries: []eos.Entry{
+				{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+			},
+		},
+	})
+	m = updated.(model)
+
+	if !m.nsAttrsLoading {
+		t.Fatalf("expected namespace attrs loading after directory load")
+	}
+	if m.nsAttrsTargetPath != "/eos/dev/file-a" {
+		t.Fatalf("expected namespace attr target path to follow selection, got %q", m.nsAttrsTargetPath)
+	}
+	if cmd == nil {
+		t.Fatalf("expected directory load to trigger attr load command")
+	}
+}
+
+func TestNamespaceAttrResponseIgnoresStaleTarget(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.nsAttrsTargetPath = "/new"
+	m.nsAttrsLoading = true
+
+	updated, _ := m.Update(namespaceAttrsLoadedMsg{
+		path:  "/old",
+		attrs: []eos.NamespaceAttr{{Key: "sys.old", Value: "1"}},
+	})
+	m = updated.(model)
+
+	if len(m.nsAttrs) != 0 {
+		t.Fatalf("expected stale namespace attrs to be ignored, got %+v", m.nsAttrs)
+	}
+	if !m.nsAttrsLoading {
+		t.Fatalf("expected loading state to remain for current target")
 	}
 }
 

@@ -27,8 +27,10 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 	)
 
 	state := persistedUIState{}
+	activeView := defaultActiveView()
 	if rootPath == "" {
 		state = loadPersistedUIState()
+		activeView = state.ActiveView
 	}
 	initialPath := rootPath
 	if initialPath == "" {
@@ -37,7 +39,6 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 	if initialPath == "" {
 		initialPath = "/eos"
 	}
-	activeView := state.ActiveView
 	commandLogVisible := state.CommandLogVisible
 
 	return model{
@@ -162,40 +163,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "tab":
-			m.activeView = (m.activeView + 1) % viewCount
+			m.activeView = nextOrderedView(m.activeView, 1)
 			return m.onViewChanged()
 		case "shift+tab":
-			m.activeView = (m.activeView + viewCount - 1) % viewCount
+			m.activeView = nextOrderedView(m.activeView, -1)
 			return m.onViewChanged()
-		case "1":
-			m.activeView = viewMGM
-			return m.onViewChanged()
-		case "2":
-			m.activeView = viewQDB
-			return m.onViewChanged()
-		case "3":
-			m.activeView = viewFST
-			return m.onViewChanged()
-		case "4":
-			m.activeView = viewFileSystems
-			return m.onViewChanged()
-		case "5":
-			m.activeView = viewNamespace
-			return m.onViewChanged()
-		case "6":
-			m.activeView = viewSpaces
-			return m.onViewChanged()
-		case "7":
-			m.activeView = viewNamespaceStats
-			return m.onViewChanged()
-		case "8":
-			m.activeView = viewSpaceStatus
-			return m.onViewChanged()
-		case "9":
-			m.activeView = viewIOShaping
-			return m.onViewChanged()
-		case "0":
-			m.activeView = viewGroups
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9", "0":
+			m.activeView, _ = viewForHotkey(msg.String())
 			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
@@ -360,6 +334,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = fmt.Sprintf("Browsing namespace %s", m.directory.Path)
 			m.persistUIState()
+			return m.startNamespaceAttrLoad(true)
+		}
+	case namespaceAttrsLoadedMsg:
+		if msg.path != m.nsAttrsTargetPath {
+			return m, nil
+		}
+		m.nsAttrsLoading = false
+		m.nsAttrsLoaded = true
+		m.nsAttrsErr = msg.err
+		if msg.err == nil {
+			m.nsAttrs = msg.attrs
 		}
 	case spaceStatusLoadedMsg:
 		m.spaceStatusLoading = false
@@ -636,14 +621,47 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 }
 
 func (m model) maybeLoadNamespace() (tea.Model, tea.Cmd) {
-	if m.nsLoaded || m.nsLoading {
+	if m.nsLoading {
 		return m, nil
+	}
+	if m.nsLoaded {
+		return m.startNamespaceAttrLoad(false)
 	}
 
 	m.nsLoading = true
 	m.nsErr = nil
 	m.status = fmt.Sprintf("Loading namespace %s...", m.directory.Path)
 	return m, loadDirectoryCmd(m.client, m.directory.Path)
+}
+
+func (m model) currentNamespaceAttrTargetPath() string {
+	if selected, ok := m.selectedNamespaceEntry(); ok && selected.Path != "" {
+		return selected.Path
+	}
+	if m.directory.Self.Path != "" {
+		return m.directory.Self.Path
+	}
+	if m.directory.Path != "" {
+		return m.directory.Path
+	}
+	return "/"
+}
+
+func (m model) startNamespaceAttrLoad(force bool) (tea.Model, tea.Cmd) {
+	path := m.currentNamespaceAttrTargetPath()
+	if path == "" || m.client == nil {
+		return m, nil
+	}
+	if !force && m.nsAttrsTargetPath == path && (m.nsAttrsLoading || m.nsAttrsLoaded) {
+		return m, nil
+	}
+
+	m.nsAttrsTargetPath = path
+	m.nsAttrsLoading = true
+	m.nsAttrsLoaded = false
+	m.nsAttrsErr = nil
+	m.nsAttrs = nil
+	return m, loadNamespaceAttrsCmd(m.client, path)
 }
 
 func (m model) maybeLoadSpaceStatus() (tea.Model, tea.Cmd) {

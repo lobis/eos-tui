@@ -17,23 +17,23 @@ type persistedUIState struct {
 func loadPersistedUIState() persistedUIState {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return persistedUIState{}
+		return persistedUIState{ActiveView: defaultActiveView()}
 	}
 
 	path := filepath.Join(home, ".eos-tui", persistedUIStateFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return persistedUIState{}
+		return persistedUIState{ActiveView: defaultActiveView()}
 	}
 
 	var state persistedUIState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return persistedUIState{}
+		return persistedUIState{ActiveView: defaultActiveView()}
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
-		state.ActiveView = viewMGM
+		state.ActiveView = defaultActiveView()
 	}
 	return state
 }
@@ -51,7 +51,7 @@ func savePersistedUIState(state persistedUIState) {
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
-		state.ActiveView = viewMGM
+		state.ActiveView = defaultActiveView()
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

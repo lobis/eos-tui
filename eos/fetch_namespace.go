@@ -97,6 +97,17 @@ func (c *Client) StatPath(ctx context.Context, rawPath string) (Entry, error) {
 	return c.statPathViaCLI(rawPath)
 }
 
+func (c *Client) ListAttrs(ctx context.Context, rawPath string) ([]NamespaceAttr, error) {
+	_ = ctx
+
+	output, err := c.runCommand("eos", "attr", "ls", rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("eos attr ls: %w", err)
+	}
+
+	return parseNamespaceAttrs(output), nil
+}
+
 func (c *Client) statPathViaCLI(rawPath string) (Entry, error) {
 	info, err := c.fetchCLIFileInfo(rawPath)
 	if err != nil {
@@ -190,4 +201,38 @@ func entryFromCLI(info cliFileInfo) Entry {
 	}
 
 	return entry
+}
+
+func parseNamespaceAttrs(output []byte) []NamespaceAttr {
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	attrs := make([]NamespaceAttr, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "*") {
+			continue
+		}
+
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, "\"")
+		if key == "" {
+			continue
+		}
+
+		attrs = append(attrs, NamespaceAttr{
+			Key:   key,
+			Value: value,
+		})
+	}
+
+	sort.Slice(attrs, func(i, j int) bool {
+		return strings.ToLower(attrs[i].Key) < strings.ToLower(attrs[j].Key)
+	})
+
+	return attrs
 }

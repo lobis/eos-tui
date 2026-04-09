@@ -16,19 +16,61 @@ const refreshInterval = 5 * time.Second
 type viewID int
 
 const (
-	viewMGM            viewID = iota // tab 1: MGM nodes (EOS version)
-	viewQDB                          // tab 2: QDB cluster (raft-info)
-	viewFST                          // tab 3: FST nodes
-	viewFileSystems                  // tab 4: File systems
-	viewNamespace                    // tab 5: Namespace browser
-	viewSpaces                       // tab 6: Spaces
-	viewNamespaceStats               // tab 7: NS stats
-	viewSpaceStatus                  // tab 8: Space status
-	viewIOShaping                    // tab 9: IO Traffic
-	viewGroups                       // tab 0: Groups
+	viewMGM viewID = iota
+	viewQDB
+	viewFST
+	viewFileSystems
+	viewNamespace
+	viewSpaces
+	viewNamespaceStats
+	viewSpaceStatus
+	viewIOShaping
+	viewGroups
 )
 
 const viewCount = 10
+
+type viewTab struct {
+	key   string
+	label string
+	view  viewID
+}
+
+var orderedViewTabs = []viewTab{
+	{key: "1", label: "1 Stats", view: viewNamespaceStats},
+	{key: "2", label: "2 FST", view: viewFST},
+	{key: "3", label: "3 FS", view: viewFileSystems},
+	{key: "4", label: "4 Namespace", view: viewNamespace},
+	{key: "5", label: "5 Spaces", view: viewSpaces},
+	{key: "6", label: "6 Space Status", view: viewSpaceStatus},
+	{key: "7", label: "7 IO Traffic", view: viewIOShaping},
+	{key: "8", label: "8 Groups", view: viewGroups},
+	{key: "9", label: "9 MGM", view: viewMGM},
+	{key: "0", label: "0 QDB", view: viewQDB},
+}
+
+func defaultActiveView() viewID {
+	return viewNamespaceStats
+}
+
+func nextOrderedView(current viewID, delta int) viewID {
+	for i, tab := range orderedViewTabs {
+		if tab.view == current {
+			next := (i + delta + len(orderedViewTabs)) % len(orderedViewTabs)
+			return orderedViewTabs[next].view
+		}
+	}
+	return defaultActiveView()
+}
+
+func viewForHotkey(key string) (viewID, bool) {
+	for _, tab := range orderedViewTabs {
+		if tab.key == key {
+			return tab.view, true
+		}
+	}
+	return 0, false
+}
 
 type infraLoadedMsg struct {
 	stats      eos.NodeStats
@@ -83,6 +125,12 @@ type namespaceStatsLoadedMsg struct {
 type directoryLoadedMsg struct {
 	directory eos.Directory
 	err       error
+}
+
+type namespaceAttrsLoadedMsg struct {
+	path  string
+	attrs []eos.NamespaceAttr
+	err   error
 }
 
 type spaceStatusLoadedMsg struct {
@@ -404,6 +452,12 @@ type model struct {
 	nsLoading  bool
 	nsErr      error
 	nsSelected int
+	nsAttrs    []eos.NamespaceAttr
+	nsAttrsErr error
+
+	nsAttrsTargetPath string
+	nsAttrsLoaded     bool
+	nsAttrsLoading    bool
 
 	spaceStatus         []eos.SpaceStatusRecord
 	spaceStatusLoading  bool

@@ -94,6 +94,13 @@ func loadDirectoryCmd(client *eos.Client, dirPath string) tea.Cmd {
 	}
 }
 
+func loadNamespaceAttrsCmd(client *eos.Client, path string) tea.Cmd {
+	return func() tea.Msg {
+		attrs, err := client.ListAttrs(context.Background(), path)
+		return namespaceAttrsLoadedMsg{path: path, attrs: attrs, err: err}
+	}
+}
+
 func loadSpaceStatusCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		records, err := client.SpaceStatus(context.Background(), "default")

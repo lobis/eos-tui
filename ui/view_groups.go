@@ -7,9 +7,9 @@ import (
 )
 
 func (m model) renderGroupsView(height int) string {
-	const groupDetailLines = 6
-	listHeight := max(4, height-groupDetailLines)
-	detailHeight := groupDetailLines
+	naturalListContent := 3 + len(m.visibleGroups())
+	const groupDetailContent = 5
+	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, groupDetailContent)
 
 	width := m.contentWidth()
 	list := m.renderGroupsList(width, listHeight)

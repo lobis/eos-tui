@@ -171,9 +171,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		selectionChanged = true
 	case "g":
 		m.nsSelected = 0
-		m.nsLoading = true
-		m.status = "Jumping to / ..."
-		return m, loadDirectoryCmd(m.client, "/")
+		selectionChanged = true
 	case "backspace", "left":
 		parent := parentPath(m.directory.Path)
 		if parent != m.directory.Path {
@@ -239,6 +237,10 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case "esc":
 			m.nsAttrEdit.active = false
 			return m, nil
+		case "g":
+			m.nsAttrEdit.selected = 0
+		case "G":
+			m.nsAttrEdit.selected = max(0, len(m.nsAttrEdit.attrs)-1)
 		case "up", "k":
 			if m.nsAttrEdit.selected > 0 {
 				m.nsAttrEdit.selected--
@@ -407,6 +409,16 @@ func (m model) updateSpaceStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.edit.active = false
 		return m, nil
+	case "g":
+		if !m.edit.focusInput {
+			m.edit.button = buttonCancel
+			return m, nil
+		}
+	case "G":
+		if !m.edit.focusInput {
+			m.edit.button = buttonContinue
+			return m, nil
+		}
 	case "tab", "shift+tab":
 		m.edit.focusInput = !m.edit.focusInput
 		if m.edit.focusInput {
@@ -468,6 +480,10 @@ func (m model) updateFSConfigStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	case "esc":
 		m.fsEdit.active = false
 		return m, nil
+	case "g":
+		m.fsEdit.selected = 0
+	case "G":
+		m.fsEdit.selected = len(configStatusOptions) - 1
 	case "up", "k":
 		if m.fsEdit.selected > 0 {
 			m.fsEdit.selected--

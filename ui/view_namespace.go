@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -125,7 +126,31 @@ func (m model) renderNamespaceDetails(width, height int) string {
 
 	left := m.renderNamespaceMetadataPanel(leftWidth, height)
 	right := m.renderNamespaceAttrsPanel(rightWidth, height)
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+	for i := 0; i < 4; i++ {
+		combinedWidth := lipgloss.Width(left) + gap + lipgloss.Width(right)
+		if combinedWidth <= width {
+			break
+		}
+
+		overflow := combinedWidth - width
+		if lipgloss.Width(left) >= lipgloss.Width(right) && leftWidth > minLeftWidth {
+			shrink := min(overflow, leftWidth-minLeftWidth)
+			leftWidth -= shrink
+		} else if rightWidth > minRightWidth {
+			shrink := min(overflow, rightWidth-minRightWidth)
+			rightWidth -= shrink
+		} else if leftWidth > minLeftWidth {
+			shrink := min(overflow, leftWidth-minLeftWidth)
+			leftWidth -= shrink
+		} else {
+			break
+		}
+
+		left = m.renderNamespaceMetadataPanel(leftWidth, height)
+		right = m.renderNamespaceAttrsPanel(rightWidth, height)
+	}
+
+	return normalizeBlockWidth(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), width)
 }
 
 func (m model) namespaceMetadataNaturalWidth() int {
@@ -192,6 +217,7 @@ func (m model) namespaceAttrsNaturalWidth() int {
 }
 
 func (m model) renderNamespaceMetadataPanel(width, height int) string {
+	contentWidth := panelContentWidth(width)
 	target := m.directory.Self
 	if selected, ok := m.selectedNamespaceEntry(); ok {
 		target = selected
@@ -222,7 +248,7 @@ func (m model) renderNamespaceMetadataPanel(width, height int) string {
 		}
 	}
 
-	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+	return m.styles.panelDim.Width(width).Render(normalizePanelLines(lines, contentWidth, panelContentHeight(height)))
 }
 
 func (m model) renderNamespaceAttrsPanel(width, height int) string {
@@ -252,7 +278,24 @@ func (m model) renderNamespaceAttrsPanel(width, height int) string {
 		}
 	}
 
-	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+	return m.styles.panelDim.Width(width).Render(normalizePanelLines(lines, contentWidth, panelContentHeight(height)))
+}
+
+func normalizePanelLines(lines []string, contentWidth, contentHeight int) string {
+	fitted := fitLines(lines, contentHeight)
+	rows := strings.Split(fitted, "\n")
+	for i, row := range rows {
+		rows[i] = padVisibleWidth(row, contentWidth)
+	}
+	return strings.Join(rows, "\n")
+}
+
+func normalizeBlockWidth(block string, width int) string {
+	rows := strings.Split(block, "\n")
+	for i, row := range rows {
+		rows[i] = padVisibleWidth(row, width)
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m model) renderNamespaceAttrEditPopup() string {

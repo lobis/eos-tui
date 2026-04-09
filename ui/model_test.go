@@ -141,7 +141,7 @@ func TestModelRendersLoadedNodeData(t *testing.T) {
 	m.activeView = viewFST
 
 	view := m.View()
-	for _, needle := range []string{"host:1095", "Cluster Summary", "Selected Node", "online"} {
+	for _, needle := range []string{"host:1095", "FST Nodes", "Selected Node", "online"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected loaded nodes view to contain %q, got:\n%s", needle, view)
 		}
@@ -467,8 +467,8 @@ func TestFSTsRenderBeforeStatsArrive(t *testing.T) {
 	if !strings.Contains(view, "fast-node:1095") {
 		t.Fatalf("expected node table to render before stats load, got:\n%s", view)
 	}
-	if !strings.Contains(view, "Loading cluster summary...") {
-		t.Fatalf("expected summary area to show incremental loading state, got:\n%s", view)
+	if strings.Contains(view, "Loading cluster summary...") {
+		t.Fatalf("expected cluster summary loading to stay out of the FST view, got:\n%s", view)
 	}
 }
 
@@ -677,12 +677,18 @@ func TestSwitchingToNsStatsTriggersLoad(t *testing.T) {
 	m.nsStatsLoading = false
 	m.namespaceStats = eos.NamespaceStats{}
 	m.nsStatsErr = nil
+	m.fstStatsLoading = false
+	m.nodeStats = eos.NodeStats{}
+	m.nodeStatsErr = nil
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
 	m = updated.(model)
 
 	if !m.nsStatsLoading {
 		t.Fatalf("expected nsStatsLoading=true after switching to namespace stats view")
+	}
+	if !m.fstStatsLoading {
+		t.Fatalf("expected fstStatsLoading=true after switching to namespace stats view")
 	}
 	if cmd == nil {
 		t.Fatalf("expected a load command to be returned when switching to namespace stats view")
@@ -761,6 +767,14 @@ func TestNamespaceStatsViewRendersWithData(t *testing.T) {
 	m.height = 30
 	m.activeView = viewNamespaceStats
 	m.nsStatsLoading = false
+	m.fstStatsLoading = false
+	m.nodeStats = eos.NodeStats{
+		State:       "OK",
+		ThreadCount: 489,
+		FileCount:   78,
+		DirCount:    19,
+		FileDescs:   553,
+	}
 	m.namespaceStats = eos.NamespaceStats{
 		TotalFiles:       78,
 		TotalDirectories: 19,
@@ -770,9 +784,34 @@ func TestNamespaceStatsViewRendersWithData(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, needle := range []string{"Namespace Statistics", "78", "19"} {
+	for _, needle := range []string{"General Statistics", "Cluster Summary", "Namespace Statistics", "Master", "489", "78", "19"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected namespace stats view to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestNamespaceStatsViewCanRenderNamespaceStatsBeforeClusterSummaryArrives(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewNamespaceStats
+	m.nsStatsLoading = false
+	m.fstStatsLoading = true
+	m.namespaceStats = eos.NamespaceStats{
+		MasterHost:       "mgm01:1094",
+		TotalFiles:       78,
+		TotalDirectories: 19,
+	}
+	m.splash.active = false
+
+	view := m.View()
+	if !strings.Contains(view, "Loading cluster summary...") {
+		t.Fatalf("expected general stats view to keep a cluster-summary loading section, got:\n%s", view)
+	}
+	for _, needle := range []string{"Namespace Statistics", "mgm01:1094", "78", "19"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected general stats view to still show namespace data %q, got:\n%s", needle, view)
 		}
 	}
 }

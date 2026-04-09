@@ -556,12 +556,21 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case viewNamespaceStats:
+		cmds := make([]tea.Cmd, 0, 2)
 		if !m.nsStatsLoading && m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsErr == nil {
 			m.nsStatsLoading = true
 			m.nsStatsErr = nil
-			return m, loadNamespaceStatsCmd(m.client)
+			cmds = append(cmds, loadNamespaceStatsCmd(m.client))
 		}
-		return m, nil
+		if !m.fstStatsLoading && m.nodeStats == (eos.NodeStats{}) && m.nodeStatsErr == nil {
+			m.fstStatsLoading = true
+			m.nodeStatsErr = nil
+			cmds = append(cmds, loadNodeStatsCmd(m.client))
+		}
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(cmds...)
 	case viewSpaceStatus:
 		return m.maybeLoadSpaceStatus()
 	case viewIOShaping:
@@ -593,9 +602,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		return m, loadGroupsCmd(m.client)
 	case viewNamespaceStats:
 		m.nsStatsLoading = true
+		m.fstStatsLoading = true
 		m.nsStatsErr = nil
-		m.status = "Refreshing namespace stats..."
-		return m, loadNamespaceStatsCmd(m.client)
+		m.nodeStatsErr = nil
+		m.status = "Refreshing general stats..."
+		return m, tea.Batch(loadNamespaceStatsCmd(m.client), loadNodeStatsCmd(m.client))
 	case viewSpaceStatus:
 		m.spaceStatusLoading = true
 		m.spaceStatusErr = nil

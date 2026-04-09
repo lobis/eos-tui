@@ -39,7 +39,7 @@ func (m model) renderHeader() string {
 		{"4 FS", viewFileSystems},
 		{"5 Namespace", viewNamespace},
 		{"6 Spaces", viewSpaces},
-		{"7 NS Stats", viewNamespaceStats},
+		{"7 Stats", viewNamespaceStats},
 		{"8 Space Status", viewSpaceStatus},
 		{"9 IO Traffic", viewIOShaping},
 		{"0 Groups", viewGroups},

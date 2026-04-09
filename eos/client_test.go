@@ -202,6 +202,42 @@ QUORUM-SIZE 1
 	}
 }
 
+func TestParseRaftInfoSingleNodeNoLeaderLine(t *testing.T) {
+	// Some single-node QDB deployments (e.g. the CI kind cluster) omit the
+	// LEADER line entirely; the leader must be inferred from MYSELF+STATUS.
+	input := `TERM 1
+LOG-START 0
+LOG-SIZE 42
+CLUSTER-ID eos-ci
+COMMIT-INDEX 41
+LAST-APPLIED 41
+BLOCKED-WRITES 0
+LAST-STATE-CHANGE 100 (0 days, 0 hours, 1 minutes, 40 seconds)
+----------
+MYSELF eos-qdb-0.eos-qdb.default.svc.cluster.local:7777
+VERSION 5.4.1
+STATUS LEADER
+NODE-HEALTH GREEN
+----------
+MEMBERSHIP-EPOCH 0
+NODES eos-qdb-0.eos-qdb.default.svc.cluster.local:7777
+OBSERVERS
+QUORUM-SIZE 1
+`
+	info := parseRaftInfo([]byte(input))
+
+	want := "eos-qdb-0.eos-qdb.default.svc.cluster.local:7777"
+	if info.Leader != want {
+		t.Errorf("Leader: got %q, want %q (should be inferred from MYSELF)", info.Leader, want)
+	}
+	if info.MyRole != "leader" {
+		t.Errorf("MyRole: got %q, want leader", info.MyRole)
+	}
+	if info.Myself != want {
+		t.Errorf("Myself: got %q, want %q", info.Myself, want)
+	}
+}
+
 func TestParseRaftInfoMultiNode(t *testing.T) {
 	// Output from a multi-node cluster (eospilot).
 	input := `TERM 214

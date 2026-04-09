@@ -21,7 +21,7 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 
 	info := parseRaftInfo(output)
 
-	if info.Leader == "" && len(info.Nodes) == 0 {
+	if info.Leader == "" && len(info.Nodes) == 0 && info.Myself == "" {
 		return nil, fmt.Errorf("no MGM cluster info from raft-info")
 	}
 
@@ -208,6 +208,13 @@ func parseRaftInfo(output []byte) raftInfo {
 			}
 			info.Replicas = append(info.Replicas, rep)
 		}
+	}
+
+	// Single-node raft clusters may omit the LEADER line entirely.
+	// Infer it from MYSELF when STATUS=LEADER so callers don't need to
+	// special-case this.
+	if info.Leader == "" && info.MyRole == "leader" && info.Myself != "" {
+		info.Leader = info.Myself
 	}
 
 	return info

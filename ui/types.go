@@ -177,6 +177,7 @@ type commandHistoryLoadedMsg struct {
 type ioShapingTickMsg struct{}
 type ioShapingPolicyTickMsg struct{}
 type commandLogTickMsg struct{}
+type logTickMsg struct{}
 type splashTickMsg struct{}
 
 type tickMsg time.Time

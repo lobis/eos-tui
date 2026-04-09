@@ -76,7 +76,7 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 		vp:       vp,
 		input:    logInput,
 	}
-	return m, loadLogCmd(m.client, host, filePath)
+	return m, tea.Batch(loadLogCmd(m.client, host, filePath), logTickCmd())
 }
 
 func (m model) renderLogOverlay(height int) string {

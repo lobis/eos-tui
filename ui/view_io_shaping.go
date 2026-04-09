@@ -49,7 +49,7 @@ func (m model) ioShapingMergedRows() []ioShapingMergedRow {
 }
 
 func (m model) renderIOShapingView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
 
 	idLabel := "application"

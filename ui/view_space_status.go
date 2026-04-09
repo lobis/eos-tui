@@ -11,7 +11,7 @@ import (
 )
 
 func (m model) renderSpaceStatusView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
 
 	if m.spaceStatusLoading {

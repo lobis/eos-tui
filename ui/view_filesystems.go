@@ -18,7 +18,7 @@ func (m model) renderFileSystemsView(height int) string {
 	naturalListContent := fixedHeaderLines + len(m.visibleFileSystems())
 	const fsDetailLines = 14 // fixed lines rendered by renderFileSystemDetails
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, fsDetailLines)
-	width := m.contentWidth()
+	width := m.panelWidth()
 
 	list := m.renderFileSystemsList(width, listHeight)
 	details := m.renderFileSystemDetails(width, detailHeight)

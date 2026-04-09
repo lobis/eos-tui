@@ -9,7 +9,7 @@ import (
 // The MGM hosts are the same nodes that participate in the QDB cluster.
 // The EOS server version is fetched via `eos version` (applies to all MGMs).
 func (m model) renderMGMView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
 
 	mgms := m.mgms
@@ -54,7 +54,7 @@ func (m model) renderMGMView(height int) string {
 
 // renderQDBView shows the QDB cluster topology from `redis-cli raft-info`.
 func (m model) renderQDBView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
 
 	mgms := m.mgms

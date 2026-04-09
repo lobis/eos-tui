@@ -12,6 +12,7 @@ import (
 )
 
 const commandLogRefreshInterval = 300 * time.Millisecond
+const logRefreshInterval = 500 * time.Millisecond
 const commandLogTailLines = 200
 const startupSplashTickInterval = 120 * time.Millisecond
 
@@ -175,6 +176,12 @@ func loadLogCmd(client *eos.Client, host, filePath string) tea.Cmd {
 		lines := strings.Split(raw, "\n")
 		return logLoadedMsg{filePath: filePath, lines: lines}
 	}
+}
+
+func logTickCmd() tea.Cmd {
+	return tea.Tick(logRefreshInterval, func(time.Time) tea.Msg {
+		return logTickMsg{}
+	})
 }
 
 func loadCommandHistoryCmd(client *eos.Client) tea.Cmd {

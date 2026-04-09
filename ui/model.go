@@ -419,10 +419,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.log.loading = false
 		m.log.err = msg.err
 		if msg.err == nil {
+			wasAtBottom := m.log.vp.AtBottom()
+			prevOffset := m.log.vp.YOffset
 			m.log.allLines = msg.lines
 			m.log.filtered = applyLogFilter(msg.lines, m.log.filter)
 			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
-			m.log.vp.GotoBottom()
+			if wasAtBottom {
+				m.log.vp.GotoBottom()
+			} else {
+				maxOffset := max(0, m.log.vp.TotalLineCount()-m.log.vp.Height)
+				m.log.vp.SetYOffset(min(prevOffset, maxOffset))
+			}
+		}
+	case logTickMsg:
+		if m.log.active {
+			return m, tea.Batch(loadLogCmd(m.client, m.log.host, m.log.filePath), logTickCmd())
 		}
 	case commandHistoryLoadedMsg:
 		m.commandLog.loading = false

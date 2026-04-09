@@ -3,7 +3,8 @@ package ui
 import "fmt"
 
 func (m model) renderNamespaceStatsView(height int) string {
-	width := m.contentWidth()
+	width := m.panelWidth()
+	contentWidth := panelContentWidth(width)
 	lines := []string{
 		m.styles.label.Render("General Statistics"),
 		"",
@@ -51,5 +52,5 @@ func (m model) renderNamespaceStatsView(height int) string {
 		)
 	}
 
-	return m.styles.panelDim.Width(width).Render(fitLines(lines, height))
+	return m.styles.panelDim.Width(width).Render(normalizePanelLines(lines, contentWidth, height))
 }

@@ -11,7 +11,7 @@ func (m model) renderSpacesView(height int) string {
 	naturalListContent := fixedHeaderLines + len(m.spaces)
 	const spaceDetailLines = 8 // fixed lines rendered by renderSpaceDetails
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, spaceDetailLines)
-	width := m.contentWidth()
+	width := m.panelWidth()
 
 	list := m.renderSpacesList(width, listHeight)
 	details := m.renderSpaceDetails(width, detailHeight)

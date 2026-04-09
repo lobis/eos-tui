@@ -14,8 +14,18 @@ import (
 	"github.com/lobis/eos-tui/ui"
 )
 
+// version is overridden at build time via -ldflags="-X main.version=<value>".
+var version = "dev"
+
 func main() {
+	// Support both `eos-tui version` subcommand and `eos-tui --version` flag.
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(version)
+		return
+	}
+
 	var (
+		versionFlag       = flag.Bool("version", false, "print version and exit")
 		sshTarget         = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
 		timeout           = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
 		noAltScreen       = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
@@ -24,6 +34,8 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintln(flag.CommandLine.Output(), "Options:")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --version")
+		fmt.Fprintln(flag.CommandLine.Output(), "        print version and exit")
 		fmt.Fprintln(flag.CommandLine.Output(), "  --ssh string")
 		fmt.Fprintln(flag.CommandLine.Output(), "        SSH target for running EOS CLI remotely")
 		fmt.Fprintln(flag.CommandLine.Output(), "  --timeout duration")
@@ -34,6 +46,11 @@ func main() {
 		fmt.Fprintln(flag.CommandLine.Output(), "        auto-accept first-seen SSH host keys using StrictHostKeyChecking=accept-new")
 	}
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

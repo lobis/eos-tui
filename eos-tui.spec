@@ -22,7 +22,7 @@ state while also following logs and opening SSH sessions to cluster nodes.
 CGO_ENABLED=0 /usr/local/go/bin/go build \
   -trimpath \
   -buildvcs=false \
-  -ldflags="-s -w" \
+  -ldflags="-s -w -X main.version=%{version}" \
   -o %{name} \
   .
 

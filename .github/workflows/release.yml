@@ -71,28 +71,30 @@ jobs:
             goos: linux
             goarch: amd64
             exe_suffix: ""
-            archive_ext: tar.gz
             asset_suffix: linux_amd64
           - label: Linux arm64
             runner: ubuntu-latest
             goos: linux
             goarch: arm64
             exe_suffix: ""
-            archive_ext: tar.gz
             asset_suffix: linux_arm64
           - label: macOS amd64
-            runner: macos-latest
+            runner: macos-13
             goos: darwin
             goarch: amd64
             exe_suffix: ""
-            archive_ext: tar.gz
             asset_suffix: macos_amd64
+          - label: macOS arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            exe_suffix: ""
+            asset_suffix: macos_arm64
           - label: Windows amd64
             runner: windows-latest
             goos: windows
             goarch: amd64
             exe_suffix: .exe
-            archive_ext: zip
             asset_suffix: windows_amd64
     steps:
       - name: Check out repository
@@ -110,42 +112,22 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           EXE_SUFFIX: ${{ matrix.exe_suffix }}
+          ASSET_SUFFIX: ${{ matrix.asset_suffix }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "dist/${APP_NAME}${EXE_SUFFIX}" .
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o "dist/${APP_NAME}_${GITHUB_REF_NAME}_${ASSET_SUFFIX}${EXE_SUFFIX}" \
+            .
 
-      - name: Package archive
-        shell: bash
-        env:
-          EXE_SUFFIX: ${{ matrix.exe_suffix }}
-          ARCHIVE_PATH: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
-        run: |
-          set -euo pipefail
-          export BINARY_PATH="dist/${APP_NAME}${EXE_SUFFIX}"
-          python - <<'PY'
-          import os
-          import tarfile
-          import zipfile
-          from pathlib import Path
-
-          binary_path = Path(os.environ["BINARY_PATH"])
-          archive_path = Path(os.environ["ARCHIVE_PATH"])
-          archive_path.parent.mkdir(parents=True, exist_ok=True)
-
-          if archive_path.suffix == ".zip":
-            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-              zf.write(binary_path, arcname=binary_path.name)
-          else:
-            with tarfile.open(archive_path, "w:gz") as tf:
-              tf.add(binary_path, arcname=binary_path.name)
-          PY
-
-      - name: Upload release archive
+      - name: Upload binary
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.asset_suffix }}
-          path: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
+          path: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}${{ matrix.exe_suffix }}
 
   build-rpm:
     name: Build RPM AlmaLinux ${{ matrix.alma_major }} ${{ matrix.arch }}
@@ -218,11 +200,18 @@ jobs:
                 -bb /workspace/packaging/SPECS/'"${APP_NAME}"'.spec
             '
 
-      - name: Upload RPM artifacts
+      - name: Flatten RPM artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-rpm
+          find packaging/RPMS -name '*.rpm' -exec mv {} dist-rpm/ \;
+
+      - name: Upload RPM
         uses: actions/upload-artifact@v7
         with:
           name: release-rpm-el${{ matrix.alma_major }}-${{ matrix.arch }}
-          path: packaging/RPMS/*/*.rpm
+          path: dist-rpm/*.rpm
 
   github-release:
     name: Create GitHub release
@@ -268,10 +257,15 @@ jobs:
           fi
 
           version="${GITHUB_REF_NAME#v}"
-          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
 
-          curl -fsSL -o /tmp/eos-tui-source.tar.gz "${source_url}"
-          source_sha="$(sha256sum /tmp/eos-tui-source.tar.gz | awk '{print $1}')"
+          # Download each platform binary and compute its sha256.
+          declare -A sha
+          for platform in macos_amd64 macos_arm64 linux_amd64 linux_arm64; do
+            url="${base_url}/${APP_NAME}_${GITHUB_REF_NAME}_${platform}"
+            curl -fsSL -o "/tmp/${platform}" "${url}"
+            sha["${platform}"]="$(sha256sum "/tmp/${platform}" | awk '{print $1}')"
+          done
 
           git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" /tmp/homebrew-tap
           mkdir -p /tmp/homebrew-tap/Formula
@@ -280,20 +274,40 @@ jobs:
           class EosTui < Formula
             desc "Terminal UI for monitoring and managing EOS storage clusters"
             homepage "https://github.com/${GITHUB_REPOSITORY}"
-            url "${source_url}"
             version "${version}"
-            sha256 "${source_sha}"
             license "MIT"
-            head "https://github.com/${GITHUB_REPOSITORY}.git", branch: "main"
 
-            depends_on "go" => :build
+            on_macos do
+              on_intel do
+                url "${base_url}/${APP_NAME}_${GITHUB_REF_NAME}_macos_amd64"
+                sha256 "${sha[macos_amd64]}"
+              end
+              on_arm do
+                url "${base_url}/${APP_NAME}_${GITHUB_REF_NAME}_macos_arm64"
+                sha256 "${sha[macos_arm64]}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "${base_url}/${APP_NAME}_${GITHUB_REF_NAME}_linux_amd64"
+                sha256 "${sha[linux_amd64]}"
+              end
+              on_arm do
+                if Hardware::CPU.is_64_bit?
+                  url "${base_url}/${APP_NAME}_${GITHUB_REF_NAME}_linux_arm64"
+                  sha256 "${sha[linux_arm64]}"
+                end
+              end
+            end
 
             def install
-              system "go", "build", *std_go_args(ldflags: "-s -w"), "."
+              binary = "${APP_NAME}_${GITHUB_REF_NAME}_\#{OS.mac? ? "macos" : "linux"}_\#{Hardware::CPU.arm? ? "arm64" : "amd64"}"
+              bin.install binary => "${APP_NAME}"
             end
 
             test do
-              assert_match "Usage:", shell_output("#{bin}/eos-tui --help 2>&1")
+              assert_match version.to_s, shell_output("#{bin}/${APP_NAME} --version")
             end
           end
           EOF

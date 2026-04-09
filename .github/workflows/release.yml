@@ -194,18 +194,11 @@ jobs:
                 -bb /workspace/packaging/SPECS/'"${APP_NAME}"'.spec
             '
 
-      - name: Flatten RPM artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-rpm
-          find packaging/RPMS -name '*.rpm' -exec mv {} dist-rpm/ \;
-
       - name: Upload RPM
         uses: actions/upload-artifact@v7
         with:
           name: release-rpm-el${{ matrix.alma_major }}-${{ matrix.arch }}
-          path: dist-rpm/*.rpm
+          path: packaging/RPMS/*/*.rpm
 
   github-release:
     name: Create GitHub release
@@ -219,6 +212,15 @@ jobs:
         with:
           path: release-artifacts
           merge-multiple: true
+
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # RPM artifacts are downloaded into arch subdirectories; bring everything
+          # up to the top level so checksums and the release upload see flat files.
+          find release-artifacts -mindepth 2 -type f -exec mv {} release-artifacts/ \;
+          find release-artifacts -type d -empty -delete
 
       - name: Generate checksums
         shell: bash

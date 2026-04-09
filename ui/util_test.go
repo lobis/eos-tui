@@ -377,9 +377,9 @@ func TestContentAwareColumns(t *testing.T) {
 
 func TestVisibleWindow(t *testing.T) {
 	tests := []struct {
-		name                   string
-		total, selected, cap   int
-		wantStart, wantEnd     int
+		name                 string
+		total, selected, cap int
+		wantStart, wantEnd   int
 	}{
 		{"all fit", 5, 2, 10, 0, 5},
 		{"selected in middle", 20, 10, 10, 5, 15},
@@ -403,9 +403,9 @@ func TestVisibleWindow(t *testing.T) {
 
 func TestRenderScrollSummary(t *testing.T) {
 	tests := []struct {
-		name               string
-		start, end, total  int
-		want               string
+		name              string
+		start, end, total int
+		want              string
 	}{
 		{"all visible", 0, 10, 10, ""},
 		{"all visible zero", 0, 0, 0, ""},
@@ -548,9 +548,9 @@ func TestAdaptiveSplitHeights(t *testing.T) {
 
 func TestUsagePercent(t *testing.T) {
 	tests := []struct {
-		name          string
-		used, cap     uint64
-		want          float64
+		name      string
+		used, cap uint64
+		want      float64
 	}{
 		{"normal", 50, 100, 50.0},
 		{"full", 100, 100, 100.0},

@@ -267,7 +267,7 @@ func TestGroupFilterValueForColumn(t *testing.T) {
 		Status:        "on",
 		NoFS:          5,
 		CapacityBytes: 1024 * 1024 * 1024, // 1 GiB
-		UsedBytes:     512 * 1024 * 1024,   // 512 MiB
+		UsedBytes:     512 * 1024 * 1024,  // 512 MiB
 		FreeBytes:     512 * 1024 * 1024,
 		NumFiles:      1000,
 	}

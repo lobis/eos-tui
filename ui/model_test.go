@@ -3985,8 +3985,8 @@ func TestParseIOShapingRateEdgeCases(t *testing.T) {
 		{"15B", 15, false},
 		{"1.5T", 1500000000000, false},
 		{"15TB", 15000000000000, false},
-		{"15XB", 0, true},  // invalid suffix
-		{"-5", 0, true},    // negative
+		{"15XB", 0, true},   // invalid suffix
+		{"-5", 0, true},     // negative
 		{"15/s", 15, false}, // /s suffix stripped
 	}
 	for _, tc := range cases {
@@ -5369,503 +5369,503 @@ func TestLogKeysTTogglesAutoTailing(t *testing.T) {
 }
 
 func TestLogFileForViewQDB(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewQDB
-fp, title := m.logFileForView()
-if fp != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
-t.Fatalf("expected quarkdb log path, got %q", fp)
-}
-if title != "QDB Log" {
-t.Fatalf("expected QDB Log title, got %q", title)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewQDB
+	fp, title := m.logFileForView()
+	if fp != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
+		t.Fatalf("expected quarkdb log path, got %q", fp)
+	}
+	if title != "QDB Log" {
+		t.Fatalf("expected QDB Log title, got %q", title)
+	}
 }
 
 func TestLogFileForViewFST(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFST
-fp, title := m.logFileForView()
-if fp != "/var/log/eos/fst/xrdlog.fst" {
-t.Fatalf("expected fst log path, got %q", fp)
-}
-if title != "FST Log" {
-t.Fatalf("expected FST Log title, got %q", title)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	fp, title := m.logFileForView()
+	if fp != "/var/log/eos/fst/xrdlog.fst" {
+		t.Fatalf("expected fst log path, got %q", fp)
+	}
+	if title != "FST Log" {
+		t.Fatalf("expected FST Log title, got %q", title)
+	}
 }
 
 func TestLogFileForViewFileSystems(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFileSystems
-fp, _ := m.logFileForView()
-if fp != "/var/log/eos/fst/xrdlog.fst" {
-t.Fatalf("expected fst log path for FS view, got %q", fp)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	fp, _ := m.logFileForView()
+	if fp != "/var/log/eos/fst/xrdlog.fst" {
+		t.Fatalf("expected fst log path for FS view, got %q", fp)
+	}
 }
 
 func TestLogFileForViewMGM(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewMGM
-fp, title := m.logFileForView()
-if fp != "/var/log/eos/mgm/xrdlog.mgm" {
-t.Fatalf("expected mgm log path, got %q", fp)
-}
-if title != "MGM Log" {
-t.Fatalf("expected MGM Log title, got %q", title)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	fp, title := m.logFileForView()
+	if fp != "/var/log/eos/mgm/xrdlog.mgm" {
+		t.Fatalf("expected mgm log path, got %q", fp)
+	}
+	if title != "MGM Log" {
+		t.Fatalf("expected MGM Log title, got %q", title)
+	}
 }
 
 func TestRenderBodySpaceStatus(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewSpaceStatus
-m.spaceStatusLoading = false
-m.spaceStatus = []eos.SpaceStatusRecord{
-{Key: "space.scaninterval", Value: "300"},
-}
-body := m.renderBody(20)
-if !strings.Contains(body, "Space Status") {
-t.Fatalf("expected body to contain Space Status, got:\n%s", body)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	m.spaceStatusLoading = false
+	m.spaceStatus = []eos.SpaceStatusRecord{
+		{Key: "space.scaninterval", Value: "300"},
+	}
+	body := m.renderBody(20)
+	if !strings.Contains(body, "Space Status") {
+		t.Fatalf("expected body to contain Space Status, got:\n%s", body)
+	}
 }
 
 func TestRenderBodyIOShaping(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewIOShaping
-m.ioShapingLoading = false
-body := m.renderBody(20)
-if !strings.Contains(body, "IO Traffic") {
-t.Fatalf("expected body to contain IO Traffic, got:\n%s", body)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewIOShaping
+	m.ioShapingLoading = false
+	body := m.renderBody(20)
+	if !strings.Contains(body, "IO Traffic") {
+		t.Fatalf("expected body to contain IO Traffic, got:\n%s", body)
+	}
 }
 
 func TestViewWithPopupOverlay(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFST
-m.splash.active = false
-m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
-m.popup.active = true
-m.popup.view = viewFST
-m.popup.column = 0
-m.popup.input = textinput.New()
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.splash.active = false
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+	m.popup.active = true
+	m.popup.view = viewFST
+	m.popup.column = 0
+	m.popup.input = textinput.New()
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with popup")
+	}
 }
 
 func TestViewWithFSEditPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFileSystems
-m.splash.active = false
-m.fileSystems = []eos.FileSystemRecord{{Host: "h", ID: 1, Path: "/data"}}
-m.fsEdit = fsConfigStatusEdit{
-active: true, fsID: 1, fsPath: "/data", current: "rw", selected: 0,
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with FS edit popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.splash.active = false
+	m.fileSystems = []eos.FileSystemRecord{{Host: "h", ID: 1, Path: "/data"}}
+	m.fsEdit = fsConfigStatusEdit{
+		active: true, fsID: 1, fsPath: "/data", current: "rw", selected: 0,
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with FS edit popup")
+	}
 }
 
 func TestViewWithSpaceStatusEditPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewSpaceStatus
-m.splash.active = false
-m.spaceStatus = []eos.SpaceStatusRecord{{Key: "k", Value: "v"}}
-input := textinput.New()
-input.SetValue("newval")
-m.edit = spaceStatusEdit{
-active: true, stage: editStageInput,
-record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
-input: input, focusInput: true,
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with space status edit popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	m.splash.active = false
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "k", Value: "v"}}
+	input := textinput.New()
+	input.SetValue("newval")
+	m.edit = spaceStatusEdit{
+		active: true, stage: editStageInput,
+		record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:  input, focusInput: true,
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with space status edit popup")
+	}
 }
 
 func TestViewWithSpaceStatusConfirmPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewSpaceStatus
-m.splash.active = false
-m.spaceStatus = []eos.SpaceStatusRecord{{Key: "k", Value: "v"}}
-input := textinput.New()
-input.SetValue("newval")
-m.edit = spaceStatusEdit{
-active: true, stage: editStageConfirm,
-record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
-input: input, button: buttonCancel,
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with confirm popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	m.splash.active = false
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "k", Value: "v"}}
+	input := textinput.New()
+	input.SetValue("newval")
+	m.edit = spaceStatusEdit{
+		active: true, stage: editStageConfirm,
+		record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:  input, button: buttonCancel,
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with confirm popup")
+	}
 }
 
 func TestViewWithAlertPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFST
-m.splash.active = false
-m.alert = errorAlert{active: true, message: "something went wrong"}
-view := m.View()
-if !strings.Contains(view, "something went wrong") {
-t.Fatalf("expected alert message in view")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.splash.active = false
+	m.alert = errorAlert{active: true, message: "something went wrong"}
+	view := m.View()
+	if !strings.Contains(view, "something went wrong") {
+		t.Fatalf("expected alert message in view")
+	}
 }
 
 func TestViewWithApollonConfirmPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewFileSystems
-m.splash.active = false
-m.fileSystems = []eos.FileSystemRecord{{Host: "h", ID: 1, Path: "/data"}}
-m.apollon = apollonDrainConfirm{
-active: true, fsID: 1, fsPath: "/data",
-instance: "inst", command: "drain cmd", button: buttonCancel,
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with apollon popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.splash.active = false
+	m.fileSystems = []eos.FileSystemRecord{{Host: "h", ID: 1, Path: "/data"}}
+	m.apollon = apollonDrainConfirm{
+		active: true, fsID: 1, fsPath: "/data",
+		instance: "inst", command: "drain cmd", button: buttonCancel,
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with apollon popup")
+	}
 }
 
 func TestViewWithNsAttrEditPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewNamespace
-m.splash.active = false
-m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
-{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
-}}
-m.nsLoaded = true
-m.nsAttrEdit = namespaceAttrEdit{
-active:     true,
-stage:      attrEditStageSelect,
-targetPath: "/eos/d",
-attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "z:i:r"}},
-input:      textinput.New(),
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with ns attr edit popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.splash.active = false
+	m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
+		{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
+	}}
+	m.nsLoaded = true
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/d",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "z:i:r"}},
+		input:      textinput.New(),
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with ns attr edit popup")
+	}
 }
 
 func TestViewWithIOShapingEditPopup(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewIOShaping
-m.splash.active = false
-m.ioShapingEdit = ioShapingPolicyEdit{
-active: true, stage: ioShapingEditStageSelect,
-targetID: "app1", enabled: true,
-limitRead: "0", limitWrite: "0",
-reservationRead: "0", reservationWrite: "0",
-input: textinput.New(),
-}
-view := m.View()
-if view == "" {
-t.Fatalf("expected non-empty view with IO shaping edit popup")
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewIOShaping
+	m.splash.active = false
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active: true, stage: ioShapingEditStageSelect,
+		targetID: "app1", enabled: true,
+		limitRead: "0", limitWrite: "0",
+		reservationRead: "0", reservationWrite: "0",
+		input: textinput.New(),
+	}
+	view := m.View()
+	if view == "" {
+		t.Fatalf("expected non-empty view with IO shaping edit popup")
+	}
 }
 
 func TestRenderFilterSummaryWithFSTFilters(t *testing.T) {
-m := newSizedTestModel(t)
-m.fstFilter.filters[int(fstFilterHost)] = "myhost"
-summary := m.renderFilterSummary(m.fstFilter.filters, func(col int) string {
-m2 := m
-m2.fstFilter.column = col
-return m2.fstFilterColumnLabel()
-})
-if !strings.Contains(ansi.Strip(summary), "host=myhost") {
-t.Fatalf("expected filter summary to contain host=myhost, got %q", ansi.Strip(summary))
-}
+	m := newSizedTestModel(t)
+	m.fstFilter.filters[int(fstFilterHost)] = "myhost"
+	summary := m.renderFilterSummary(m.fstFilter.filters, func(col int) string {
+		m2 := m
+		m2.fstFilter.column = col
+		return m2.fstFilterColumnLabel()
+	})
+	if !strings.Contains(ansi.Strip(summary), "host=myhost") {
+		t.Fatalf("expected filter summary to contain host=myhost, got %q", ansi.Strip(summary))
+	}
 }
 
 func TestRenderFilterSummaryEmpty(t *testing.T) {
-m := newSizedTestModel(t)
-summary := m.renderFilterSummary(map[int]string{}, func(col int) string { return "x" })
-if summary != "" {
-t.Fatalf("expected empty filter summary, got %q", summary)
-}
+	m := newSizedTestModel(t)
+	summary := m.renderFilterSummary(map[int]string{}, func(col int) string { return "x" })
+	if summary != "" {
+		t.Fatalf("expected empty filter summary, got %q", summary)
+	}
 }
 
 func TestStartNamespaceAttrEditWhileLoading(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewNamespace
-m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
-{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
-}}
-m.nsLoaded = true
-m.nsAttrsLoading = true
-m.nsAttrsTargetPath = "/eos/d"
-updated, _ := m.startNamespaceAttrEdit()
-m = updated.(model)
-if !strings.Contains(m.status, "loading") {
-t.Fatalf("expected loading status, got %q", m.status)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
+		{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
+	}}
+	m.nsLoaded = true
+	m.nsAttrsLoading = true
+	m.nsAttrsTargetPath = "/eos/d"
+	updated, _ := m.startNamespaceAttrEdit()
+	m = updated.(model)
+	if !strings.Contains(m.status, "loading") {
+		t.Fatalf("expected loading status, got %q", m.status)
+	}
 }
 
 func TestStartNamespaceAttrEditWithError(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewNamespace
-m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
-{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
-}}
-m.nsLoaded = true
-m.nsAttrsLoaded = true
-m.nsAttrsErr = fmt.Errorf("fail")
-m.nsAttrsTargetPath = "/eos/d"
-updated, _ := m.startNamespaceAttrEdit()
-m = updated.(model)
-if !strings.Contains(m.status, "load successfully") {
-t.Fatalf("expected error status, got %q", m.status)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
+		{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
+	}}
+	m.nsLoaded = true
+	m.nsAttrsLoaded = true
+	m.nsAttrsErr = fmt.Errorf("fail")
+	m.nsAttrsTargetPath = "/eos/d"
+	updated, _ := m.startNamespaceAttrEdit()
+	m = updated.(model)
+	if !strings.Contains(m.status, "load successfully") {
+		t.Fatalf("expected error status, got %q", m.status)
+	}
 }
 
 func TestStartNamespaceAttrEditNoAttrs(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewNamespace
-m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
-{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
-}}
-m.nsLoaded = true
-m.nsAttrsLoaded = false
-updated, _ := m.startNamespaceAttrEdit()
-m = updated.(model)
-if !strings.Contains(m.status, "No attributes") {
-t.Fatalf("expected no attributes status, got %q", m.status)
-}
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos", Entries: []eos.Entry{
+		{Kind: eos.EntryKindContainer, Name: "d", Path: "/eos/d"},
+	}}
+	m.nsLoaded = true
+	m.nsAttrsLoaded = false
+	updated, _ := m.startNamespaceAttrEdit()
+	m = updated.(model)
+	if !strings.Contains(m.status, "No attributes") {
+		t.Fatalf("expected no attributes status, got %q", m.status)
+	}
 }
 
 func TestFSConfigStatusEditUpDownAndEsc(t *testing.T) {
-m := newSizedTestModel(t)
-m.fsEdit = fsConfigStatusEdit{active: true, selected: 0}
+	m := newSizedTestModel(t)
+	m.fsEdit = fsConfigStatusEdit{active: true, selected: 0}
 
-updated, _ := m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyDown})
-m = updated.(model)
-if m.fsEdit.selected != 1 {
-t.Fatalf("expected selected=1 after down, got %d", m.fsEdit.selected)
-}
+	updated, _ := m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.fsEdit.selected != 1 {
+		t.Fatalf("expected selected=1 after down, got %d", m.fsEdit.selected)
+	}
 
-updated, _ = m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyUp})
-m = updated.(model)
-if m.fsEdit.selected != 0 {
-t.Fatalf("expected selected=0 after up, got %d", m.fsEdit.selected)
-}
+	updated, _ = m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(model)
+	if m.fsEdit.selected != 0 {
+		t.Fatalf("expected selected=0 after up, got %d", m.fsEdit.selected)
+	}
 
-updated, _ = m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyEsc})
-m = updated.(model)
-if m.fsEdit.active {
-t.Fatalf("expected fsEdit.active=false after esc")
-}
+	updated, _ = m.updateFSConfigStatusEditKeys(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.fsEdit.active {
+		t.Fatalf("expected fsEdit.active=false after esc")
+	}
 }
 
 func TestSpaceStatusEditConfirmEnterCancel(t *testing.T) {
-m := newSizedTestModel(t)
-input := textinput.New()
-input.SetValue("newval")
-m.edit = spaceStatusEdit{
-active: true, stage: editStageConfirm,
-record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
-input: input, button: buttonCancel, focusInput: false,
-}
-updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyEnter})
-m = updated.(model)
-if m.edit.active {
-t.Fatalf("expected edit to close with cancel button")
-}
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("newval")
+	m.edit = spaceStatusEdit{
+		active: true, stage: editStageConfirm,
+		record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:  input, button: buttonCancel, focusInput: false,
+	}
+	updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.edit.active {
+		t.Fatalf("expected edit to close with cancel button")
+	}
 }
 
 func TestSpaceStatusEditUpDownTogglesFocus(t *testing.T) {
-m := newSizedTestModel(t)
-input := textinput.New()
-m.edit = spaceStatusEdit{
-active: true, stage: editStageInput,
-record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
-input: input, focusInput: true,
-}
-updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyDown})
-m = updated.(model)
-if m.edit.focusInput {
-t.Fatalf("expected focus to toggle off after down")
-}
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	m.edit = spaceStatusEdit{
+		active: true, stage: editStageInput,
+		record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:  input, focusInput: true,
+	}
+	updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.edit.focusInput {
+		t.Fatalf("expected focus to toggle off after down")
+	}
 }
 
 func TestSpaceStatusEditLeftRightToggles(t *testing.T) {
-m := newSizedTestModel(t)
-input := textinput.New()
-m.edit = spaceStatusEdit{
-active: true, stage: editStageInput,
-record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
-input: input, button: buttonCancel, focusInput: false,
-}
-updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyLeft})
-m = updated.(model)
-if m.edit.button != buttonContinue {
-t.Fatalf("expected button to toggle to continue")
-}
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	m.edit = spaceStatusEdit{
+		active: true, stage: editStageInput,
+		record: eos.SpaceStatusRecord{Key: "k", Value: "v"},
+		input:  input, button: buttonCancel, focusInput: false,
+	}
+	updated, _ := m.updateSpaceStatusEditKeys(tea.KeyMsg{Type: tea.KeyLeft})
+	m = updated.(model)
+	if m.edit.button != buttonContinue {
+		t.Fatalf("expected button to toggle to continue")
+	}
 }
 
 func TestGroupsCtrlDAndCtrlU(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewGroups
-m.groups = make([]eos.GroupRecord, 50)
-for i := range m.groups {
-m.groups[i] = eos.GroupRecord{Name: fmt.Sprintf("g%d", i)}
-}
-m.groupsSelected = 0
+	m := newSizedTestModel(t)
+	m.activeView = viewGroups
+	m.groups = make([]eos.GroupRecord, 50)
+	for i := range m.groups {
+		m.groups[i] = eos.GroupRecord{Name: fmt.Sprintf("g%d", i)}
+	}
+	m.groupsSelected = 0
 
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
-if m.groupsSelected == 0 {
-t.Fatalf("expected groupsSelected > 0 after ctrl+d")
-}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.groupsSelected == 0 {
+		t.Fatalf("expected groupsSelected > 0 after ctrl+d")
+	}
 
-m.groupsSelected = 25
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
-if m.groupsSelected >= 25 {
-t.Fatalf("expected groupsSelected < 25 after ctrl+u, got %d", m.groupsSelected)
-}
+	m.groupsSelected = 25
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.groupsSelected >= 25 {
+		t.Fatalf("expected groupsSelected < 25 after ctrl+u, got %d", m.groupsSelected)
+	}
 }
 
 func TestGroupsGAndGNavigation(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewGroups
-m.groups = []eos.GroupRecord{{Name: "a"}, {Name: "b"}, {Name: "c"}}
-m.groupsSelected = 1
+	m := newSizedTestModel(t)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	m.groupsSelected = 1
 
-m = sendKey(m, runeKey('g'))
-// Note: 'g' in groups switches to IO shaping mode if not already groups.
-// Actually for groups view, 'g' goes to first (0). Let me check...
-// The groups key handler: case "g": m.groupsSelected = 0  -- no, that's not in groups.
-// Let me check: updateGroupKeys does NOT have "g" case. It has ctrl+u/pgup.
-// So we skip g/G for groups and test the available keys.
+	m = sendKey(m, runeKey('g'))
+	// Note: 'g' in groups switches to IO shaping mode if not already groups.
+	// Actually for groups view, 'g' goes to first (0). Let me check...
+	// The groups key handler: case "g": m.groupsSelected = 0  -- no, that's not in groups.
+	// Let me check: updateGroupKeys does NOT have "g" case. It has ctrl+u/pgup.
+	// So we skip g/G for groups and test the available keys.
 
-m = sendKey(m, runeKey('G'))
-// G is also not handled in updateGroupKeys. Only up/down/left/right/S//.
+	m = sendKey(m, runeKey('G'))
+	// G is also not handled in updateGroupKeys. Only up/down/left/right/S//.
 }
 
 func TestFstFilterValueDelegates(t *testing.T) {
-m := newSizedTestModel(t)
-node := eos.FstRecord{Host: "h1", Port: 1234}
-m.fstFilter.column = int(fstFilterHost)
-v := m.fstFilterValue(node)
-if v != "h1" {
-t.Fatalf("expected fstFilterValue to return host, got %q", v)
-}
+	m := newSizedTestModel(t)
+	node := eos.FstRecord{Host: "h1", Port: 1234}
+	m.fstFilter.column = int(fstFilterHost)
+	v := m.fstFilterValue(node)
+	if v != "h1" {
+		t.Fatalf("expected fstFilterValue to return host, got %q", v)
+	}
 }
 
 func TestFsFilterValueDelegates(t *testing.T) {
-m := newSizedTestModel(t)
-fs := eos.FileSystemRecord{Host: "h1", Port: 1234, ID: 5}
-m.fsFilter.column = int(fsFilterID)
-v := m.fsFilterValue(fs)
-if v != "5" {
-t.Fatalf("expected fsFilterValue to return id, got %q", v)
-}
+	m := newSizedTestModel(t)
+	fs := eos.FileSystemRecord{Host: "h1", Port: 1234, ID: 5}
+	m.fsFilter.column = int(fsFilterID)
+	v := m.fsFilterValue(fs)
+	if v != "5" {
+		t.Fatalf("expected fsFilterValue to return id, got %q", v)
+	}
 }
 
 func TestGroupFilterValueDelegates(t *testing.T) {
-m := newSizedTestModel(t)
-g := eos.GroupRecord{Name: "grp1"}
-m.groupFilter.column = int(groupFilterName)
-v := m.groupFilterValue(g)
-if v != "grp1" {
-t.Fatalf("expected groupFilterValue to return name, got %q", v)
-}
+	m := newSizedTestModel(t)
+	g := eos.GroupRecord{Name: "grp1"}
+	m.groupFilter.column = int(groupFilterName)
+	v := m.groupFilterValue(g)
+	if v != "grp1" {
+		t.Fatalf("expected groupFilterValue to return name, got %q", v)
+	}
 }
 
 func TestSplitMainAndCommandHeightsHidden(t *testing.T) {
-m := newSizedTestModel(t)
-m.commandLog.active = false
-mainH, cmdH := m.splitMainAndCommandHeights(30)
-if cmdH != 0 {
-t.Fatalf("expected commandHeight=0 when panel hidden, got %d", cmdH)
-}
-if mainH != 30 {
-t.Fatalf("expected mainHeight=30, got %d", mainH)
-}
+	m := newSizedTestModel(t)
+	m.commandLog.active = false
+	mainH, cmdH := m.splitMainAndCommandHeights(30)
+	if cmdH != 0 {
+		t.Fatalf("expected commandHeight=0 when panel hidden, got %d", cmdH)
+	}
+	if mainH != 30 {
+		t.Fatalf("expected mainHeight=30, got %d", mainH)
+	}
 }
 
 func TestSplitMainAndCommandHeightsTooSmall(t *testing.T) {
-m := newSizedTestModel(t)
-m.commandLog.active = true
-mainH, cmdH := m.splitMainAndCommandHeights(6)
-if cmdH != 0 && mainH+cmdH > 6 {
-t.Fatalf("expected no command panel in tiny space, got main=%d cmd=%d", mainH, cmdH)
-}
+	m := newSizedTestModel(t)
+	m.commandLog.active = true
+	mainH, cmdH := m.splitMainAndCommandHeights(6)
+	if cmdH != 0 && mainH+cmdH > 6 {
+		t.Fatalf("expected no command panel in tiny space, got main=%d cmd=%d", mainH, cmdH)
+	}
 }
 
 func TestRenderSelectableHeaderRowWithSortAndFilter(t *testing.T) {
-m := newSizedTestModel(t)
-cols := []tableColumn{{title: "host", min: 10}, {title: "port", min: 8}}
-labels := []string{"host", "port"}
-ss := sortState{column: 0, desc: true}
-fs := filterState{column: 0, filters: map[int]string{1: "xyz"}}
-row := m.renderSelectableHeaderRow(cols, labels, 0, ss, fs)
-stripped := ansi.Strip(row)
-if !strings.Contains(stripped, "host") {
-t.Fatalf("expected header to contain host, got %q", stripped)
-}
-if !strings.Contains(stripped, "↓") {
-t.Fatalf("expected desc sort indicator, got %q", stripped)
-}
-if !strings.Contains(stripped, "*") {
-t.Fatalf("expected filter indicator, got %q", stripped)
-}
+	m := newSizedTestModel(t)
+	cols := []tableColumn{{title: "host", min: 10}, {title: "port", min: 8}}
+	labels := []string{"host", "port"}
+	ss := sortState{column: 0, desc: true}
+	fs := filterState{column: 0, filters: map[int]string{1: "xyz"}}
+	row := m.renderSelectableHeaderRow(cols, labels, 0, ss, fs)
+	stripped := ansi.Strip(row)
+	if !strings.Contains(stripped, "host") {
+		t.Fatalf("expected header to contain host, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "↓") {
+		t.Fatalf("expected desc sort indicator, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "*") {
+		t.Fatalf("expected filter indicator, got %q", stripped)
+	}
 }
 
 func TestQDBGAndGNavigation(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewQDB
-m.mgms = []eos.MgmRecord{
-{QDBHost: "q1"}, {QDBHost: "q2"}, {QDBHost: "q3"},
-}
-m.qdbSelected = 1
+	m := newSizedTestModel(t)
+	m.activeView = viewQDB
+	m.mgms = []eos.MgmRecord{
+		{QDBHost: "q1"}, {QDBHost: "q2"}, {QDBHost: "q3"},
+	}
+	m.qdbSelected = 1
 
-m = sendKey(m, runeKey('g'))
-if m.qdbSelected != 0 {
-t.Fatalf("expected qdbSelected=0 after g, got %d", m.qdbSelected)
-}
+	m = sendKey(m, runeKey('g'))
+	if m.qdbSelected != 0 {
+		t.Fatalf("expected qdbSelected=0 after g, got %d", m.qdbSelected)
+	}
 
-m = sendKey(m, runeKey('G'))
-if m.qdbSelected != 2 {
-t.Fatalf("expected qdbSelected=2 after G, got %d", m.qdbSelected)
-}
+	m = sendKey(m, runeKey('G'))
+	if m.qdbSelected != 2 {
+		t.Fatalf("expected qdbSelected=2 after G, got %d", m.qdbSelected)
+	}
 }
 
 func TestMGMCtrlUCtrlD(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewMGM
-m.mgms = make([]eos.MgmRecord, 30)
-for i := range m.mgms {
-m.mgms[i] = eos.MgmRecord{Host: fmt.Sprintf("m%d", i)}
-}
-m.mgmSelected = 15
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	m.mgms = make([]eos.MgmRecord, 30)
+	for i := range m.mgms {
+		m.mgms[i] = eos.MgmRecord{Host: fmt.Sprintf("m%d", i)}
+	}
+	m.mgmSelected = 15
 
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
-if m.mgmSelected >= 15 {
-t.Fatalf("expected mgmSelected < 15 after ctrl+u, got %d", m.mgmSelected)
-}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.mgmSelected >= 15 {
+		t.Fatalf("expected mgmSelected < 15 after ctrl+u, got %d", m.mgmSelected)
+	}
 
-m.mgmSelected = 0
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
-if m.mgmSelected == 0 {
-t.Fatalf("expected mgmSelected > 0 after ctrl+d")
-}
+	m.mgmSelected = 0
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.mgmSelected == 0 {
+		t.Fatalf("expected mgmSelected > 0 after ctrl+d")
+	}
 }
 
 func TestGroupsLeftRightColumnSelection(t *testing.T) {
-m := newSizedTestModel(t)
-m.activeView = viewGroups
-m.groups = []eos.GroupRecord{{Name: "g1"}}
-m.groupsColumnSelected = 0
+	m := newSizedTestModel(t)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "g1"}}
+	m.groupsColumnSelected = 0
 
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
-if m.groupsColumnSelected != 1 {
-t.Fatalf("expected column 1 after right, got %d", m.groupsColumnSelected)
-}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.groupsColumnSelected != 1 {
+		t.Fatalf("expected column 1 after right, got %d", m.groupsColumnSelected)
+	}
 
-m = sendKey(m, tea.KeyMsg{Type: tea.KeyLeft})
-if m.groupsColumnSelected != 0 {
-t.Fatalf("expected column 0 after left, got %d", m.groupsColumnSelected)
-}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.groupsColumnSelected != 0 {
+		t.Fatalf("expected column 0 after left, got %d", m.groupsColumnSelected)
+	}
 }
 
 func TestPopupValuesForGroups(t *testing.T) {

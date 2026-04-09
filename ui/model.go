@@ -26,21 +26,37 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		table.WithHeight(8),
 	)
 
+	state := persistedUIState{}
+	if rootPath == "" {
+		state = loadPersistedUIState()
+	}
+	initialPath := rootPath
+	if initialPath == "" {
+		initialPath = state.NamespacePath
+	}
+	if initialPath == "" {
+		initialPath = "/eos"
+	}
+	activeView := state.ActiveView
+	commandLogVisible := state.CommandLogVisible
+
 	return model{
 		client:             client,
 		endpoint:           endpoint,
 		width:              120,
 		height:             32,
-		activeView:         viewMGM,
+		activeView:         activeView,
 		fstStatsLoading:    true,
 		fstsLoading:        true,
 		fileSystemsLoading: true,
 		spacesLoading:      true,
 		nsStatsLoading:     true,
-		nsLoading:          false,
+		nsLoading:          activeView == viewNamespace,
 		spaceStatusLoading: true,
+		groupsLoading:      activeView == viewGroups,
+		ioShapingLoading:   activeView == viewIOShaping,
 		directory: eos.Directory{
-			Path: cleanPath(rootPath),
+			Path: cleanPath(initialPath),
 		},
 		status:               "Loading EOS state...",
 		fstColumnSelected:    int(fstFilterHost),
@@ -56,16 +72,38 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 			input: input,
 			table: popupTable,
 		},
+		commandLog: commandPanel{
+			active:  commandLogVisible,
+			loading: commandLogVisible,
+		},
+		splash: startupSplash{
+			active: true,
+		},
 		styles: newStyles(),
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(loadInfraCmd(m.client), tickCmd())
+	cmds := []tea.Cmd{loadInfraCmd(m.client), tickCmd(), splashTickCmd()}
+	switch m.activeView {
+	case viewNamespace:
+		cmds = append(cmds, loadDirectoryCmd(m.client, m.directory.Path))
+	case viewGroups:
+		cmds = append(cmds, loadGroupsCmd(m.client))
+	case viewSpaceStatus:
+		cmds = append(cmds, loadSpaceStatusCmd(m.client))
+	case viewIOShaping:
+		cmds = append(cmds, loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client), ioShapingTickCmd(), ioShapingPolicyTickCmd())
+	}
+	if m.commandLog.active {
+		cmds = append(cmds, loadCommandHistoryCmd(m.client), commandLogTickCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m model) toggleCommandLog() (tea.Model, tea.Cmd) {
 	m.commandLog.active = !m.commandLog.active
+	m.persistUIState()
 	if !m.commandLog.active {
 		m.commandLog.loading = false
 		return m, nil
@@ -321,6 +359,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nsSelected = max(0, len(m.directory.Entries)-1)
 			}
 			m.status = fmt.Sprintf("Browsing namespace %s", m.directory.Path)
+			m.persistUIState()
 		}
 	case spaceStatusLoadedMsg:
 		m.spaceStatusLoading = false
@@ -396,6 +435,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.commandLog.active {
 			return m, tea.Batch(loadCommandHistoryCmd(m.client), commandLogTickCmd())
 		}
+	case splashTickMsg:
+		if m.splash.active {
+			if !m.startupLoading() {
+				m.splash.active = false
+				return m, nil
+			}
+			m.splash.frame++
+			return m, splashTickCmd()
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -404,6 +452,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.shouldShowStartupSplash() {
+		splash := m.normalizeRenderedBlock(m.renderStartupSplash(m.height), m.height)
+		return m.styles.app.Render(splash)
+	}
+
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	middleHeight := max(0, m.height-lipgloss.Height(header)-lipgloss.Height(footer))
@@ -440,6 +493,35 @@ func (m model) View() string {
 	return m.styles.app.Render(header + "\n" + middle + "\n" + footer)
 }
 
+func (m model) startupLoading() bool {
+	switch m.activeView {
+	case viewMGM, viewQDB:
+		return len(m.mgms) == 0 && (m.fstStatsLoading || m.fstsLoading || m.fileSystemsLoading)
+	case viewFST:
+		return len(m.fsts) == 0 && m.fstsLoading
+	case viewFileSystems:
+		return len(m.fileSystems) == 0 && m.fileSystemsLoading
+	case viewNamespace:
+		return !m.nsLoaded && m.nsLoading
+	case viewSpaces:
+		return len(m.spaces) == 0 && m.spacesLoading
+	case viewNamespaceStats:
+		return m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsLoading
+	case viewSpaceStatus:
+		return len(m.spaceStatus) == 0 && m.spaceStatusLoading
+	case viewIOShaping:
+		return len(m.ioShapingMergedRows()) == 0 && m.ioShapingLoading
+	case viewGroups:
+		return len(m.groups) == 0 && m.groupsLoading
+	default:
+		return false
+	}
+}
+
+func (m model) shouldShowStartupSplash() bool {
+	return m.splash.active && m.startupLoading()
+}
+
 func (m model) renderBodyWithPopup(body string, height int) string {
 	return m.renderOverlay(body, m.renderFilterPopup(), height)
 }
@@ -455,6 +537,7 @@ func (m model) renderBodyWithEditPopup(body string, height int) string {
 }
 
 func (m model) onViewChanged() (tea.Model, tea.Cmd) {
+	m.persistUIState()
 	switch m.activeView {
 	case viewNamespace:
 		return m.maybeLoadNamespace()

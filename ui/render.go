@@ -9,6 +9,24 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+var splashEOS = []string{
+	"███████╗ ██████╗ ███████╗",
+	"██╔════╝██╔═══██╗██╔════╝",
+	"█████╗  ██║   ██║███████╗",
+	"██╔══╝  ██║   ██║╚════██║",
+	"███████╗╚██████╔╝███████║",
+	"╚══════╝ ╚═════╝ ╚══════╝",
+}
+
+var splashTUI = []string{
+	"████████╗██╗   ██╗██╗",
+	"╚══██╔══╝██║   ██║██║",
+	"   ██║   ██║   ██║██║",
+	"   ██║   ██║   ██║██║",
+	"   ██║   ╚██████╔╝██║",
+	"   ╚═╝    ╚═════╝ ╚═╝",
+}
+
 func (m model) renderHeader() string {
 	type tabDef struct {
 		label string
@@ -136,6 +154,38 @@ func (m model) renderOverlay(body string, popup string, height int) string {
 		bodyLines = bodyLines[:height]
 	}
 	return strings.Join(bodyLines, "\n")
+}
+
+func (m model) renderStartupSplash(height int) string {
+	base := m.normalizeRenderedBlock("", height)
+	loaderFrames := []string{
+		"[=     ]",
+		"[==    ]",
+		"[===   ]",
+		"[ ===  ]",
+		"[  === ]",
+		"[   ===]",
+	}
+	loader := loaderFrames[m.splash.frame%len(loaderFrames)]
+	titleStyle := m.styles.splash
+	if m.splash.frame%2 == 1 {
+		titleStyle = m.styles.splash.Foreground(lipgloss.Color("159"))
+	}
+
+	lines := []string{}
+	for _, line := range splashEOS {
+		lines = append(lines, titleStyle.Render(line))
+	}
+	lines = append(lines, "")
+	for _, line := range splashTUI {
+		lines = append(lines, titleStyle.Render(line))
+	}
+	lines = append(lines, "")
+	lines = append(lines, m.styles.splashDim.Render("initializing cluster view"))
+	lines = append(lines, m.styles.status.Render(loader))
+
+	box := m.styles.splashBox.Render(lipgloss.JoinVertical(lipgloss.Center, lines...))
+	return m.renderOverlay(base, box, height)
 }
 
 func (m model) normalizeRenderedBlock(block string, height int) string {

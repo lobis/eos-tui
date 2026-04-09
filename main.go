@@ -17,11 +17,22 @@ import (
 func main() {
 	var (
 		sshTarget         = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
-		rootPath          = flag.String("path", envOrDefault("EOS_TUI_PATH", "/"), "initial namespace path")
 		timeout           = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
 		noAltScreen       = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
 		acceptNewHostKeys = flag.Bool("ssh-accept-new-host-keys", envBoolOrDefault("EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS", false), "auto-accept first-seen SSH host keys using StrictHostKeyChecking=accept-new")
 	)
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n\n", os.Args[0])
+		fmt.Fprintln(flag.CommandLine.Output(), "Options:")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --ssh string")
+		fmt.Fprintln(flag.CommandLine.Output(), "        SSH target for running EOS CLI remotely")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --timeout duration")
+		fmt.Fprintln(flag.CommandLine.Output(), "        per-request timeout")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --no-alt-screen")
+		fmt.Fprintln(flag.CommandLine.Output(), "        disable alternate screen mode")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --ssh-accept-new-host-keys")
+		fmt.Fprintln(flag.CommandLine.Output(), "        auto-accept first-seen SSH host keys using StrictHostKeyChecking=accept-new")
+	}
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -59,7 +70,7 @@ func main() {
 	}
 
 	program := tea.NewProgram(
-		ui.NewModel(client, displayTarget, *rootPath),
+		ui.NewModel(client, displayTarget, ""),
 		options...,
 	)
 
@@ -67,14 +78,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "run TUI: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-
-	return fallback
 }
 
 func envOrDefaultCompat(keys []string, fallback string) string {

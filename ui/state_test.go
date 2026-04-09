@@ -69,7 +69,7 @@ func TestNewModelIgnoresPersistedStateWhenRootPathProvided(t *testing.T) {
 	if m.directory.Path != "/explicit" {
 		t.Fatalf("expected explicit path to win, got %q", m.directory.Path)
 	}
-	if m.activeView != viewMGM {
+	if m.activeView != viewNamespaceStats {
 		t.Fatalf("expected default active view when explicit path is provided, got %d", m.activeView)
 	}
 	if m.commandLog.active {
@@ -86,7 +86,7 @@ func TestPersistedStateUpdatesOnDirectoryLoadViewChangeAndCommandPanelToggle(t *
 	updated, _ := m.Update(directoryLoadedMsg{directory: eos.Directory{Path: "/eos/dev"}})
 	m = updated.(model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = updated.(model)
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
@@ -117,7 +117,7 @@ func TestLoadPersistedUIStateIgnoresCorruptFile(t *testing.T) {
 	}
 
 	state := loadPersistedUIState()
-	if state.NamespacePath != "" || state.ActiveView != 0 || state.CommandLogVisible {
+	if state.NamespacePath != "" || state.ActiveView != viewNamespaceStats || state.CommandLogVisible {
 		t.Fatalf("expected zero-value state for corrupt file, got %+v", state)
 	}
 }

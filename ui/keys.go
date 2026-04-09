@@ -147,24 +147,27 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	half := max(1, m.height/6)
+	selectionChanged := false
 	switch msg.String() {
 	case "up", "k":
 		if m.nsSelected > 0 {
 			m.nsSelected--
+			selectionChanged = true
 		}
 	case "down", "j":
 		if m.nsSelected < len(m.directory.Entries)-1 {
 			m.nsSelected++
+			selectionChanged = true
 		}
 	case "ctrl+u":
 		m.nsSelected = max(0, m.nsSelected-half)
-		return m, nil
+		selectionChanged = true
 	case "ctrl+d":
 		m.nsSelected = min(len(m.directory.Entries)-1, m.nsSelected+half)
-		return m, nil
+		selectionChanged = true
 	case "G":
 		m.nsSelected = max(0, len(m.directory.Entries)-1)
-		return m, nil
+		selectionChanged = true
 	case "g":
 		m.nsSelected = 0
 		m.nsLoading = true
@@ -186,6 +189,10 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Opening %s...", entry.Path)
 			return m, loadDirectoryCmd(m.client, entry.Path)
 		}
+	}
+
+	if selectionChanged {
+		return m.startNamespaceAttrLoad(false)
 	}
 
 	return m, nil

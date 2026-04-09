@@ -28,25 +28,8 @@ var splashTUI = []string{
 }
 
 func (m model) renderHeader() string {
-	type tabDef struct {
-		label string
-		view  viewID
-	}
-	tabs := []tabDef{
-		{"1 MGM", viewMGM},
-		{"2 QDB", viewQDB},
-		{"3 FST", viewFST},
-		{"4 FS", viewFileSystems},
-		{"5 Namespace", viewNamespace},
-		{"6 Spaces", viewSpaces},
-		{"7 Stats", viewNamespaceStats},
-		{"8 Space Status", viewSpaceStatus},
-		{"9 IO Traffic", viewIOShaping},
-		{"0 Groups", viewGroups},
-	}
-
 	parts := []string{m.styles.header.Render("EOS TUI"), "  "}
-	for i, t := range tabs {
+	for i, t := range orderedViewTabs {
 		if i > 0 {
 			parts = append(parts, " ")
 		}

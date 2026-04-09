@@ -59,6 +59,11 @@ type Directory struct {
 	Entries []Entry
 }
 
+type NamespaceAttr struct {
+	Key   string
+	Value string
+}
+
 type NodeStats struct {
 	State       string
 	FileCount   uint64

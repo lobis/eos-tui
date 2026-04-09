@@ -602,6 +602,29 @@ func TestNamespaceStatsParseWithPreamble(t *testing.T) {
 	}
 }
 
+func TestParseNamespaceAttrs(t *testing.T) {
+	input := `
+* attr listing
+sys.forced.layout="replica"
+user.comment = "hello world"
+sys.mask=755
+`
+
+	attrs := parseNamespaceAttrs([]byte(input))
+	if len(attrs) != 3 {
+		t.Fatalf("expected 3 attrs, got %d", len(attrs))
+	}
+	if attrs[0].Key != "sys.forced.layout" || attrs[0].Value != "replica" {
+		t.Fatalf("unexpected first attr: %+v", attrs[0])
+	}
+	if attrs[1].Key != "sys.mask" || attrs[1].Value != "755" {
+		t.Fatalf("unexpected second attr: %+v", attrs[1])
+	}
+	if attrs[2].Key != "user.comment" || attrs[2].Value != "hello world" {
+		t.Fatalf("unexpected third attr: %+v", attrs[2])
+	}
+}
+
 func TestParseEOSServerVersion(t *testing.T) {
 	tests := []struct {
 		name  string

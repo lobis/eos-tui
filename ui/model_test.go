@@ -1540,6 +1540,14 @@ func TestNamespaceDetailsSplitAttributesIntoRightPane(t *testing.T) {
 			}
 		}
 	}
+
+	detailWidth := m.panelWidth()
+	details := m.renderNamespaceDetails(detailWidth, 12)
+	for _, line := range strings.Split(strings.TrimRight(details, "\n"), "\n") {
+		if lipgloss.Width(line) != detailWidth {
+			t.Fatalf("expected namespace details line width %d, got %d for %q\nfull details:\n%s", detailWidth, lipgloss.Width(line), line, details)
+		}
+	}
 }
 
 func TestNamespaceDetailsSplitStaysNearMiddleWhileFittingAttrs(t *testing.T) {
@@ -1661,6 +1669,43 @@ func TestNamespaceEnterOpensAttributeEditor(t *testing.T) {
 	}
 	if m.nsAttrEdit.targetPath != "/eos/dev/file-a" {
 		t.Fatalf("expected attr editor target path to match selection, got %q", m.nsAttrEdit.targetPath)
+	}
+}
+
+func TestNamespaceEnterOpensAttributeEditorForSelectedDirectoryWithCommandPanelOpen(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 28
+	m.activeView = viewNamespace
+	m.commandLog.active = true
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: ".well-known", Path: "/.well-known", Kind: eos.EntryKindContainer, ID: 1401419},
+		},
+	}
+	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/.well-known"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:100755:rwxt"},
+		{Key: "sys.recycle", Value: "/eos/pilot/proc/recycle/"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected namespace attr editor to open for selected directory with command panel open")
+	}
+	if m.nsAttrEdit.targetPath != "/.well-known" {
+		t.Fatalf("expected attr editor target path /.well-known, got %q", m.nsAttrEdit.targetPath)
+	}
+	if len(m.nsAttrEdit.attrs) != 2 {
+		t.Fatalf("expected attr editor to receive current attrs, got %+v", m.nsAttrEdit.attrs)
 	}
 }
 

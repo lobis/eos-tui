@@ -4761,3 +4761,609 @@ func TestLogKeysGAndG(t *testing.T) {
 		t.Fatalf("expected viewport not at top after 'G'")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Render popup/overlay tests
+// ---------------------------------------------------------------------------
+
+func TestRenderSpaceStatusEditPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("myval")
+	m.edit = spaceStatusEdit{
+		active:     true,
+		stage:      editStageInput,
+		record:     eos.SpaceStatusRecord{Key: "mykey", Value: "myval"},
+		input:      input,
+		focusInput: true,
+	}
+
+	out := m.renderSpaceStatusEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Edit Space Status", "mykey", "myval", "Cancel", "Continue"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderSpaceStatusEditPopup missing %q", want)
+		}
+	}
+}
+
+func TestRenderSpaceStatusConfirmPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("600")
+	m.edit = spaceStatusEdit{
+		active: true,
+		stage:  editStageConfirm,
+		record: eos.SpaceStatusRecord{Key: "space.scaninterval", Value: "300"},
+		input:  input,
+		button: buttonCancel,
+	}
+
+	out := m.renderSpaceStatusConfirmPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Confirm Configuration Change", "eos space config", "Cancel", "Confirm"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderSpaceStatusConfirmPopup missing %q", want)
+		}
+	}
+}
+
+func TestRenderIOShapingPolicyEditPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:           true,
+		stage:            ioShapingEditStageSelect,
+		mode:             eos.IOShapingApps,
+		targetID:         "myapp",
+		hadPolicy:        true,
+		enabled:          true,
+		limitRead:        "100",
+		limitWrite:       "200",
+		reservationRead:  "50",
+		reservationWrite: "60",
+		selected:         ioShapingEditFieldEnabled,
+		input:            textinput.New(),
+	}
+
+	out := m.renderIOShapingPolicyEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Edit IO Shaping Policy", "myapp", "Limit Read", "Limit Write"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderIOShapingPolicyEditPopup (select stage) missing %q", want)
+		}
+	}
+}
+
+func TestRenderIOShapingPolicyEditPopupInputStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:           true,
+		stage:            ioShapingEditStageInput,
+		mode:             eos.IOShapingApps,
+		targetID:         "myapp",
+		hadPolicy:        true,
+		enabled:          true,
+		limitRead:        "100",
+		limitWrite:       "200",
+		reservationRead:  "50",
+		reservationWrite: "60",
+		selected:         ioShapingEditFieldLimitRead,
+		input:            textinput.New(),
+	}
+
+	out := m.renderIOShapingPolicyEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Edit IO Shaping Policy", "myapp", "editing", "enter save"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderIOShapingPolicyEditPopup (input stage) missing %q", want)
+		}
+	}
+}
+
+func TestRenderIOShapingPolicyEditPopupDeleteConfirm(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:    true,
+		stage:     ioShapingEditStageDeleteConfirm,
+		mode:      eos.IOShapingApps,
+		targetID:  "myapp",
+		hadPolicy: true,
+		button:    buttonCancel,
+		input:     textinput.New(),
+	}
+
+	out := m.renderIOShapingPolicyEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Delete IO Shaping Policy", "myapp", "Cancel", "Delete"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderIOShapingPolicyEditPopup (delete confirm) missing %q", want)
+		}
+	}
+}
+
+func TestRenderNamespaceAttrEditPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "z:i:r"}},
+		selected:   0,
+	}
+
+	out := m.renderNamespaceAttrEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"Edit Attribute", "sys.acl"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderNamespaceAttrEditPopup missing %q", want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Additional view rendering tests
+// ---------------------------------------------------------------------------
+
+func TestRenderSpaceStatusViewWithData(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewSpaceStatus
+	m.spaceStatusLoading = false
+	m.spaceStatus = []eos.SpaceStatusRecord{
+		{Key: "space.scaninterval", Value: "300"},
+		{Key: "space.policy.layout", Value: "replica"},
+	}
+
+	out := m.renderSpaceStatusView(20)
+	plain := ansi.Strip(out)
+	for _, want := range []string{"EOS Space Status", "space.scaninterval", "300", "space.policy.layout", "replica"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderSpaceStatusView missing %q", want)
+		}
+	}
+}
+
+func TestRenderIOShapingViewWithMergedRows(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingLoading = false
+	m.ioShaping = []eos.IOShapingRecord{
+		{ID: "app1", Type: "app", ReadBps: 1000, WriteBps: 2000},
+	}
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "app1", Type: "app", Enabled: true, LimitReadBytesPerSec: 5000},
+	}
+
+	out := m.renderIOShapingView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "app1") {
+		t.Errorf("renderIOShapingView missing merged row 'app1'")
+	}
+}
+
+func TestRenderFSTViewWithError(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.fstsErr = fmt.Errorf("node fetch error")
+	m.fstsLoading = false
+	m.fsts = nil
+
+	out := m.renderFSTView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "node fetch error") {
+		t.Errorf("renderFSTView should show error, got: %s", plain)
+	}
+}
+
+func TestRenderFSTViewLoading(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.fstsLoading = true
+	m.fsts = nil
+
+	out := m.renderFSTView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "Loading") {
+		t.Errorf("renderFSTView should show loading, got: %s", plain)
+	}
+}
+
+func TestRenderFileSystemsViewWithError(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.fileSystemsErr = fmt.Errorf("fs error")
+	m.fileSystemsLoading = false
+
+	out := m.renderFileSystemsView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "fs error") {
+		t.Errorf("renderFileSystemsView should show error, got: %s", plain)
+	}
+}
+
+func TestRenderFileSystemsViewLoading(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.fileSystemsLoading = true
+	m.fileSystems = nil
+
+	out := m.renderFileSystemsView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "Loading") {
+		t.Errorf("renderFileSystemsView should show loading, got: %s", plain)
+	}
+}
+
+func TestRenderMGMViewWithError(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.mgmsErr = fmt.Errorf("mgm error")
+	m.mgmsLoading = false
+	m.mgms = nil
+
+	out := m.renderMGMView(20)
+	plain := ansi.Strip(out)
+	// MGM view shows "loading mgm info..." or "(no mgm nodes found)" but
+	// does not display mgmsErr in the MGM panel. Verify the view renders
+	// without panic and contains the expected title.
+	if !strings.Contains(plain, "management nodes") {
+		t.Errorf("renderMGMView should contain title, got: %s", plain)
+	}
+}
+
+func TestRenderQDBViewWithError(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.mgmsErr = fmt.Errorf("qdb error")
+	m.mgmsLoading = false
+	m.mgms = nil
+
+	out := m.renderQDBView(20)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "qdb error") {
+		t.Errorf("renderQDBView should show error, got: %s", plain)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Filter popup interaction tests
+// ---------------------------------------------------------------------------
+
+func TestPopupApplyToFileSystems(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{Host: "hostX", Port: 1095, ID: 1, Path: "/data/01"},
+		{Host: "hostY", Port: 1095, ID: 2, Path: "/data/02"},
+	}
+	m.fsColumnSelected = 0
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+	// After applying the first row (which is "(no filter)"), the filter should be cleared.
+	if len(m.fsFilter.filters) != 0 {
+		t.Errorf("expected fsFilter.filters empty after applying (no filter), got %v", m.fsFilter.filters)
+	}
+}
+
+func TestPopupApplyToGroups(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{
+		{Name: "default"},
+		{Name: "spare"},
+	}
+	// popupValues for groups falls through to the default (fst) path, so we
+	// need fsts to populate the popup table with selectable values.
+	m.fsts = []eos.FstRecord{{Host: "hostA", Type: "fst"}}
+	m.groupsColumnSelected = 0
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	// Apply whatever is selected (first row = "(no filter)").
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+	// Verify it applied to groupFilter (not fstFilter).
+	if !strings.Contains(m.status, "Group") {
+		t.Errorf("expected status to reference Group, got %q", m.status)
+	}
+}
+
+func TestPopupApplyNoMatches(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	// Type something that won't match any value.
+	for _, r := range "zzzznonexistent" {
+		m = sendKey(m, runeKey(r))
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter on no matches")
+	}
+	if !strings.Contains(m.status, "No matching") {
+		t.Errorf("expected status to mention 'No matching', got %q", m.status)
+	}
+}
+
+func TestPopupApplyNoFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}, {Host: "b", Type: "fst"}}
+	// No pre-existing filter, so the popup input is empty and "(no filter)" is
+	// the first visible row.
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	// The first row should be "(no filter)"; pressing enter selects it.
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+	// Selecting "(no filter)" clears the filter for that column.
+	if len(m.fstFilter.filters) != 0 {
+		t.Errorf("expected fstFilter.filters to be empty after selecting (no filter), got %v", m.fstFilter.filters)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// IO Shaping editor interaction tests
+// ---------------------------------------------------------------------------
+
+func sendIOShapingKey(m model, k tea.KeyMsg) model {
+	updated, _ := m.updateIOShapingPolicyEditKeys(k)
+	return updated.(model)
+}
+
+func TestIOShapingEditorEscCloses(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:   true,
+		stage:    ioShapingEditStageSelect,
+		targetID: "testapp",
+		input:    textinput.New(),
+	}
+
+	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ioShapingEdit.active {
+		t.Fatalf("expected ioShapingEdit.active=false after esc")
+	}
+}
+
+func TestIOShapingEditorInputStageEscReturnsToSelect(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("999")
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:   true,
+		stage:    ioShapingEditStageInput,
+		targetID: "testapp",
+		selected: ioShapingEditFieldLimitRead,
+		input:    input,
+	}
+
+	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ioShapingEdit.stage != ioShapingEditStageSelect {
+		t.Fatalf("expected stage=select after esc from input, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.err != "" {
+		t.Fatalf("expected err cleared after esc, got %q", m.ioShapingEdit.err)
+	}
+}
+
+func TestIOShapingEditorInputStageEnterSavesValue(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("1024")
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:     true,
+		stage:      ioShapingEditStageInput,
+		targetID:   "testapp",
+		selected:   ioShapingEditFieldLimitRead,
+		limitRead:  "0",
+		limitWrite: "0",
+		input:      input,
+	}
+
+	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ioShapingEdit.stage != ioShapingEditStageSelect {
+		t.Fatalf("expected stage=select after valid enter, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.limitRead != "1024" {
+		t.Errorf("expected limitRead=1024, got %q", m.ioShapingEdit.limitRead)
+	}
+}
+
+func TestIOShapingEditorInputStageEnterInvalidShowsError(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("not-a-number")
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:   true,
+		stage:    ioShapingEditStageInput,
+		targetID: "testapp",
+		selected: ioShapingEditFieldLimitRead,
+		input:    input,
+	}
+
+	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ioShapingEdit.stage != ioShapingEditStageInput {
+		t.Fatalf("expected stage=input after invalid value, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.err == "" {
+		t.Fatalf("expected error message after invalid value")
+	}
+}
+
+func TestIOShapingEditorDeleteWithNoPolicy(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:    true,
+		stage:     ioShapingEditStageSelect,
+		targetID:  "testapp",
+		hadPolicy: false,
+		input:     textinput.New(),
+	}
+
+	m = sendIOShapingKey(m, runeKey('d'))
+	if m.ioShapingEdit.err == "" {
+		t.Fatalf("expected error when deleting with no existing policy")
+	}
+	if strings.Contains(m.ioShapingEdit.err, "No existing policy") {
+		// Good: the error mentions no existing policy.
+	} else {
+		t.Errorf("expected error to mention 'No existing policy', got %q", m.ioShapingEdit.err)
+	}
+}
+
+func TestIOShapingEditorDeleteWithPolicy(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:    true,
+		stage:     ioShapingEditStageSelect,
+		targetID:  "testapp",
+		hadPolicy: true,
+		input:     textinput.New(),
+	}
+
+	m = sendIOShapingKey(m, runeKey('d'))
+	if m.ioShapingEdit.stage != ioShapingEditStageDeleteConfirm {
+		t.Fatalf("expected stage=deleteConfirm after 'd', got %d", m.ioShapingEdit.stage)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Log overlay tests
+// ---------------------------------------------------------------------------
+
+func sendLogKey(m model, k tea.KeyMsg) model {
+	updated, _ := m.updateLogKeys(k)
+	return updated.(model)
+}
+
+func TestLogFilteringEnterAppliesFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("error")
+	m.log = logOverlay{
+		active:    true,
+		filtering: true,
+		filePath:  "/var/log/test.log",
+		allLines:  []string{"info ok", "error bad", "warn meh", "error again"},
+		filtered:  []string{"info ok", "error bad", "warn meh", "error again"},
+		vp:        viewport.New(80, 20),
+		input:     input,
+	}
+
+	m = sendLogKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.log.filtering {
+		t.Fatalf("expected filtering=false after enter")
+	}
+	if m.log.filter != "error" {
+		t.Errorf("expected filter='error', got %q", m.log.filter)
+	}
+	// Filtered lines should contain only lines matching "error".
+	for _, line := range m.log.filtered {
+		if !strings.Contains(line, "error") {
+			t.Errorf("filtered line %q should contain 'error'", line)
+		}
+	}
+}
+
+func TestLogFilteringEscCancels(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("something")
+	m.log = logOverlay{
+		active:    true,
+		filtering: true,
+		filter:    "original",
+		filePath:  "/var/log/test.log",
+		allLines:  []string{"line1", "line2"},
+		filtered:  []string{"line1", "line2"},
+		vp:        viewport.New(80, 20),
+		input:     input,
+	}
+
+	m = sendLogKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.log.filtering {
+		t.Fatalf("expected filtering=false after esc")
+	}
+	// The existing filter should remain unchanged.
+	if m.log.filter != "original" {
+		t.Errorf("expected filter unchanged as 'original', got %q", m.log.filter)
+	}
+}
+
+func TestLogFilteringLiveUpdate(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	m.log = logOverlay{
+		active:    true,
+		filtering: true,
+		filePath:  "/var/log/test.log",
+		allLines:  []string{"alpha", "beta", "gamma"},
+		filtered:  []string{"alpha", "beta", "gamma"},
+		vp:        viewport.New(80, 20),
+		input:     input,
+	}
+
+	// Type 'a' - should live-filter to lines containing 'a'.
+	m = sendLogKey(m, runeKey('a'))
+	hasMatch := false
+	for _, line := range m.log.filtered {
+		if strings.Contains(line, "a") {
+			hasMatch = true
+		}
+	}
+	if !hasMatch && len(m.log.filtered) > 0 {
+		t.Errorf("expected filtered lines to contain 'a', got %v", m.log.filtered)
+	}
+	// "beta" should not be in filtered since the input would be "a"
+	// and beta contains "a" so it should be present.
+	// Let's verify the count decreased (beta has 'a' too, so alpha+beta+gamma all have 'a'
+	// except maybe not - let's check: alpha has 'a', beta has 'a', gamma has 'a').
+	// All three contain 'a', so all should be present.
+	if len(m.log.filtered) != 3 {
+		t.Errorf("expected 3 filtered lines with 'a', got %d", len(m.log.filtered))
+	}
+}
+
+func TestLogKeysTTogglesAutoTailing(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:   true,
+		tailing:  false,
+		filePath: "/var/log/test.log",
+		allLines: []string{"line1"},
+		filtered: []string{"line1"},
+		vp:       viewport.New(80, 20),
+		input:    textinput.New(),
+	}
+
+	m = sendLogKey(m, runeKey('t'))
+	if !m.log.tailing {
+		t.Fatalf("expected tailing=true after 't'")
+	}
+
+	m = sendLogKey(m, runeKey('t'))
+	if m.log.tailing {
+		t.Fatalf("expected tailing=false after second 't'")
+	}
+}

@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -278,7 +277,8 @@ func (m model) renderApollonDrainConfirmPopup() string {
 		confirmBtn = m.styles.selected.Render(confirmBtn)
 	}
 
-	commandLines := strings.Split(ansi.Hardwrap(m.apollon.command, 72, true), "\n")
+	// Show the command without wrapping so it's easy to copy.
+	commandLines := []string{m.apollon.command}
 	lines := []string{
 		m.styles.popupTitle.Render("Confirm Apollon Drain"),
 		fmt.Sprintf("Filesystem: %s (id %d)", m.apollon.fsPath, m.apollon.fsID),

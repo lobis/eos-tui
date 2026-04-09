@@ -14,6 +14,7 @@ concurrency:
 
 env:
   APP_NAME: eos-tui
+  HOMEBREW_TAP_REPO: lobis/homebrew-tap
 
 jobs:
   verify:
@@ -248,3 +249,63 @@ jobs:
         with:
           files: release-artifacts/*
           generate_release_notes: true
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update tap formula
+        shell: bash
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOMEBREW_TAP_GITHUB_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_TAP_GITHUB_TOKEN is not configured; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+
+          curl -fsSL -o /tmp/eos-tui-source.tar.gz "${source_url}"
+          source_sha="$(sha256sum /tmp/eos-tui-source.tar.gz | awk '{print $1}')"
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" /tmp/homebrew-tap
+          mkdir -p /tmp/homebrew-tap/Formula
+
+          cat > /tmp/homebrew-tap/Formula/eos-tui.rb <<EOF
+          class EosTui < Formula
+            desc "Terminal UI for monitoring and managing EOS storage clusters"
+            homepage "https://github.com/${GITHUB_REPOSITORY}"
+            url "${source_url}"
+            version "${version}"
+            sha256 "${source_sha}"
+            license "MIT"
+            head "https://github.com/${GITHUB_REPOSITORY}.git", branch: "main"
+
+            depends_on "go" => :build
+
+            def install
+              system "go", "build", *std_go_args(ldflags: "-s -w"), "."
+            end
+
+            test do
+              assert_match "Usage:", shell_output("#{bin}/eos-tui --help 2>&1")
+            end
+          end
+          EOF
+
+          cd /tmp/homebrew-tap
+          if git diff --quiet -- Formula/eos-tui.rb; then
+            echo "Homebrew formula already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/eos-tui.rb
+          git commit -m "Update eos-tui to ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

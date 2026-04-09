@@ -1336,6 +1336,7 @@ func (m model) renderHeader() string {
 		{"7 NS Stats", viewNamespaceStats},
 		{"8 Space Status", viewSpaceStatus},
 		{"9 IO Traffic", viewIOShaping},
+		{"0 Groups", viewGroups},
 	}
 
 	parts := []string{m.styles.header.Render("EOS TUI"), "  "}
@@ -4130,18 +4131,13 @@ func (m model) renderGroupsList(width, height int) string {
 			}
 			line := formatTableRow(columns, row)
 			if i == m.groupsSelected {
-				line = m.styles.selected.Render(line)
+				line = m.styles.selected.Width(contentWidth).Render(line)
 			}
 			lines = append(lines, line)
 		}
 	}
 
-	for len(lines) < panelContentHeight(height) {
-		lines = append(lines, "")
-	}
-
-	box := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return m.styles.panel.Width(contentWidth).Height(panelContentHeight(height)).Render(box)
+	return m.styles.panel.Width(width).Render(fitLines(lines, panelContentHeight(height)))
 }
 
 func (m model) renderGroupHeaderRow(columns []tableColumn) string {
@@ -4157,7 +4153,7 @@ func (m model) renderGroupDetails(width, height int) string {
 	}
 
 	g := groups[m.groupsSelected]
-	title := m.styles.header.Render("Group: " + g.Name)
+	title := m.styles.label.Render("Selected Group") + " " + g.Name
 
 	box := lipgloss.JoinVertical(
 		lipgloss.Left,

@@ -494,6 +494,8 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.ioShapingLoading = false
 	m.directory.Entries = []eos.Entry{{Name: "f", Path: "/f", Kind: eos.EntryKindFile}}
 	m.nsLoaded = true
+	m.groups = []eos.GroupRecord{{Name: "default.0", Status: "online", NoFS: 3}}
+	m.groupsLoading = false
 
 	// headerStyle is the color used by m.styles.header (bold green, color 86).
 	// We detect it by rendering a known string with that style.
@@ -518,6 +520,7 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		{"Spaces", viewSpaces},
 		{"SpaceStatus", viewSpaceStatus},
 		{"IOTraffic", viewIOShaping},
+		{"Groups", viewGroups},
 	}
 
 	for _, tc := range viewsToCheck {
@@ -1130,5 +1133,100 @@ func TestIOShapingNavigationIncludesPolicyOnlyRows(t *testing.T) {
 
 	if m2.ioShapingSelected != 1 {
 		t.Errorf("after pressing j, expected ioShapingSelected=1, got %d", m2.ioShapingSelected)
+	}
+}
+
+// ---- Groups view tests -----------------------------------------------------
+
+func TestGroupsViewRendersWithData(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.groupsLoading = false
+	m.groups = []eos.GroupRecord{
+		{Name: "default.0", Status: "online", NoFS: 3, CapacityBytes: 1 << 40, UsedBytes: 1 << 38},
+		{Name: "default.1", Status: "offline", NoFS: 2, CapacityBytes: 2 << 40, UsedBytes: 1 << 39},
+	}
+
+	view := m.View()
+	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "0 Groups"} {
+		if !strings.Contains(view, needle) {
+			t.Errorf("expected groups view to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestGroupsViewFitsWindowHeight(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.groupsLoading = false
+	m.groups = make([]eos.GroupRecord, 50)
+	for i := range m.groups {
+		m.groups[i] = eos.GroupRecord{
+			Name:   "default." + strconv.Itoa(i),
+			Status: "online",
+			NoFS:   3,
+		}
+	}
+
+	view := m.View()
+	if got := lineCount(view); got > m.height {
+		t.Fatalf("expected groups view to fit height %d, got %d lines", m.height, got)
+	}
+}
+
+func TestGroupsViewShowsLoadingState(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewGroups
+	m.groupsLoading = true
+
+	view := m.View()
+	if !strings.Contains(view, "Loading") {
+		t.Errorf("expected groups view to show loading state, got:\n%s", view)
+	}
+}
+
+func TestGroupsLoadedMsgUpdatesModel(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.groupsLoading = true
+
+	updated, _ := m.Update(groupsLoadedMsg{
+		groups: []eos.GroupRecord{
+			{Name: "default.0", Status: "online", NoFS: 3},
+			{Name: "default.1", Status: "online", NoFS: 2},
+		},
+	})
+	m = updated.(model)
+
+	if m.groupsLoading {
+		t.Fatal("expected groupsLoading=false after groupsLoadedMsg")
+	}
+	if len(m.groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(m.groups))
+	}
+}
+
+func TestSwitchingToGroupsTriggersLoad(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.groupsLoading = false
+	m.groups = nil
+	m.groupsErr = nil
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	m = updated.(model)
+
+	if m.activeView != viewGroups {
+		t.Fatalf("expected activeView=viewGroups after pressing 0, got %d", m.activeView)
+	}
+	if !m.groupsLoading {
+		t.Fatalf("expected groupsLoading=true after switching to groups view")
+	}
+	if cmd == nil {
+		t.Fatalf("expected a load command to be returned when switching to groups view")
 	}
 }

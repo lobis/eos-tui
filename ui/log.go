@@ -72,6 +72,7 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 		host:     host,
 		filePath: filePath,
 		title:    titleWithHost,
+		tailing:  true,
 		loading:  true,
 		vp:       vp,
 		input:    logInput,
@@ -82,15 +83,29 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 func (m model) renderLogOverlay(height int) string {
 	width := m.contentWidth()
 	vpWidth := width - 4 // panel border + padding
+	if m.log.plain {
+		vpWidth = width
+	}
 
 	// Keep viewport sized to available space.
 	filterHeight := 0
 	if m.log.filtering {
 		filterHeight = 2
 	}
-	vpHeight := max(4, height-4-filterHeight) // title bar (2) + border (2)
+	vpHeight := max(4, height-3-filterHeight) // title line + border (2) [+ filter input block]
+	if m.log.plain {
+		vpHeight = max(4, height-filterHeight)
+	}
 	m.log.vp.Width = vpWidth
 	m.log.vp.Height = vpHeight
+
+	if m.log.plain {
+		lines := []string{m.renderLogViewport()}
+		if m.log.filtering {
+			lines = append(lines, "", m.log.input.View())
+		}
+		return strings.Join(lines, "\n")
+	}
 
 	// Title bar.
 	filterInfo := ""
@@ -107,12 +122,12 @@ func (m model) renderLogOverlay(height int) string {
 		m.styles.label.Render("  "+m.log.filePath) +
 		m.styles.value.Render(totalInfo+filterInfo)
 
-	lines := []string{titleLine, ""}
+	lines := []string{titleLine}
 
 	if m.log.err != nil && !m.log.loading {
 		lines = append(lines, m.styles.error.Render(m.log.err.Error()))
 	} else {
-		lines = append(lines, m.log.vp.View())
+		lines = append(lines, m.renderLogViewport())
 	}
 
 	if m.log.filtering {
@@ -121,6 +136,24 @@ func (m model) renderLogOverlay(height int) string {
 
 	inner := strings.Join(lines, "\n")
 	return m.styles.panel.Width(width).Render(inner)
+}
+
+func (m model) renderLogViewport() string {
+	view := m.log.vp.View()
+	totalLines := m.log.vp.TotalLineCount()
+	if totalLines <= 0 || totalLines >= m.log.vp.Height {
+		return view
+	}
+
+	rawLines := strings.Split(view, "\n")
+	if len(rawLines) > totalLines {
+		rawLines = rawLines[:totalLines]
+	}
+	padLines := m.log.vp.Height - totalLines
+	if padLines <= 0 {
+		return strings.Join(rawLines, "\n")
+	}
+	return strings.Repeat("\n", padLines) + strings.Join(rawLines, "\n")
 }
 
 // applyLogFilter returns lines that case-insensitively contain filter.

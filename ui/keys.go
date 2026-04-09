@@ -556,6 +556,13 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.log.filtering = true
 		m.log.input.SetValue(m.log.filter)
 		m.log.input.Focus()
+	case "f":
+		m.log.plain = !m.log.plain
+	case "t":
+		m.log.tailing = !m.log.tailing
+		if m.log.tailing {
+			return m, tea.Batch(loadLogCmd(m.client, m.log.host, m.log.filePath), logTickCmd())
+		}
 	case "r":
 		m.log.loading = true
 		return m, loadLogCmd(m.client, m.log.host, m.log.filePath)

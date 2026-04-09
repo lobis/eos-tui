@@ -723,6 +723,185 @@ func TestHeaderAndFooterMatchContentWidth(t *testing.T) {
 	}
 }
 
+func TestLogOverlayDoesNotInsertBlankLineUnderTitle(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+	}
+	m.log.vp.SetContent("one\ntwo")
+
+	rendered := m.renderLogOverlay(20)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected log overlay to render at least three lines, got:\n%s", rendered)
+	}
+	if strings.TrimSpace(lines[1]) == "" {
+		t.Fatalf("expected first content line to follow title without an empty spacer, got:\n%s", rendered)
+	}
+}
+
+func TestLogOverlayStaysFlushWithFooter(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.splash.active = false
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two", "three", "four"},
+		filtered: []string{"one", "two", "three", "four"},
+	}
+	m.log.vp.SetContent("one\ntwo\nthree\nfour")
+
+	view := m.View()
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected full view to render multiple lines, got:\n%s", view)
+	}
+	beforeFooter := strings.TrimSpace(lines[len(lines)-2])
+	if beforeFooter == "" {
+		t.Fatalf("expected log overlay to reach the footer without an empty gap, got:\n%s", view)
+	}
+}
+
+func TestLogOverlayBottomAlignsShortContent(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+	}
+	m.log.vp.SetContent("one\ntwo")
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected log overlay to render multiple lines, got:\n%s", rendered)
+	}
+
+	lastContentIdx := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], "└") {
+			lastContentIdx = i - 1
+			break
+		}
+	}
+	if lastContentIdx < 0 {
+		t.Fatalf("expected to find log overlay bottom border, got:\n%s", rendered)
+	}
+	if !strings.Contains(lines[lastContentIdx], "two") {
+		t.Fatalf("expected last visible log row to contain the newest short log line, got:\n%s", rendered)
+	}
+}
+
+func TestLogOverlayTogglePlainModeWithF(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.log = logOverlay{active: true, tailing: true}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if !m.log.plain {
+		t.Fatalf("expected f to enable plain log mode")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if m.log.plain {
+		t.Fatalf("expected f to disable plain log mode on second press")
+	}
+}
+
+func TestLogOverlayFooterShowsPlainModeToggle(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.log = logOverlay{active: true, tailing: true}
+
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "f plain") {
+		t.Fatalf("expected boxed log footer to advertise plain mode toggle, got: %s", footer)
+	}
+	if !strings.Contains(footer, "t tail off") {
+		t.Fatalf("expected boxed log footer to advertise tail toggle, got: %s", footer)
+	}
+
+	m.log.plain = true
+	footer = m.renderFooter()
+	if !strings.Contains(footer, "f boxed") {
+		t.Fatalf("expected plain log footer to advertise boxed mode toggle, got: %s", footer)
+	}
+
+	m.log.tailing = false
+	footer = m.renderFooter()
+	if !strings.Contains(footer, "t tail on") {
+		t.Fatalf("expected paused log footer to advertise tail-on toggle, got: %s", footer)
+	}
+}
+
+func TestPlainLogOverlayOmitsBoxChrome(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		plain:    true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+	}
+	m.log.vp.SetContent("one\ntwo")
+
+	rendered := m.renderLogOverlay(18)
+	if strings.Contains(rendered, "┌") || strings.Contains(rendered, "└") {
+		t.Fatalf("expected plain log overlay to omit box borders, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "MGM Log") {
+		t.Fatalf("expected plain log overlay to omit title chrome, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "one") || !strings.Contains(rendered, "two") {
+		t.Fatalf("expected plain log overlay to keep log content, got:\n%s", rendered)
+	}
+}
+
+func TestLogOverlayToggleTailingWithT(t *testing.T) {
+	m := NewModel(&eos.Client{}, "test", "/").(model)
+	m.log = logOverlay{
+		active:   true,
+		tailing:  true,
+		host:     "mgm01",
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if m.log.tailing {
+		t.Fatalf("expected t to disable log tailing")
+	}
+	if cmd != nil {
+		t.Fatalf("expected disabling log tailing not to schedule reload")
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m = updated.(model)
+	if !m.log.tailing {
+		t.Fatalf("expected second t to re-enable log tailing")
+	}
+	if cmd == nil {
+		t.Fatalf("expected re-enabling log tailing to schedule reload")
+	}
+}
+
 func TestSwitchingToSpacesTriggersLoad(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	// Spaces start with loading=true from init but no data yet.
@@ -2821,6 +3000,7 @@ func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
 func TestLogTickReloadsWhileOverlayIsOpen(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.log.active = true
+	m.log.tailing = true
 	m.log.host = "mgm01"
 	m.log.filePath = "/var/log/eos/mgm/xrdlog.mgm"
 	m.log.loading = false
@@ -2833,6 +3013,24 @@ func TestLogTickReloadsWhileOverlayIsOpen(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected log tick to schedule the next log refresh")
+	}
+}
+
+func TestLogTickDoesNothingWhenTailingIsPaused(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.log.active = true
+	m.log.tailing = false
+	m.log.host = "mgm01"
+	m.log.filePath = "/var/log/eos/mgm/xrdlog.mgm"
+
+	updated, cmd := m.Update(logTickMsg{})
+	m = updated.(model)
+
+	if !m.log.active {
+		t.Fatalf("expected paused log overlay to remain open")
+	}
+	if cmd != nil {
+		t.Fatalf("expected paused log overlay not to schedule reloads")
 	}
 }
 

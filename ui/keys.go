@@ -193,6 +193,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if selectionChanged {
+		m = m.rememberNamespaceDetailContent()
 		return m.startNamespaceAttrLoad(false)
 	}
 

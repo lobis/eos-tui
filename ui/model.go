@@ -339,6 +339,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.nsSelected >= len(m.directory.Entries) {
 				m.nsSelected = max(0, len(m.directory.Entries)-1)
 			}
+			m = m.rememberNamespaceDetailContent()
 			m.status = fmt.Sprintf("Browsing namespace %s", m.directory.Path)
 			m.persistUIState()
 			return m.startNamespaceAttrLoad(true)
@@ -353,6 +354,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.nsAttrs = msg.attrs
 		}
+		m = m.rememberNamespaceDetailContent()
 	case namespaceAttrSetResultMsg:
 		m.nsAttrEdit.active = false
 		if msg.err != nil {

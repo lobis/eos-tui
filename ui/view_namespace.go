@@ -18,27 +18,68 @@ func (m model) renderNamespaceView(height int) string {
 		naturalListContent = 4 // Title, blank, header, "(empty)" or hint
 	}
 
-	// Metadata detail pane has a stable natural height; attrs now live in a
-	// dedicated right-hand pane so they no longer resize the metadata area.
-	// Keep a little extra vertical room here so both panes stay easier to scan.
-	naturalDetailContent := 12
-	if selected, ok := m.selectedNamespaceEntry(); ok {
-		if selected.Kind != eos.EntryKindContainer {
-			if selected.LinkName != "" {
-				naturalDetailContent = 13
-			}
-		}
-	} else if m.directory.Self.Kind != eos.EntryKindContainer {
-		if m.directory.Self.LinkName != "" {
-			naturalDetailContent = 13
-		}
-	}
+	naturalDetailContent := m.namespaceDetailContentTarget()
 
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
 
 	list := m.renderNamespaceList(width, listHeight)
 	details := m.renderNamespaceDetails(width, detailHeight)
 	return lipgloss.JoinVertical(lipgloss.Left, list, details)
+}
+
+func (m model) namespaceDetailContentTarget() int {
+	return max(m.nsDetailContentMax, m.namespaceDetailContentCurrent())
+}
+
+func (m model) rememberNamespaceDetailContent() model {
+	if current := m.namespaceDetailContentCurrent(); current > m.nsDetailContentMax {
+		m.nsDetailContentMax = current
+	}
+	return m
+}
+
+func (m model) namespaceDetailContentCurrent() int {
+	return max(m.namespaceMetadataContentLines(), m.namespaceAttrsContentLines())
+}
+
+func (m model) namespaceMetadataContentLines() int {
+	target := m.directory.Self
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		target = selected
+	}
+
+	lines := 7 // title, path, blank, and four metric rows
+	if target.Kind == eos.EntryKindContainer {
+		lines += 2
+	} else {
+		lines += 2
+		if target.LinkName != "" {
+			lines++
+		}
+	}
+	return lines
+}
+
+func (m model) namespaceAttrsContentLines() int {
+	target := m.directory.Self
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		target = selected
+	}
+
+	lines := 3 // title, path, blank
+	switch {
+	case m.nsAttrsLoading && m.nsAttrsTargetPath == target.Path:
+		lines++
+	case m.nsAttrsErr != nil && m.nsAttrsTargetPath == target.Path:
+		lines++
+	case m.nsAttrsLoaded && m.nsAttrsTargetPath == target.Path && len(m.nsAttrs) == 0:
+		lines++
+	case m.nsAttrsLoaded && m.nsAttrsTargetPath == target.Path:
+		lines += len(m.nsAttrs)
+	default:
+		lines++
+	}
+	return lines
 }
 
 func (m model) renderNamespaceList(width, height int) string {

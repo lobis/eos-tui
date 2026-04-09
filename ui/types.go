@@ -519,10 +519,11 @@ type model struct {
 	nsAttrs    []eos.NamespaceAttr
 	nsAttrsErr error
 
-	nsAttrsTargetPath string
-	nsAttrsLoaded     bool
-	nsAttrsLoading    bool
-	nsAttrEdit        namespaceAttrEdit
+	nsAttrsTargetPath  string
+	nsAttrsLoaded      bool
+	nsAttrsLoading     bool
+	nsDetailContentMax int
+	nsAttrEdit         namespaceAttrEdit
 
 	spaceStatus         []eos.SpaceStatusRecord
 	spaceStatusLoading  bool

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -92,6 +93,19 @@ func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
 	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
 	if err != nil {
 		return "", fmt.Errorf("raft-info for master discovery: %w", err)
+	}
+
+	// QDB may require authentication — fall back to the current SSH target.
+	if strings.Contains(string(output), "NOAUTH") {
+		target := c.effectiveSSHTarget()
+		if target == "" {
+			return "", fmt.Errorf("raft-info requires authentication and no SSH target is configured")
+		}
+		if !strings.HasPrefix(target, "root@") {
+			target = "root@" + target
+		}
+		c.resolvedSSHTarget = target
+		return target, nil
 	}
 
 	info := parseRaftInfo(output)

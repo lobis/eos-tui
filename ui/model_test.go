@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -416,7 +417,7 @@ func TestFSTEnumFilterCyclesOnSelectedColumn(t *testing.T) {
 	}
 	m.fstColumnSelected = int(fstFilterStatus)
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m = updated.(model)
 	if !m.popup.active {
 		t.Fatalf("expected popup to open for enum filter")
@@ -450,7 +451,7 @@ func TestFilterPopupCanBeCancelled(t *testing.T) {
 	m.fsts = []eos.FstRecord{{Host: "alpha", Port: 1095, FileSystemCount: 1}}
 	m.fstColumnSelected = int(fstFilterHost)
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m = updated.(model)
 	if !m.popup.active {
 		t.Fatalf("expected popup to open")
@@ -1228,5 +1229,227 @@ func TestSwitchingToGroupsTriggersLoad(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected a load command to be returned when switching to groups view")
+	}
+}
+
+// ---- hotkey / legend regression tests -------------------------------------
+
+func TestFKeyDoesNotOpenFilterInFSTView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Port: 1095, Status: "online", FileSystemCount: 1}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if m.popup.active {
+		t.Fatalf("'f' must no longer open the filter popup in FST view; use '/' instead")
+	}
+}
+
+func TestFKeyDoesNotOpenFilterInFSView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{ID: 1, Host: "h", Path: "/p", Active: "online"}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = updated.(model)
+	if m.popup.active {
+		t.Fatalf("'f' must no longer open the filter popup in FS view; use '/' instead")
+	}
+}
+
+func TestEnterDoesNotSortInFSTView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{{Host: "a", Port: 1095, Status: "online", FileSystemCount: 1}}
+	m.fstColumnSelected = int(fstFilterHost)
+	before := m.fstSort
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.fstSort != before {
+		t.Fatalf("enter must not sort in FST view; sort changed from %+v to %+v", before, m.fstSort)
+	}
+}
+
+func TestEnterDoesNotSortInFSView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{{ID: 1, Host: "h", Path: "/p", Active: "online"}}
+	m.fsColumnSelected = int(fsFilterHost)
+	before := m.fsSort
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	// Enter should open the configstatus edit, not sort.
+	if m.fsSort != before {
+		t.Fatalf("enter must not sort in FS view; sort changed from %+v to %+v", before, m.fsSort)
+	}
+	if !m.fsEdit.active {
+		t.Fatalf("enter should open configstatus edit popup in FS view")
+	}
+}
+
+func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+
+	hostViews := []viewID{viewMGM, viewQDB, viewFST, viewFileSystems}
+	noHostViews := []viewID{viewSpaces, viewNamespaceStats, viewSpaceStatus, viewIOShaping, viewGroups}
+
+	for _, v := range hostViews {
+		m.activeView = v
+		footer := m.renderFooter()
+		// FS view has its own label but also contains "logs" and "shell"
+		if !strings.Contains(footer, "logs") {
+			t.Errorf("view %d: expected 'logs' in footer, got: %s", v, footer)
+		}
+		if !strings.Contains(footer, "shell") {
+			t.Errorf("view %d: expected 'shell' in footer, got: %s", v, footer)
+		}
+	}
+
+	for _, v := range noHostViews {
+		m.activeView = v
+		footer := m.renderFooter()
+		if strings.Contains(footer, "shell") {
+			t.Errorf("view %d: 'shell' should not appear in footer for non-host views, got: %s", v, footer)
+		}
+		if v != viewNamespace && strings.Contains(footer, " logs") {
+			t.Errorf("view %d: 'logs' should not appear in footer for non-host views, got: %s", v, footer)
+		}
+	}
+}
+
+func TestLegendShowsSlashFilterNotF(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+
+	for _, v := range []viewID{viewFST, viewFileSystems, viewMGM, viewQDB} {
+		m.activeView = v
+		footer := m.renderFooter()
+		if strings.Contains(footer, "f/") || strings.Contains(footer, "f filter") {
+			t.Errorf("view %d: footer must not show 'f' as a filter hotkey, got: %s", v, footer)
+		}
+	}
+}
+
+func TestFSConfigStatusEditOpensOnEnter(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystemsLoading = false
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+	m.fsSelected = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.fsEdit.active {
+		t.Fatalf("expected fsEdit to be active after pressing enter in FS view")
+	}
+	if m.fsEdit.fsID != 7 {
+		t.Errorf("expected fsEdit.fsID=7, got %d", m.fsEdit.fsID)
+	}
+	if m.fsEdit.current != "rw" {
+		t.Errorf("expected fsEdit.current=rw, got %q", m.fsEdit.current)
+	}
+	// The selection should start at index 0 ("rw") since that's the current value.
+	if m.fsEdit.selected != 0 {
+		t.Errorf("expected fsEdit.selected=0 (rw), got %d", m.fsEdit.selected)
+	}
+}
+
+func TestFSConfigStatusEditNavigation(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 3, Host: "h", Path: "/p", ConfigStatus: "rw", Active: "online"},
+	}
+	m.fsSelected = 0
+
+	// Open the popup.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if !m.fsEdit.active {
+		t.Fatalf("expected fsEdit popup to open")
+	}
+
+	// Navigate down (rw → ro).
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.fsEdit.selected != 1 {
+		t.Errorf("expected selected=1 (ro) after down, got %d", m.fsEdit.selected)
+	}
+
+	// Navigate down again (ro → drain).
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.fsEdit.selected != 2 {
+		t.Errorf("expected selected=2 (drain) after second down, got %d", m.fsEdit.selected)
+	}
+
+	// Navigate down again (drain → "").
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.fsEdit.selected != 3 {
+		t.Errorf("expected selected=3 (empty) after third down, got %d", m.fsEdit.selected)
+	}
+
+	// Navigating down at end clamps.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.fsEdit.selected != 3 {
+		t.Errorf("expected clamped at 3 (last option), got %d", m.fsEdit.selected)
+	}
+
+	// Esc closes without applying.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.fsEdit.active {
+		t.Fatalf("expected fsEdit to close on esc")
+	}
+}
+
+func TestErrorAlertDismissedByEnter(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.alert = errorAlert{active: true, message: "something went wrong"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.alert.active {
+		t.Fatalf("expected alert to be dismissed after pressing enter")
+	}
+}
+
+func TestErrorAlertDismissedByEsc(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.alert = errorAlert{active: true, message: "something went wrong"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.alert.active {
+		t.Fatalf("expected alert to be dismissed after pressing esc")
+	}
+}
+
+func TestFSConfigStatusResultMsgShowsAlertOnError(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.fsEdit = fsConfigStatusEdit{active: true, fsID: 5}
+
+	updated, _ := m.Update(fsConfigStatusResultMsg{err: fmt.Errorf("permission denied")})
+	m = updated.(model)
+
+	if m.fsEdit.active {
+		t.Fatalf("expected fsEdit to be closed after result")
+	}
+	if !m.alert.active {
+		t.Fatalf("expected error alert to be shown on failure")
+	}
+	if !strings.Contains(m.alert.message, "permission denied") {
+		t.Errorf("expected alert message to contain 'permission denied', got %q", m.alert.message)
 	}
 }

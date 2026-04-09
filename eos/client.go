@@ -28,6 +28,9 @@ type Client struct {
 	// sshTarget is used as-is.
 	resolvedSSHTarget string
 	timeout           time.Duration
+	// sessionLogPath is the log file for this specific session, set once at
+	// construction time.  Empty means logging is disabled (e.g. home dir error).
+	sessionLogPath string
 }
 
 // effectiveSSHTarget returns the host that runCommand will actually SSH to.
@@ -260,10 +263,49 @@ func New(_ context.Context, cfg Config) (*Client, error) {
 		timeout = 15 * time.Second
 	}
 
-	return &Client{
+	c := &Client{
 		sshTarget: cfg.SSHTarget,
 		timeout:   timeout,
-	}, nil
+	}
+	c.sessionLogPath = initSessionLog()
+	return c, nil
+}
+
+// initSessionLog creates ~/.eos-tui/sessions/ if needed, generates a
+// timestamped log file path for this session, and updates the
+// ~/.eos-tui/latest.log symlink to point at it.
+// Returns the session log path, or "" if setup fails (logging silently disabled).
+func initSessionLog() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	logDir := filepath.Join(home, ".eos-tui", "sessions")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return ""
+	}
+
+	// Use a timestamp that is both human-readable and filesystem-safe.
+	ts := time.Now().Format("2006-01-02T15-04-05")
+	sessionFile := filepath.Join(logDir, ts+".log")
+
+	// Create the file immediately so the symlink target exists.
+	f, err := os.OpenFile(sessionFile, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return ""
+	}
+	f.Close()
+
+	// Update ~/.eos-tui/latest.log → sessions/<timestamp>.log (relative symlink).
+	latestLink := filepath.Join(home, ".eos-tui", "latest.log")
+	// Relative target from ~/.eos-tui/ to sessions/<ts>.log
+	relTarget := filepath.Join("sessions", ts+".log")
+	// Remove stale symlink (or file) then re-create.
+	_ = os.Remove(latestLink)
+	_ = os.Symlink(relTarget, latestLink)
+
+	return sessionFile
 }
 
 func (c *Client) Close() error {
@@ -812,6 +854,17 @@ func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRec
 	return parseSpaceStatus(output), nil
 }
 
+// FsConfigStatus sets the configstatus of a filesystem by its ID.
+// Valid values are "rw", "ro", and "" (empty to clear).
+func (c *Client) FsConfigStatus(ctx context.Context, fsID uint64, value string) error {
+	_ = ctx
+	_, err := c.runCommand("eos", "-b", "fs", "config", fmt.Sprintf("%d", fsID), fmt.Sprintf("configstatus=%s", value))
+	if err != nil {
+		return fmt.Errorf("eos fs config %d configstatus=%s: %w", fsID, value, err)
+	}
+	return nil
+}
+
 func (c *Client) SpaceConfig(ctx context.Context, name string, key, value string) error {
 	_ = ctx
 
@@ -1163,16 +1216,10 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 }
 
 func (c *Client) openLogFile() (*os.File, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	if c.sessionLogPath == "" {
+		return nil, fmt.Errorf("logging disabled")
 	}
-	logDir := filepath.Join(home, ".eos-tui")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return nil, err
-	}
-	logFile := filepath.Join(logDir, "history.log")
-	return os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	return os.OpenFile(c.sessionLogPath, os.O_APPEND|os.O_WRONLY, 0644)
 }
 
 func (c *Client) logCommand(args []string) {

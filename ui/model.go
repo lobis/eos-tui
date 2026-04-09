@@ -206,10 +206,31 @@ type model struct {
 	groupSort   sortState
 	popup       filterPopup
 	edit        spaceStatusEdit
+	fsEdit      fsConfigStatusEdit
+	alert       errorAlert
 	log         logOverlay
 
 	styles styles
 }
+
+type fsConfigStatusResultMsg struct {
+	err error
+}
+
+type errorAlert struct {
+	active  bool
+	message string
+}
+
+type fsConfigStatusEdit struct {
+	active   bool
+	fsID     uint64
+	fsPath   string
+	current  string
+	selected int // index into configStatusOptions
+}
+
+var configStatusOptions = []string{"rw", "ro", "drain", "empty"}
 
 type spaceStatusEditStage int
 
@@ -465,11 +486,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.log.active {
 			return m.updateLogKeys(msg)
 		}
+		if m.alert.active {
+			if msg.String() == "enter" || msg.String() == "esc" {
+				m.alert.active = false
+			}
+			return m, nil
+		}
 		if m.popup.active {
 			return m.updatePopup(msg)
 		}
 		if m.edit.active {
 			return m.updateSpaceStatusEditKeys(msg)
+		}
+		if m.fsEdit.active {
+			return m.updateFSConfigStatusEditKeys(msg)
 		}
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -703,6 +733,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Space configuration updated successfully"
 			return m, loadSpaceStatusCmd(m.client)
 		}
+	case fsConfigStatusResultMsg:
+		m.fsEdit.active = false
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("fs config failed: %v", msg.err),
+			}
+		} else {
+			m.status = fmt.Sprintf("Filesystem %d configstatus updated", m.fsEdit.fsID)
+			return m, loadFileSystemsCmd(m.client)
+		}
 	case ioShapingLoadedMsg:
 		m.ioShapingLoading = false
 		if msg.err != nil {
@@ -759,6 +800,10 @@ func (m model) View() string {
 		body = m.renderBodyWithPopup(body, bodyHeight)
 	} else if m.edit.active {
 		body = m.renderBodyWithEditPopup(body, bodyHeight)
+	} else if m.fsEdit.active {
+		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyHeight)
+	} else if m.alert.active {
+		body = m.renderOverlay(body, m.renderErrorAlert(), bodyHeight)
 	}
 
 	return m.styles.app.Render(header + "\n" + body + "\n" + footer)
@@ -924,10 +969,6 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fsts := m.visibleFSTs()
 	half := max(1, m.height/6)
 	switch msg.String() {
-	case "f":
-		m.fstFilter.column = m.fstColumnSelected
-		m.openFilterPopup()
-		return m, nil
 	case "/":
 		m.fstFilter.column = m.fstColumnSelected
 		m.openFilterPopup()
@@ -938,7 +979,7 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		m.fstColumnSelected = min(nodeColumnCount()-1, m.fstColumnSelected+1)
 		m.status = fmt.Sprintf("Selected node column: %s", m.fstSelectedColumnLabel())
-	case "S", "enter":
+	case "S":
 		m.fstSort = m.nextNodeSortState()
 		m.fstSelected = clampIndex(0, len(m.visibleFSTs()))
 		m.status = fmt.Sprintf("Node sort: %s", m.fstSortStateLabel())
@@ -1019,21 +1060,19 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fileSystems := m.visibleFileSystems()
 	half := max(1, m.height/6)
 	switch msg.String() {
-	case "f":
-		m.fsFilter.column = m.fsColumnSelected
-		m.openFilterPopup()
-		return m, nil
 	case "/":
 		m.fsFilter.column = m.fsColumnSelected
 		m.openFilterPopup()
 		return m, nil
+	case "enter":
+		return m.openFSConfigStatusEdit()
 	case "left":
 		m.fsColumnSelected = max(0, m.fsColumnSelected-1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
 	case "right":
 		m.fsColumnSelected = min(fsColumnCount()-1, m.fsColumnSelected+1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
-	case "S", "enter":
+	case "S":
 		m.fsSort = m.nextFileSystemSortState()
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
 		m.status = fmt.Sprintf("Filesystem sort: %s", m.fsSortStateLabel())
@@ -1319,6 +1358,95 @@ func (m model) updateSpaceStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) openFSConfigStatusEdit() (tea.Model, tea.Cmd) {
+	fs, ok := m.selectedFileSystem()
+	if !ok {
+		return m, nil
+	}
+	// Find starting index matching the current configstatus.
+	sel := 0
+	for i, opt := range configStatusOptions {
+		if fs.ConfigStatus == opt {
+			sel = i
+			break
+		}
+	}
+	m.fsEdit = fsConfigStatusEdit{
+		active:   true,
+		fsID:     fs.ID,
+		fsPath:   fs.Path,
+		current:  fs.ConfigStatus,
+		selected: sel,
+	}
+	return m, nil
+}
+
+func (m model) updateFSConfigStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.fsEdit.active = false
+		return m, nil
+	case "up", "k":
+		if m.fsEdit.selected > 0 {
+			m.fsEdit.selected--
+		}
+	case "down", "j":
+		if m.fsEdit.selected < len(configStatusOptions)-1 {
+			m.fsEdit.selected++
+		}
+	case "enter":
+		chosen := configStatusOptions[m.fsEdit.selected]
+		fsID := m.fsEdit.fsID
+		m.fsEdit.active = false
+		return m, runFsConfigStatusCmd(m.client, fsID, chosen)
+	}
+	return m, nil
+}
+
+func (m model) renderFSConfigStatusEditPopup() string {
+	lines := []string{
+		m.styles.label.Render("Set configstatus"),
+		fmt.Sprintf("Filesystem: %s (id %d)", m.fsEdit.fsPath, m.fsEdit.fsID),
+		fmt.Sprintf("Current:    %s", m.styles.value.Render(fallback(m.fsEdit.current, "-"))),
+		"",
+	}
+	for i, opt := range configStatusOptions {
+		if i == m.fsEdit.selected {
+			lines = append(lines, m.styles.selected.Render("▶ "+opt))
+		} else {
+			lines = append(lines, "  "+opt)
+		}
+	}
+	lines = append(lines, "", m.styles.status.Render("↑↓ select  •  enter apply  •  esc cancel"))
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) renderErrorAlert() string {
+	lines := []string{
+		m.styles.error.Render("Error"),
+		"",
+		m.alert.message,
+		"",
+		m.styles.status.Render("enter / esc  close"),
+	}
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.FsConfigStatus(context.Background(), fsID, value)
+		return fsConfigStatusResultMsg{err: err}
+	}
 }
 
 func (m model) renderHeader() string {
@@ -2239,12 +2367,21 @@ func (m model) renderFooter() string {
 		return m.styles.status.Width(m.contentWidth()).Render(keys)
 	}
 
-	keys := "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  f/  filter  •  l logs  •  s shell  •  q quit"
+	hostViews := m.activeView == viewMGM || m.activeView == viewQDB ||
+		m.activeView == viewFST || m.activeView == viewFileSystems
+	var keys string
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  l logs  •  s shell  •  q quit"
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  q quit"
 	case viewIOShaping:
-		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  l logs  •  s shell  •  q quit"
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  q quit"
+	case viewFileSystems:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  enter edit configstatus  •  l logs  •  s shell  •  q quit"
+	default:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  q quit"
+		if hostViews {
+			keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  l logs  •  s shell  •  q quit"
+		}
 	}
 
 	return m.styles.status.Width(m.contentWidth()).Render(keys)

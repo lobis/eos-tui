@@ -4,36 +4,52 @@ import "fmt"
 
 func (m model) renderNamespaceStatsView(height int) string {
 	width := m.contentWidth()
-	contentWidth := panelContentWidth(width)
-
-	if m.nsStatsLoading {
-		return m.styles.panelDim.Width(width).Render(fitLines([]string{"Loading namespace statistics..."}, height))
-	}
-	if m.nsStatsErr != nil {
-		return m.styles.panelDim.Width(width).Render(fitLines([]string{m.styles.error.Render(m.nsStatsErr.Error())}, height))
-	}
-
-	stats := m.namespaceStats
 	lines := []string{
-		m.styles.label.Render("Namespace Statistics"),
+		m.styles.label.Render("General Statistics"),
 		"",
-		m.metricLine("Total Files", fmt.Sprintf("%d", stats.TotalFiles), "Total Directories", fmt.Sprintf("%d", stats.TotalDirectories)),
-		"",
-		m.styles.label.Render("IDs"),
-		m.metricLine("Current File ID", fmt.Sprintf("%d", stats.CurrentFID), "Current Container ID", fmt.Sprintf("%d", stats.CurrentCID)),
-		m.metricLine("Generated File IDs", fmt.Sprintf("%d", stats.GeneratedFID), "Generated Container IDs", fmt.Sprintf("%d", stats.GeneratedCID)),
-		"",
-		m.styles.label.Render("Lock Contention"),
-		m.metricLine("Read Contention", fmt.Sprintf("%.2f", stats.ContentionRead), "Write Contention", fmt.Sprintf("%.2f", stats.ContentionWrite)),
-		"",
-		m.styles.label.Render("File Cache"),
-		m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheFilesMax), "Occupancy", fmt.Sprintf("%d", stats.CacheFilesOccup)),
-		m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheFilesRequests), "Hits", fmt.Sprintf("%d", stats.CacheFilesHits)),
-		"",
-		m.styles.label.Render("Container Cache"),
-		m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheContainersMax), "Occupancy", fmt.Sprintf("%d", stats.CacheContainersOccup)),
-		m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheContainersRequests), "Hits", fmt.Sprintf("%d", stats.CacheContainersHits)),
+		m.styles.label.Render("Cluster Summary"),
+	}
+	switch {
+	case m.fstStatsLoading:
+		lines = append(lines, m.styles.value.Render("Loading cluster summary..."))
+	case m.nodeStatsErr != nil:
+		lines = append(lines, m.styles.error.Render(m.nodeStatsErr.Error()))
+	default:
+		lines = append(lines,
+			m.metricLine("Health", fallback(m.nodeStats.State, "-"), "Threads", fmt.Sprintf("%d", m.nodeStats.ThreadCount)),
+			m.metricLine("Files", fmt.Sprintf("%d", m.nodeStats.FileCount), "Dirs", fmt.Sprintf("%d", m.nodeStats.DirCount)),
+			m.metricLine("Uptime", formatDuration(m.nodeStats.Uptime), "FDs", fmt.Sprintf("%d", m.nodeStats.FileDescs)),
+		)
 	}
 
-	return m.styles.panelDim.Width(contentWidth).Render(fitLines(lines, height))
+	lines = append(lines, "", m.styles.label.Render("Namespace Statistics"))
+	switch {
+	case m.nsStatsLoading:
+		lines = append(lines, m.styles.value.Render("Loading namespace statistics..."))
+	case m.nsStatsErr != nil:
+		lines = append(lines, m.styles.error.Render(m.nsStatsErr.Error()))
+	default:
+		stats := m.namespaceStats
+		lines = append(lines,
+			m.metricLine("Master", fallback(stats.MasterHost, "-"), "Total Files", fmt.Sprintf("%d", stats.TotalFiles)),
+			m.metricLine("Total Directories", fmt.Sprintf("%d", stats.TotalDirectories), "", ""),
+			"",
+			m.styles.label.Render("IDs"),
+			m.metricLine("Current File ID", fmt.Sprintf("%d", stats.CurrentFID), "Current Container ID", fmt.Sprintf("%d", stats.CurrentCID)),
+			m.metricLine("Generated File IDs", fmt.Sprintf("%d", stats.GeneratedFID), "Generated Container IDs", fmt.Sprintf("%d", stats.GeneratedCID)),
+			"",
+			m.styles.label.Render("Lock Contention"),
+			m.metricLine("Read Contention", fmt.Sprintf("%.2f", stats.ContentionRead), "Write Contention", fmt.Sprintf("%.2f", stats.ContentionWrite)),
+			"",
+			m.styles.label.Render("File Cache"),
+			m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheFilesMax), "Occupancy", fmt.Sprintf("%d", stats.CacheFilesOccup)),
+			m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheFilesRequests), "Hits", fmt.Sprintf("%d", stats.CacheFilesHits)),
+			"",
+			m.styles.label.Render("Container Cache"),
+			m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheContainersMax), "Occupancy", fmt.Sprintf("%d", stats.CacheContainersOccup)),
+			m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheContainersRequests), "Hits", fmt.Sprintf("%d", stats.CacheContainersHits)),
+		)
+	}
+
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
 }

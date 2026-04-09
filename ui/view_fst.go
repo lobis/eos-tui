@@ -14,7 +14,7 @@ func (m model) renderFSTView(height int) string {
 	if len(m.fstFilter.filters) > 0 {
 		filterLines = 1
 	}
-	fixedHeaderLines := 6 + filterLines // title+controls, 3 metric lines, blank, col headers [, filters]
+	fixedHeaderLines := 3 + filterLines // title+controls, blank, col headers [, filters]
 	naturalListContent := fixedHeaderLines + len(m.visibleFSTs())
 	const fstDetailLines = 18 // fixed lines rendered by renderNodeDetails
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, fstDetailLines)
@@ -55,20 +55,11 @@ func (m model) renderNodesList(width, height int) string {
 	}, dataRows)
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
-	title := m.styles.label.Render("Cluster Summary")
+	title := m.styles.label.Render("FST Nodes")
 	lines := []string{
 		title + m.renderNodeControls(),
-		m.metricLine("Health", fallback(m.nodeStats.State, "-"), "Threads", fmt.Sprintf("%d", m.nodeStats.ThreadCount)),
-		m.metricLine("Files", fmt.Sprintf("%d", m.nodeStats.FileCount), "Dirs", fmt.Sprintf("%d", m.nodeStats.DirCount)),
-		m.metricLine("Uptime", formatDuration(m.nodeStats.Uptime), "FDs", fmt.Sprintf("%d", m.nodeStats.FileDescs)),
 		"",
 		m.renderFstHeaderRow(columns),
-	}
-
-	if m.fstStatsLoading {
-		lines[1] = m.styles.value.Render("Loading cluster summary...")
-		lines[2] = ""
-		lines[3] = ""
 	}
 	if summary := m.renderFilterSummary(m.fstFilter.filters, func(col int) string {
 		old := m.fstFilter.column

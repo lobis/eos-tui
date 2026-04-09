@@ -142,6 +142,7 @@ func (m model) renderLogOverlay(height int) string {
 	}
 	m.log.vp.Width = vpWidth
 	m.log.vp.Height = vpHeight
+	m.log.vp.SetYOffset(m.log.vp.YOffset)
 
 	if m.log.plain {
 		lines := []string{m.renderLogViewport()}
@@ -188,23 +189,16 @@ func (m model) renderLogOverlay(height int) string {
 }
 
 func (m model) renderLogViewport() string {
-	view := m.log.vp.View()
-	if m.log.plain {
-		return view
-	}
-
-	lines := strings.Split(view, "\n")
-	for len(lines) > 0 {
-		inner := strings.TrimSpace(strings.Trim(lines[len(lines)-1], "│ "))
-		if inner != "" {
-			break
-		}
-		lines = lines[:len(lines)-1]
-	}
+	lines := renderWrappedLogLines(m.log.filtered, m.logViewportWidth(), m.log.wrap)
 	if len(lines) == 0 {
 		return ""
 	}
-	return strings.Join(lines, "\n")
+	top := max(0, min(m.log.vp.YOffset, len(lines)))
+	bottom := min(top+m.log.vp.Height, len(lines))
+	if top >= bottom {
+		return ""
+	}
+	return strings.Join(lines[top:bottom], "\n")
 }
 
 // applyLogFilter returns lines that case-insensitively contain filter.

@@ -1018,6 +1018,43 @@ func TestLogOverlayToggleWrapWithW(t *testing.T) {
 	}
 }
 
+func TestLogOverlayTopAndBottomJumpsRemainStableWithWrap(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 36
+	m.height = 20
+	m.log = logOverlay{
+		active:   true,
+		wrap:     true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		filtered: []string{
+			"top-top-top-top-top-top-top-top",
+			"mid-mid-mid-mid-mid-mid-mid-mid",
+			"bottom-bottom-bottom-bottom-bottom",
+		},
+		allLines: []string{
+			"top-top-top-top-top-top-top-top",
+			"mid-mid-mid-mid-mid-mid-mid-mid",
+			"bottom-bottom-bottom-bottom-bottom",
+		},
+	}
+	m.refreshLogViewportContent(false)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	topRendered := m.renderLogOverlay(12)
+	if !strings.Contains(topRendered, "top-top") {
+		t.Fatalf("expected g to keep the top wrapped content visible, got:\n%s", topRendered)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	bottomRendered := m.renderLogOverlay(12)
+	if !strings.Contains(bottomRendered, "bottom-") {
+		t.Fatalf("expected G to jump to the bottom wrapped content, got:\n%s", bottomRendered)
+	}
+}
+
 func TestLogOverlayCtrlCClosesOverlay(t *testing.T) {
 	m := NewModel(nil, "test", "/").(model)
 	m.log = logOverlay{active: true, tailing: true}

@@ -8,7 +8,7 @@ import (
 
 func (m model) renderGroupsView(height int) string {
 	naturalListContent := 3 + len(m.visibleGroups())
-	const groupDetailContent = 5
+	const groupDetailContent = 6
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, groupDetailContent)
 
 	width := m.panelWidth()
@@ -47,7 +47,7 @@ func (m model) renderGroupsList(width, height int) string {
 
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
-	title := m.styles.label.Render("EOS Groups")
+	title := m.renderSectionTitle("EOS Groups", contentWidth)
 	lines := []string{
 		title,
 		"",
@@ -98,7 +98,8 @@ func (m model) renderGroupDetails(width, height int) string {
 
 	g := groups[m.groupsSelected]
 	lines := []string{
-		m.styles.label.Render("Selected Group") + " " + g.Name,
+		m.renderSectionTitle("Selected Group", panelContentWidth(width)),
+		g.Name,
 		"",
 		m.metricLine("Status", g.Status, "Filesystems", fmt.Sprintf("%d", g.NoFS)),
 		m.metricLine("Capacity", humanBytes(g.CapacityBytes), "Used", humanBytes(g.UsedBytes)),

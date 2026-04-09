@@ -76,11 +76,11 @@ func (m model) renderFooter() string {
 	case viewIOShaping:
 		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  enter edit  •  d delete  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:
-		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  enter edit  •  l logs  •  L commands  •  s shell  •  q quit"
 	default:
-		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  L commands  •  q quit"
 		if hostViews {
-			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  /filter  •  l logs  •  L commands  •  s shell  •  q quit"
+			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  l logs  •  L commands  •  s shell  •  q quit"
 		}
 	}
 
@@ -222,6 +222,20 @@ func (m model) metricLine(leftLabel, leftValue, rightLabel, rightValue string) s
 	return fmt.Sprintf("%-42s %s", left, right)
 }
 
+func (m model) renderSectionTitle(title string, width int) string {
+	titleText := m.styles.section.Render(title)
+	if width <= 0 {
+		return titleText
+	}
+
+	remaining := width - lipgloss.Width(titleText) - 1
+	if remaining <= 0 {
+		return titleText
+	}
+
+	return titleText + " " + m.styles.sectionRule.Render(strings.Repeat("─", remaining))
+}
+
 func (m model) contentWidth() int {
 	return max(20, m.width-2)
 }
@@ -312,7 +326,7 @@ func (m model) renderFilterPopup() string {
 
 	box := lipgloss.JoinVertical(
 		lipgloss.Left,
-		m.styles.header.Render(title),
+		m.styles.popupTitle.Render(title),
 		"",
 		inputView,
 		"",

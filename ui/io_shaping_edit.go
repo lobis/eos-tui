@@ -258,7 +258,7 @@ func (m model) renderIOShapingPolicyEditPopup() string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Edit IO Shaping Policy"),
+		m.styles.popupTitle.Render("Edit IO Shaping Policy"),
 		fmt.Sprintf("%s: %s", targetLabel, m.styles.value.Render(m.ioShapingEdit.targetID)),
 		fmt.Sprintf("Existing policy: %s", m.styles.value.Render(boolLabel(m.ioShapingEdit.hadPolicy))),
 		"",
@@ -301,7 +301,7 @@ func (m model) renderIOShapingPolicyEditPopup() string {
 			deleteBtn = m.styles.selected.Render(deleteBtn)
 		}
 		lines = []string{
-			m.styles.error.Render("Delete IO Shaping Policy"),
+			m.styles.popupTitle.Render("Delete IO Shaping Policy"),
 			fmt.Sprintf("%s: %s", targetLabel, m.styles.value.Render(m.ioShapingEdit.targetID)),
 			"",
 			"This will remove the configured shaping policy.",

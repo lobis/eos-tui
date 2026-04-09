@@ -614,12 +614,9 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.groups = []eos.GroupRecord{{Name: "default.0", Status: "online", NoFS: 3}}
 	m.groupsLoading = false
 
-	// headerStyle is the color used by m.styles.header (bold green, color 86).
-	// We detect it by rendering a known string with that style.
-	headerStyleMarker := m.styles.header.Render("X")
-
-	// labelStyleMarker is what we expect column headers to look like.
-	labelStyleMarker := m.styles.label.Render("X")
+	// Detect style application by the escape prefix each style emits.
+	headerStyleMarker := openingANSISequence(m.styles.header.Render("X"))
+	labelStyleMarker := openingANSISequence(m.styles.label.Render("X"))
 
 	// They must be visually distinct for this test to be meaningful.
 	if headerStyleMarker == labelStyleMarker {
@@ -645,13 +642,84 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		rendered := m.renderBody(30)
 
 		// The app-title bold-green style must NOT appear inside a body view.
-		if strings.Contains(rendered, headerStyleMarker) {
+		if headerStyleMarker != "" && strings.Contains(rendered, headerStyleMarker) {
 			t.Errorf("view %s: column headers use m.styles.header (app-title style); use renderSimpleHeaderRow or renderSelectableHeaderRow instead", tc.name)
 		}
 		// The label style MUST appear (at least the column header row).
-		if !strings.Contains(rendered, labelStyleMarker) {
+		if labelStyleMarker != "" && !strings.Contains(rendered, labelStyleMarker) {
 			t.Errorf("view %s: expected column headers styled with m.styles.label, but label style not found", tc.name)
 		}
+	}
+}
+
+func openingANSISequence(rendered string) string {
+	start := strings.Index(rendered, "\x1b[")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(rendered[start:], "m")
+	if end < 0 {
+		return ""
+	}
+	return rendered[start : start+end+1]
+}
+
+func TestRenderSectionTitleFillsRequestedWidth(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+
+	line := m.renderSectionTitle("Cluster Summary", 48)
+	if got := lipgloss.Width(line); got != 48 {
+		t.Fatalf("expected section title width 48, got %d for %q", got, line)
+	}
+	if !strings.Contains(line, "Cluster Summary") {
+		t.Fatalf("expected section title to include label, got %q", line)
+	}
+	if !strings.Contains(line, "─") {
+		t.Fatalf("expected section title to include rule, got %q", line)
+	}
+}
+
+func TestPopupTitlesUsePopupTitleNotAppHeaderStyle(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.activeView = viewNamespace
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/dev/file-a",
+		attrs: []eos.NamespaceAttr{
+			{Key: "user.comment", Value: "hello"},
+		},
+	}
+
+	headerStyleMarker := openingANSISequence(m.styles.header.Render("X"))
+	popupStyleMarker := openingANSISequence(m.styles.popupTitle.Render("X"))
+	if headerStyleMarker == popupStyleMarker {
+		t.Skip("header and popup title styles are identical in this terminal; skipping")
+	}
+
+	rendered := m.renderNamespaceAttrEditPopup()
+	if headerStyleMarker != "" && strings.Contains(rendered, headerStyleMarker) {
+		t.Fatalf("expected popup to avoid app header style, got:\n%s", rendered)
+	}
+	if popupStyleMarker != "" && !strings.Contains(rendered, popupStyleMarker) {
+		t.Fatalf("expected popup to use popup title style, got:\n%s", rendered)
+	}
+}
+
+func TestHeaderAndFooterMatchContentWidth(t *testing.T) {
+	m := NewModel(nil, "root@very-long-hostname-for-width-check.example.cern.ch", "/").(model)
+	m.width = 140
+	m.height = 30
+	m.activeView = viewNamespace
+
+	header := m.renderHeader()
+	footer := m.renderFooter()
+	expectedWidth := m.contentWidth()
+	if got := lipgloss.Width(header); got != expectedWidth {
+		t.Fatalf("expected header width %d, got %d", expectedWidth, got)
+	}
+	if got := lipgloss.Width(footer); got != expectedWidth {
+		t.Fatalf("expected footer width %d, got %d", expectedWidth, got)
 	}
 }
 

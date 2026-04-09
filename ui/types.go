@@ -438,20 +438,23 @@ const (
 )
 
 type styles struct {
-	app       lipgloss.Style
-	header    lipgloss.Style
-	tab       lipgloss.Style
-	tabActive lipgloss.Style
-	panel     lipgloss.Style
-	panelDim  lipgloss.Style
-	selected  lipgloss.Style
-	label     lipgloss.Style
-	value     lipgloss.Style
-	error     lipgloss.Style
-	status    lipgloss.Style
-	splash    lipgloss.Style
-	splashDim lipgloss.Style
-	splashBox lipgloss.Style
+	app         lipgloss.Style
+	header      lipgloss.Style
+	tab         lipgloss.Style
+	tabActive   lipgloss.Style
+	panel       lipgloss.Style
+	panelDim    lipgloss.Style
+	selected    lipgloss.Style
+	label       lipgloss.Style
+	value       lipgloss.Style
+	error       lipgloss.Style
+	status      lipgloss.Style
+	popupTitle  lipgloss.Style
+	section     lipgloss.Style
+	sectionRule lipgloss.Style
+	splash      lipgloss.Style
+	splashDim   lipgloss.Style
+	splashBox   lipgloss.Style
 }
 
 type tableColumn struct {

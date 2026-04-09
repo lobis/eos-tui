@@ -22,7 +22,7 @@ func defaultPersistedUIState() persistedUIState {
 }
 
 func loadPersistedUIState() persistedUIState {
-	home, err := os.UserHomeDir()
+	home, err := persistedUIStateHomeDir()
 	if err != nil {
 		return defaultPersistedUIState()
 	}
@@ -46,7 +46,7 @@ func loadPersistedUIState() persistedUIState {
 }
 
 func savePersistedUIState(state persistedUIState) {
-	home, err := os.UserHomeDir()
+	home, err := persistedUIStateHomeDir()
 	if err != nil {
 		return
 	}
@@ -108,4 +108,11 @@ func (m model) persistedUIState() persistedUIState {
 
 func (m model) persistUIState() {
 	savePersistedUIState(m.persistedUIState())
+}
+
+func persistedUIStateHomeDir() (string, error) {
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	return os.UserHomeDir()
 }

@@ -150,8 +150,8 @@ func (c *Client) mgmsFromSSHTarget() ([]MgmRecord, error) {
 	if target == "" {
 		return nil, fmt.Errorf("redis-cli raft-info requires authentication and no SSH target is configured")
 	}
-	// Strip optional "root@" prefix so we work with a plain host[:port] string.
-	host := strings.TrimPrefix(target, "root@")
+	// Strip optional "root@" prefix so splitHostPort works with a plain host[:port].
+	host := strings.TrimPrefix(ensureRootPrefix(target), "root@")
 	h, p := splitHostPort(host)
 	if p == 0 {
 		p = 1094

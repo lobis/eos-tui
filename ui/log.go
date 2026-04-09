@@ -103,7 +103,7 @@ func (m model) renderLogOverlay(height int) string {
 	} else if m.log.err != nil {
 		totalInfo = "  " + m.log.err.Error()
 	}
-	titleLine := m.styles.header.Render(m.log.title) +
+	titleLine := m.styles.popupTitle.Render(m.log.title) +
 		m.styles.label.Render("  "+m.log.filePath) +
 		m.styles.value.Render(totalInfo+filterInfo)
 

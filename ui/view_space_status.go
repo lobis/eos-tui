@@ -89,7 +89,7 @@ func (m model) renderSpaceStatusEditPopup() string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Edit Space Status"),
+		m.styles.popupTitle.Render("Edit Space Status"),
 		fmt.Sprintf("Key:   %s", m.styles.value.Render(m.edit.record.Key)),
 		fmt.Sprintf("Value: %s", m.styles.value.Render(m.edit.record.Value)),
 		"",
@@ -120,7 +120,7 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 	command := fmt.Sprintf("eos space config default %s=%s", m.edit.record.Key, m.edit.input.Value())
 
 	lines := []string{
-		m.styles.label.Render("Confirm Configuration Change"),
+		m.styles.popupTitle.Render("Confirm Configuration Change"),
 		"",
 		"The following command will be executed:",
 		"",

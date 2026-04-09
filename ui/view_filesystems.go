@@ -63,7 +63,7 @@ func (m model) renderFileSystemsList(width, height int) string {
 	}, dataRows)
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
-	title := m.styles.label.Render("EOS Filesystems")
+	title := m.styles.section.Render("EOS Filesystems")
 	lines := []string{
 		title + m.renderFileSystemControls(),
 		"",
@@ -107,7 +107,7 @@ func (m model) renderFileSystemDetails(width, height int) string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Selected Filesystem"),
+		m.renderSectionTitle("Selected Filesystem", panelContentWidth(width)),
 		truncate(fmt.Sprintf("%s:%d", fs.Host, fs.Port), max(10, width-4)),
 		"",
 		m.metricLine("ID", fmt.Sprintf("%d", fs.ID), "Group", fallback(fs.SchedGroup, "-")),
@@ -119,7 +119,7 @@ func (m model) renderFileSystemDetails(width, height int) string {
 		m.metricLine("BW", fmt.Sprintf("%.0f MB/s", fs.DiskBWMB), "IOPS", fmt.Sprintf("%.0f", fs.DiskIOPS)),
 		m.metricLine("Read", fmt.Sprintf("%.2f MB/s", fs.ReadRateMB), "Write", fmt.Sprintf("%.2f MB/s", fs.WriteRateMB)),
 		"",
-		m.styles.label.Render("Mount Path"),
+		m.renderSectionTitle("Mount Path", panelContentWidth(width)),
 		truncate(fs.Path, max(10, width-4)),
 	}
 
@@ -160,7 +160,7 @@ func (m model) openFSConfigStatusEdit() (tea.Model, tea.Cmd) {
 
 func (m model) renderFSConfigStatusEditPopup() string {
 	lines := []string{
-		m.styles.label.Render("Set configstatus"),
+		m.styles.popupTitle.Render("Set configstatus"),
 		fmt.Sprintf("Filesystem: %s (id %d)", m.fsEdit.fsPath, m.fsEdit.fsID),
 		fmt.Sprintf("Current:    %s", m.styles.value.Render(fallback(m.fsEdit.current, "-"))),
 		"",
@@ -182,7 +182,7 @@ func (m model) renderFSConfigStatusEditPopup() string {
 
 func (m model) renderErrorAlert() string {
 	lines := []string{
-		m.styles.error.Render("Error"),
+		m.styles.popupTitle.Render("Error"),
 		"",
 		m.alert.message,
 		"",

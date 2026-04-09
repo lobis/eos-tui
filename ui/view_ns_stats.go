@@ -6,9 +6,9 @@ func (m model) renderNamespaceStatsView(height int) string {
 	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
 	lines := []string{
-		m.styles.label.Render("General Statistics"),
+		m.renderSectionTitle("General Statistics", contentWidth),
 		"",
-		m.styles.label.Render("Cluster Summary"),
+		m.renderSectionTitle("Cluster Summary", contentWidth),
 	}
 	switch {
 	case m.fstStatsLoading:
@@ -23,7 +23,7 @@ func (m model) renderNamespaceStatsView(height int) string {
 		)
 	}
 
-	lines = append(lines, "", m.styles.label.Render("Namespace Statistics"))
+	lines = append(lines, "", m.renderSectionTitle("Namespace Statistics", contentWidth))
 	switch {
 	case m.nsStatsLoading:
 		lines = append(lines, m.styles.value.Render("Loading namespace statistics..."))
@@ -35,18 +35,18 @@ func (m model) renderNamespaceStatsView(height int) string {
 			m.metricLine("Master", fallback(stats.MasterHost, "-"), "Total Files", fmt.Sprintf("%d", stats.TotalFiles)),
 			m.metricLine("Total Directories", fmt.Sprintf("%d", stats.TotalDirectories), "", ""),
 			"",
-			m.styles.label.Render("IDs"),
+			m.renderSectionTitle("IDs", contentWidth),
 			m.metricLine("Current File ID", fmt.Sprintf("%d", stats.CurrentFID), "Current Container ID", fmt.Sprintf("%d", stats.CurrentCID)),
 			m.metricLine("Generated File IDs", fmt.Sprintf("%d", stats.GeneratedFID), "Generated Container IDs", fmt.Sprintf("%d", stats.GeneratedCID)),
 			"",
-			m.styles.label.Render("Lock Contention"),
+			m.renderSectionTitle("Lock Contention", contentWidth),
 			m.metricLine("Read Contention", fmt.Sprintf("%.2f", stats.ContentionRead), "Write Contention", fmt.Sprintf("%.2f", stats.ContentionWrite)),
 			"",
-			m.styles.label.Render("File Cache"),
+			m.renderSectionTitle("File Cache", contentWidth),
 			m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheFilesMax), "Occupancy", fmt.Sprintf("%d", stats.CacheFilesOccup)),
 			m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheFilesRequests), "Hits", fmt.Sprintf("%d", stats.CacheFilesHits)),
 			"",
-			m.styles.label.Render("Container Cache"),
+			m.renderSectionTitle("Container Cache", contentWidth),
 			m.metricLine("Max Size", fmt.Sprintf("%d", stats.CacheContainersMax), "Occupancy", fmt.Sprintf("%d", stats.CacheContainersOccup)),
 			m.metricLine("Requests", fmt.Sprintf("%d", stats.CacheContainersRequests), "Hits", fmt.Sprintf("%d", stats.CacheContainersHits)),
 		)

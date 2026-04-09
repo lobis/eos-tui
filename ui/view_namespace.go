@@ -273,7 +273,7 @@ func (m model) renderNamespaceMetadataPanel(width, height int) string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Selected Namespace Entry"),
+		m.renderSectionTitle("Selected Namespace Entry", contentWidth),
 		truncate(target.Path, max(10, width-4)),
 		"",
 		m.metricLine("Type", entryTypeLabel(target), "ID", fmt.Sprintf("%d", target.ID)),
@@ -308,7 +308,7 @@ func (m model) renderNamespaceAttrsPanel(width, height int) string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Attributes"),
+		m.renderSectionTitle("Attributes", contentWidth),
 		truncate(target.Path, max(10, contentWidth)),
 		"",
 	}
@@ -358,13 +358,13 @@ func (m model) renderNamespaceAttrEditPopup() string {
 
 	current := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
 	lines := []string{
-		m.styles.label.Render("Edit Attribute"),
+		m.styles.popupTitle.Render("Edit Attribute"),
 		truncate(m.nsAttrEdit.targetPath, 72),
 		"",
 	}
 
 	if m.nsAttrEdit.stage == attrEditStageSelect {
-		lines = append(lines, m.styles.label.Render("Select Key"))
+		lines = append(lines, m.renderSectionTitle("Select Key", 72))
 		for i, attr := range m.nsAttrEdit.attrs {
 			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
 			if i == m.nsAttrEdit.selected {

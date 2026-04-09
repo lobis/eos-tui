@@ -44,7 +44,7 @@ func (m model) renderSpacesList(width, height int) string {
 	}, dataRows)
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
-	title := m.styles.label.Render("EOS Spaces")
+	title := m.renderSectionTitle("EOS Spaces", contentWidth)
 	lines := []string{
 		title,
 		"",
@@ -80,7 +80,7 @@ func (m model) renderSpaceDetails(width, height int) string {
 	space := m.spaces[m.spacesSelected]
 
 	lines := []string{
-		m.styles.label.Render("Selected Space"),
+		m.renderSectionTitle("Selected Space", panelContentWidth(width)),
 		truncate(space.Name, max(10, width-4)),
 		"",
 		m.metricLine("Type", space.Type, "Status", space.Status),

@@ -55,7 +55,7 @@ func (m model) renderNodesList(width, height int) string {
 	}, dataRows)
 	columns := allocateTableColumns(contentWidth, columnDefs)
 
-	title := m.styles.label.Render("FST Nodes")
+	title := m.styles.section.Render("FST Nodes")
 	lines := []string{
 		title + m.renderNodeControls(),
 		"",
@@ -99,7 +99,7 @@ func (m model) renderNodeDetails(width, height int) string {
 	}
 
 	lines := []string{
-		m.styles.label.Render("Selected Node"),
+		m.renderSectionTitle("Selected Node", panelContentWidth(width)),
 		truncate(node.Host+":"+fmt.Sprintf("%d", node.Port), max(10, width-4)),
 		"",
 		m.metricLine("Type", fallback(node.Type, "-"), "EOS", fallback(node.EOSVersion, "-")),
@@ -112,10 +112,10 @@ func (m model) renderNodeDetails(width, height int) string {
 		m.metricLine("Threads", fmt.Sprintf("%d", node.ThreadCount), "Read MB/s", fmt.Sprintf("%.2f", node.ReadRateMB)),
 		m.metricLine("Write MB/s", fmt.Sprintf("%.2f", node.WriteRateMB), "", ""),
 		"",
-		m.styles.label.Render("Uptime"),
+		m.renderSectionTitle("Uptime", panelContentWidth(width)),
 		truncate(strings.ReplaceAll(node.Uptime, "%20", " "), max(10, width-4)),
 		"",
-		m.styles.label.Render("Kernel"),
+		m.renderSectionTitle("Kernel", panelContentWidth(width)),
 		truncate(node.Kernel, max(10, width-4)),
 	}
 

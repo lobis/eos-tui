@@ -19,6 +19,14 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 		return nil, fmt.Errorf("redis-cli raft-info: %w\n%s", err, strings.TrimSpace(string(output)))
 	}
 
+	// QDB may be configured to require authentication (returns "NOAUTH ...").
+	// In that case fall back to treating the current SSH target as the single
+	// MGM leader — enough to satisfy callers when the cluster is reachable but
+	// the raw redis port is not open to unauthenticated clients.
+	if strings.Contains(string(output), "NOAUTH") {
+		return c.mgmsFromSSHTarget()
+	}
+
 	info := parseRaftInfo(output)
 
 	if info.Leader == "" && len(info.Nodes) == 0 && info.Myself == "" {
@@ -130,6 +138,30 @@ func mgmPortFromNsStat(c *Client) string {
 		}
 	}
 	return fallback
+}
+
+// mgmsFromSSHTarget constructs a minimal single-entry MGM list from the
+// current effective SSH target.  It is used as a fallback when redis-cli
+// raft-info is unavailable (e.g. QDB requires authentication).  The caller
+// is assumed to already be connected to an MGM node, so that node is treated
+// as the cluster leader.
+func (c *Client) mgmsFromSSHTarget() ([]MgmRecord, error) {
+	target := c.effectiveSSHTarget()
+	if target == "" {
+		return nil, fmt.Errorf("redis-cli raft-info requires authentication and no SSH target is configured")
+	}
+	// Strip optional "root@" prefix so splitHostPort works with a plain host[:port].
+	host := strings.TrimPrefix(target, "root@")
+	h, p := splitHostPort(host)
+	if p == 0 {
+		p = 1094
+	}
+	return []MgmRecord{{
+		Host:   h,
+		Port:   p,
+		Role:   "leader",
+		Status: "online",
+	}}, nil
 }
 
 // parseRaftInfo parses the output of `redis-cli -p 7777 raft-info`.

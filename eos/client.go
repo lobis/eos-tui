@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -83,6 +84,15 @@ func (c *Client) OriginalSSHTarget() string {
 	return c.sshTarget
 }
 
+// ensureRootPrefix returns target with a "root@" prefix, adding one only if
+// it is not already present.
+func ensureRootPrefix(target string) string {
+	if strings.HasPrefix(target, "root@") {
+		return target
+	}
+	return "root@" + target
+}
+
 // DiscoverMGMMaster runs `redis-cli raft-info` on the current SSH target,
 // identifies the QDB/MGM leader, and updates the client so that all subsequent
 // commands are routed directly to the leader host.
@@ -94,6 +104,17 @@ func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("raft-info for master discovery: %w", err)
 	}
 
+	// QDB may require authentication — fall back to the current SSH target.
+	if strings.Contains(string(output), "NOAUTH") {
+		target := c.effectiveSSHTarget()
+		if target == "" {
+			return "", fmt.Errorf("raft-info requires authentication and no SSH target is configured")
+		}
+		resolved := ensureRootPrefix(target)
+		c.resolvedSSHTarget = resolved
+		return resolved, nil
+	}
+
 	info := parseRaftInfo(output)
 	if info.Leader == "" {
 		return "", fmt.Errorf("no leader found in raft-info output")
@@ -102,7 +123,7 @@ func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
 	leader := hostOnly(info.Leader)
 	// EOS nodes run as root; use explicit root@ so the resolved hostname
 	// works without relying on SSH config aliases.
-	resolved := "root@" + leader
+	resolved := ensureRootPrefix(leader)
 	c.resolvedSSHTarget = resolved
 	return resolved, nil
 }

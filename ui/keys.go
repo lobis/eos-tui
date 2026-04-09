@@ -364,6 +364,10 @@ func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ioShapingSelected = min(n-1, m.ioShapingSelected+half)
 	case "G":
 		m.ioShapingSelected = max(0, n-1)
+	case "enter":
+		return m.startIOShapingPolicyEdit()
+	case "d":
+		return m.startIOShapingPolicyDeleteConfirm()
 	}
 	m.ioShapingSelected = clampIndex(m.ioShapingSelected, n)
 	return m, nil

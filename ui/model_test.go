@@ -1294,6 +1294,171 @@ func TestIOShapingNavigationIncludesPolicyOnlyRows(t *testing.T) {
 	}
 }
 
+func TestIOShapingEnterOpensPolicyEditor(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShaping = []eos.IOShapingRecord{{ID: "test-app", Type: "app"}}
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{
+			ID:                          "test-app",
+			Type:                        "app",
+			Enabled:                     true,
+			LimitReadBytesPerSec:        1000,
+			LimitWriteBytesPerSec:       2000,
+			ReservationReadBytesPerSec:  3000,
+			ReservationWriteBytesPerSec: 4000,
+		},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.ioShapingEdit.active {
+		t.Fatalf("expected io shaping editor to open on enter")
+	}
+	if m.ioShapingEdit.targetID != "test-app" {
+		t.Fatalf("expected io shaping editor target test-app, got %q", m.ioShapingEdit.targetID)
+	}
+	if !m.ioShapingEdit.enabled {
+		t.Fatalf("expected io shaping editor enabled to start from existing policy")
+	}
+	if m.ioShapingEdit.limitWrite != "2000" {
+		t.Fatalf("expected limit write to start from existing value, got %q", m.ioShapingEdit.limitWrite)
+	}
+}
+
+func TestIOShapingEditorPrefillsSelectedValueForEditing(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true, LimitWriteBytesPerSec: 15000000},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.ioShapingEdit.stage != ioShapingEditStageInput {
+		t.Fatalf("expected io shaping editor to enter input stage, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.input.Value() != "15000000" {
+		t.Fatalf("expected io shaping editor input to start from existing limit write, got %q", m.ioShapingEdit.input.Value())
+	}
+	if cmd == nil {
+		t.Fatalf("expected focus command when entering io shaping input mode")
+	}
+}
+
+func TestIOShapingEditorTogglesEnabledAndApplyReturnsCommand(t *testing.T) {
+	m := NewModel(&eos.Client{}, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.ioShapingEdit.enabled {
+		t.Fatalf("expected enter on enabled row to toggle state off")
+	}
+
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(model)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.ioShapingEdit.active {
+		t.Fatalf("expected io shaping editor to close while applying changes")
+	}
+	if cmd == nil {
+		t.Fatalf("expected apply to return an io shaping policy update command")
+	}
+}
+
+func TestIOShapingDeleteHotkeyOpensConfirmation(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+
+	if !m.ioShapingEdit.active {
+		t.Fatalf("expected delete hotkey to open io shaping confirmation")
+	}
+	if m.ioShapingEdit.stage != ioShapingEditStageDeleteConfirm {
+		t.Fatalf("expected delete hotkey to open delete confirm stage, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.targetID != "test-app" {
+		t.Fatalf("expected delete confirm to target test-app, got %q", m.ioShapingEdit.targetID)
+	}
+}
+
+func TestIOShapingDeleteConfirmReturnsCommand(t *testing.T) {
+	m := NewModel(&eos.Client{}, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShapingPolicies = []eos.IOShapingPolicyRecord{
+		{ID: "test-app", Type: "app", Enabled: true},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.ioShapingEdit.active {
+		t.Fatalf("expected delete confirm popup to close after confirming")
+	}
+	if cmd == nil {
+		t.Fatalf("expected delete confirm to return an io shaping remove command")
+	}
+}
+
+func TestIOShapingDeleteHotkeyWithoutPolicyShowsAlert(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+	m.ioShaping = []eos.IOShapingRecord{{ID: "traffic-only", Type: "app"}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected delete hotkey without policy to show alert")
+	}
+	if !strings.Contains(m.alert.message, "No IO shaping policy") {
+		t.Fatalf("expected delete hotkey alert to explain missing policy, got %q", m.alert.message)
+	}
+}
+
+func TestParseIOShapingRateSupportsHumanSuffixes(t *testing.T) {
+	got, err := parseIOShapingRate("15 MB/s")
+	if err != nil {
+		t.Fatalf("expected human rate to parse, got error %v", err)
+	}
+	if got != 15000000 {
+		t.Fatalf("expected 15 MB/s to parse to 15000000, got %d", got)
+	}
+}
+
 // ---- Groups view tests -----------------------------------------------------
 
 func TestGroupsViewRendersWithData(t *testing.T) {

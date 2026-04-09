@@ -143,6 +143,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.nsAttrEdit.active {
 			return m.updateNamespaceAttrEditKeys(msg)
 		}
+		if m.ioShapingEdit.active {
+			return m.updateIOShapingPolicyEditKeys(msg)
+		}
 		if m.edit.active {
 			return m.updateSpaceStatusEditKeys(msg)
 		}
@@ -404,6 +407,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ioShapingPolicies = msg.records
 			m.ioShapingSelected = clampIndex(m.ioShapingSelected, len(m.ioShapingMergedRows()))
 		}
+	case ioShapingPolicyResultMsg:
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("io shaping policy %s failed: %v", msg.op, msg.err),
+			}
+			return m, nil
+		}
+		if msg.op == "deleted" {
+			m.status = fmt.Sprintf("Deleted IO shaping policy for %s", msg.id)
+		} else {
+			m.status = fmt.Sprintf("Updated IO shaping policy for %s", msg.id)
+		}
+		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
 	case ioShapingTickMsg:
 		if m.activeView == viewIOShaping && !m.ioShapingLoading {
 			m.ioShapingLoading = true
@@ -491,6 +508,8 @@ func (m model) View() string {
 		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
 	} else if m.nsAttrEdit.active {
 		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
+	} else if m.ioShapingEdit.active {
+		body = m.renderOverlay(body, m.renderIOShapingPolicyEditPopup(), bodyTotalHeight)
 	} else if m.fsEdit.active {
 		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyTotalHeight)
 	} else if m.alert.active {

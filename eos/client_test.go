@@ -764,3 +764,60 @@ func TestHostOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestIOShapingPolicySetArgsForApp(t *testing.T) {
+	got, err := ioShapingPolicySetArgs(IOShapingPolicyUpdate{
+		Mode:                        IOShapingApps,
+		ID:                          "test2",
+		Enabled:                     true,
+		LimitReadBytesPerSec:        0,
+		LimitWriteBytesPerSec:       15000000,
+		ReservationReadBytesPerSec:  2000,
+		ReservationWriteBytesPerSec: 3000,
+	})
+	if err != nil {
+		t.Fatalf("expected io shaping args to build, got error %v", err)
+	}
+
+	want := []string{
+		"eos", "io", "shaping", "policy", "set",
+		"--app", "test2",
+		"--enable",
+		"--limit-read", "0",
+		"--limit-write", "15000000",
+		"--reservation-read", "2000",
+		"--reservation-write", "3000",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected io shaping policy args: got %v want %v", got, want)
+	}
+}
+
+func TestIOShapingPolicySetArgsForGroupDisable(t *testing.T) {
+	got, err := ioShapingPolicySetArgs(IOShapingPolicyUpdate{
+		Mode:    IOShapingGroups,
+		ID:      "1234",
+		Enabled: false,
+	})
+	if err != nil {
+		t.Fatalf("expected io shaping args to build, got error %v", err)
+	}
+	if !strings.Contains(strings.Join(got, " "), "--gid 1234 --disable") {
+		t.Fatalf("expected group policy args to use --gid and --disable, got %v", got)
+	}
+}
+
+func TestIOShapingPolicyRemoveArgsForUser(t *testing.T) {
+	got, err := ioShapingPolicyRemoveArgs(IOShapingUsers, "1001")
+	if err != nil {
+		t.Fatalf("expected io shaping remove args to build, got error %v", err)
+	}
+
+	want := []string{
+		"eos", "io", "shaping", "policy", "rm",
+		"--uid", "1001",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected io shaping policy rm args: got %v want %v", got, want)
+	}
+}

@@ -1805,7 +1805,7 @@ func TestNamespaceDetailsSplitStaysNearMiddleWhileFittingAttrs(t *testing.T) {
 	}
 }
 
-func TestNamespaceViewReservesMoreHeightForDetailsPane(t *testing.T) {
+func TestNamespaceViewFitsDetailContentAndKeepsMaxHeight(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120
 	m.height = 32
@@ -1819,14 +1819,27 @@ func TestNamespaceViewReservesMoreHeightForDetailsPane(t *testing.T) {
 		},
 	}
 	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/eos/dev/example"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+		{Key: "user.owner", Value: "team-a"},
+		{Key: "user.project", Value: "atlas"},
+		{Key: "user.purpose", Value: "testing"},
+	}
 	m.splash.active = false
 
-	listHeight, detailHeight := adaptiveSplitHeights(28, 4, 12)
-	if detailHeight != 14 {
-		t.Fatalf("expected namespace details height 14, got %d", detailHeight)
+	if got := m.namespaceDetailContentCurrent(); got != 9 {
+		t.Fatalf("expected namespace current detail content height 9, got %d", got)
 	}
-	if listHeight != 16 {
-		t.Fatalf("expected namespace list height 16, got %d", listHeight)
+	if got := m.namespaceDetailContentTarget(); got != 9 {
+		t.Fatalf("expected namespace detail target height 9 before remembering max, got %d", got)
+	}
+
+	m.nsDetailContentMax = 12
+	if got := m.namespaceDetailContentTarget(); got != 12 {
+		t.Fatalf("expected namespace detail target to keep remembered max height 12, got %d", got)
 	}
 
 	view := m.renderNamespaceView(28)
@@ -1835,6 +1848,47 @@ func TestNamespaceViewReservesMoreHeightForDetailsPane(t *testing.T) {
 	}
 	if !strings.Contains(view, "Attributes") {
 		t.Fatalf("expected namespace attrs pane to render, got:\n%s", view)
+	}
+}
+
+func TestNamespaceDetailHeightRememberedAfterLargeAttrSet(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/eos/dev/example"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "a", Value: "1"},
+		{Key: "b", Value: "2"},
+		{Key: "c", Value: "3"},
+		{Key: "d", Value: "4"},
+		{Key: "e", Value: "5"},
+		{Key: "f", Value: "6"},
+		{Key: "g", Value: "7"},
+		{Key: "h", Value: "8"},
+		{Key: "i", Value: "9"},
+		{Key: "j", Value: "10"},
+	}
+
+	m = m.rememberNamespaceDetailContent()
+	if got := m.nsDetailContentMax; got != 13 {
+		t.Fatalf("expected remembered namespace detail height 13, got %d", got)
+	}
+
+	m.nsAttrs = []eos.NamespaceAttr{{Key: "a", Value: "1"}}
+	if got := m.namespaceDetailContentCurrent(); got != 9 {
+		t.Fatalf("expected namespace current detail content to fall back to metadata height 9, got %d", got)
+	}
+	if got := m.namespaceDetailContentTarget(); got != 13 {
+		t.Fatalf("expected namespace detail target to keep remembered max height 13, got %d", got)
 	}
 }
 

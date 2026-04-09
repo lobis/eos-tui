@@ -11,8 +11,9 @@ func (m model) renderGroupsView(height int) string {
 	listHeight := max(4, height-groupDetailLines)
 	detailHeight := groupDetailLines
 
-	list := m.renderGroupsList(m.width, listHeight)
-	details := m.renderGroupDetails(m.width, detailHeight)
+	width := m.contentWidth()
+	list := m.renderGroupsList(width, listHeight)
+	details := m.renderGroupDetails(width, detailHeight)
 
 	return lipgloss.JoinVertical(lipgloss.Left, list, details)
 }
@@ -90,23 +91,19 @@ func (m model) renderGroupHeaderRow(columns []tableColumn) string {
 }
 
 func (m model) renderGroupDetails(width, height int) string {
-	contentWidth := panelContentWidth(width)
 	groups := m.visibleGroups()
 	if len(groups) == 0 || m.groupsSelected < 0 || m.groupsSelected >= len(groups) {
-		return m.styles.panelDim.Width(contentWidth).Height(panelContentHeight(height)).Render("no group selected")
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{"no group selected"}, panelContentHeight(height)))
 	}
 
 	g := groups[m.groupsSelected]
-	title := m.styles.label.Render("Selected Group") + " " + g.Name
-
-	box := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
+	lines := []string{
+		m.styles.label.Render("Selected Group") + " " + g.Name,
 		"",
 		m.metricLine("Status", g.Status, "Filesystems", fmt.Sprintf("%d", g.NoFS)),
 		m.metricLine("Capacity", humanBytes(g.CapacityBytes), "Used", humanBytes(g.UsedBytes)),
 		m.metricLine("Free", humanBytes(g.FreeBytes), "Files", fmt.Sprintf("%d", g.NumFiles)),
-	)
+	}
 
-	return m.styles.panelDim.Width(contentWidth).Height(panelContentHeight(height)).Render(box)
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
 }

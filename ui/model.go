@@ -407,31 +407,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	availableHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
+	middleHeight := max(0, m.height-lipgloss.Height(header)-lipgloss.Height(footer))
+	availableHeight := max(4, middleHeight-2)
 
 	if m.log.active {
-		body := m.renderLogOverlay(availableHeight)
+		body := m.normalizeRenderedBlock(m.renderLogOverlay(availableHeight), middleHeight)
 		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 	}
 
 	bodyHeight, commandHeight := m.splitMainAndCommandHeights(availableHeight)
+	bodyTotalHeight := middleHeight
+	if commandHeight > 0 {
+		bodyTotalHeight = middleHeight - commandHeight
+	}
+
 	body := m.renderBody(bodyHeight)
 	if m.popup.active {
-		body = m.renderBodyWithPopup(body, bodyHeight)
+		body = m.renderBodyWithPopup(body, bodyTotalHeight)
 	} else if m.edit.active {
-		body = m.renderBodyWithEditPopup(body, bodyHeight)
+		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
 	} else if m.fsEdit.active {
-		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyHeight)
+		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyTotalHeight)
 	} else if m.alert.active {
-		body = m.renderOverlay(body, m.renderErrorAlert(), bodyHeight)
+		body = m.renderOverlay(body, m.renderErrorAlert(), bodyTotalHeight)
 	}
 
+	body = m.normalizeRenderedBlock(body, bodyTotalHeight)
+	middle := body
 	if commandHeight > 0 {
-		commandPanel := m.renderCommandPanel(commandHeight)
-		return m.styles.app.Render(header + "\n" + body + "\n" + commandPanel + "\n" + footer)
+		commandPanel := m.normalizeRenderedBlock(m.renderCommandPanel(commandHeight), commandHeight)
+		middle = body + "\n" + commandPanel
 	}
-
-	return m.styles.app.Render(header + "\n" + body + "\n" + footer)
+	return m.styles.app.Render(header + "\n" + middle + "\n" + footer)
 }
 
 func (m model) renderBodyWithPopup(body string, height int) string {

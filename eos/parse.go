@@ -52,6 +52,52 @@ func shellDisplayJoin(args []string) string {
 	return strings.Join(display, " ")
 }
 
+// ShellJoin is the exported version of shellJoin for use by other packages.
+func ShellJoin(args []string) string { return shellJoin(args) }
+
+// ShellDisplayJoin is the exported version of shellDisplayJoin for use by other packages.
+func ShellDisplayJoin(args []string) string { return shellDisplayJoin(args) }
+
+func normalizeClusterInstance(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" || strings.ContainsAny(target, " \t\r\n") {
+		return ""
+	}
+
+	if at := strings.LastIndex(target, "@"); at != -1 {
+		target = target[at+1:]
+	}
+	target = hostOnly(target)
+	target = strings.Split(target, ".")[0]
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+
+	for _, marker := range []string{"-ns-", "-mgm-", "-qdb-", "-fst-"} {
+		if idx := strings.Index(target, marker); idx > 0 {
+			target = target[:idx]
+			break
+		}
+	}
+	for _, suffix := range []string{"-ns", "-mgm", "-qdb", "-fst"} {
+		if strings.HasSuffix(target, suffix) {
+			target = strings.TrimSuffix(target, suffix)
+			break
+		}
+	}
+
+	if target == "" || strings.ContainsAny(target, " \t\r\n") {
+		return ""
+	}
+	return target
+}
+
+// NormalizeClusterInstance extracts the logical EOS instance name from a
+// cluster alias or hostname such as "eospilot", "root@eospilot.cern.ch", or
+// "root@eospilot-ns-02.cern.ch".
+func NormalizeClusterInstance(target string) string { return normalizeClusterInstance(target) }
+
 func toUint64(v any) uint64 {
 	switch val := v.(type) {
 	case float64:

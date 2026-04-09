@@ -78,6 +78,11 @@ func (c *Client) ResolvedSSHTarget() string {
 	return c.effectiveSSHTarget()
 }
 
+// OriginalSSHTarget returns the user-supplied SSH target before master discovery.
+func (c *Client) OriginalSSHTarget() string {
+	return c.sshTarget
+}
+
 // DiscoverMGMMaster runs `redis-cli raft-info` on the current SSH target,
 // identifies the QDB/MGM leader, and updates the client so that all subsequent
 // commands are routed directly to the leader host.

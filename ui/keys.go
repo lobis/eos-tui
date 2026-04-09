@@ -110,6 +110,8 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.openFSConfigStatusEdit()
+	case "x":
+		return m.startApollonDrainConfirm()
 	case "left":
 		m.fsColumnSelected = max(0, m.fsColumnSelected-1)
 		m.status = fmt.Sprintf("Selected filesystem column: %s", m.fsSelectedColumnLabel())
@@ -497,6 +499,35 @@ func (m model) updateFSConfigStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		fsID := m.fsEdit.fsID
 		m.fsEdit.active = false
 		return m, runFsConfigStatusCmd(m.client, fsID, chosen)
+	}
+	return m, nil
+}
+
+func (m model) updateApollonDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.apollon.active = false
+		return m, nil
+	case "g":
+		m.apollon.button = buttonCancel
+	case "G":
+		m.apollon.button = buttonContinue
+	case "left", "right":
+		if m.apollon.button == buttonCancel {
+			m.apollon.button = buttonContinue
+		} else {
+			m.apollon.button = buttonCancel
+		}
+	case "enter":
+		if m.apollon.button == buttonCancel {
+			m.apollon.active = false
+			return m, nil
+		}
+		fsID := m.apollon.fsID
+		instance := m.apollon.instance
+		m.apollon.active = false
+		m.status = fmt.Sprintf("Starting Apollon drain for filesystem %d on %s...", fsID, instance)
+		return m, runApollonDrainCmd(fsID, instance)
 	}
 	return m, nil
 }

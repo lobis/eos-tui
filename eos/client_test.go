@@ -649,6 +649,26 @@ func TestShellDisplayJoinQuotesOnlyUnsafeArgs(t *testing.T) {
 	}
 }
 
+func TestNormalizeClusterInstance(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "eospublic", want: "eospublic"},
+		{input: "root@eospublic.cern.ch", want: "eospublic"},
+		{input: "root@eospilot-ns-02.cern.ch", want: "eospilot"},
+		{input: "eoshome-mgm", want: "eoshome"},
+		{input: "local eos cli", want: ""},
+		{input: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		if got := NormalizeClusterInstance(tt.input); got != tt.want {
+			t.Fatalf("NormalizeClusterInstance(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestParseEOSServerVersion(t *testing.T) {
 	tests := []struct {
 		name  string

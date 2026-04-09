@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ const commandLogRefreshInterval = 300 * time.Millisecond
 const logRefreshInterval = 500 * time.Millisecond
 const commandLogTailLines = 200
 const startupSplashTickInterval = 120 * time.Millisecond
+const apollonCommandTimeout = 30 * time.Second
 
 // loadInfraCmd fans out all infrastructure fetches in parallel.  Each
 // component delivers its own typed message to the Bubble Tea runtime as soon
@@ -159,6 +161,21 @@ func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd
 	return func() tea.Msg {
 		err := client.FsConfigStatus(context.Background(), fsID, value)
 		return fsConfigStatusResultMsg{err: err}
+	}
+}
+
+func runApollonDrainCmd(fsID uint64, instance string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), apollonCommandTimeout)
+		defer cancel()
+
+		out, err := exec.CommandContext(ctx, "ssh", apollonDrainSSHArgs(fsID, instance)...).CombinedOutput()
+		return apollonDrainResultMsg{
+			fsID:     fsID,
+			instance: instance,
+			output:   strings.TrimSpace(string(out)),
+			err:      err,
+		}
 	}
 }
 

@@ -192,6 +192,13 @@ type fsConfigStatusResultMsg struct {
 	err error
 }
 
+type apollonDrainResultMsg struct {
+	fsID     uint64
+	instance string
+	output   string
+	err      error
+}
+
 type errorAlert struct {
 	active  bool
 	message string
@@ -203,6 +210,15 @@ type fsConfigStatusEdit struct {
 	fsPath   string
 	current  string
 	selected int // index into configStatusOptions
+}
+
+type apollonDrainConfirm struct {
+	active   bool
+	fsID     uint64
+	fsPath   string
+	instance string
+	command  string
+	button   buttonID
 }
 
 var configStatusOptions = []string{"rw", "ro", "drain", "empty"}
@@ -555,6 +571,7 @@ type model struct {
 	popup       filterPopup
 	edit        spaceStatusEdit
 	fsEdit      fsConfigStatusEdit
+	apollon     apollonDrainConfirm
 	alert       errorAlert
 	log         logOverlay
 	commandLog  commandPanel

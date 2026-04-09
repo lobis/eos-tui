@@ -2,12 +2,17 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
+
+const apollonSSHTarget = "root@eosops.cern.ch"
+const apollonCLIPath = "/root/repair/apollon/apollon-cli"
 
 func (m model) renderFileSystemsView(height int) string {
 	filterLines := 0
@@ -176,6 +181,125 @@ func (m model) renderFSConfigStatusEditPopup() string {
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func apollonDrainRemoteArgs(fsID uint64, instance string) []string {
+	return []string{
+		apollonCLIPath,
+		"drain",
+		"--fsid",
+		fmt.Sprintf("%d", fsID),
+		"--instance",
+		instance,
+	}
+}
+
+func apollonDrainSSHArgs(fsID uint64, instance string) []string {
+	return []string{
+		apollonSSHTarget,
+		eos.ShellJoin(apollonDrainRemoteArgs(fsID, instance)),
+	}
+}
+
+func apollonDrainDisplayCommand(fsID uint64, instance string) string {
+	return "ssh " + apollonSSHTarget + " " + eos.ShellDisplayJoin(apollonDrainRemoteArgs(fsID, instance))
+}
+
+func apollonInstanceCandidatesFromEndpoint(endpoint string) []string {
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.HasPrefix(endpoint, "ssh ") {
+		return nil
+	}
+
+	raw := strings.TrimSpace(strings.TrimPrefix(endpoint, "ssh "))
+	parts := strings.Split(raw, "→")
+	candidates := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			candidates = append(candidates, part)
+		}
+	}
+	return candidates
+}
+
+func (m model) apollonInstance() string {
+	if m.client != nil {
+		if instance := eos.NormalizeClusterInstance(m.client.OriginalSSHTarget()); instance != "" {
+			return instance
+		}
+		if instance := eos.NormalizeClusterInstance(m.client.ResolvedSSHTarget()); instance != "" {
+			return instance
+		}
+	}
+	for _, candidate := range apollonInstanceCandidatesFromEndpoint(m.endpoint) {
+		if instance := eos.NormalizeClusterInstance(candidate); instance != "" {
+			return instance
+		}
+	}
+	return ""
+}
+
+func (m model) startApollonDrainConfirm() (tea.Model, tea.Cmd) {
+	fs, ok := m.selectedFileSystem()
+	if !ok {
+		return m, nil
+	}
+
+	instance := m.apollonInstance()
+	if instance == "" {
+		m.alert = errorAlert{
+			active:  true,
+			message: "Cannot determine Apollon instance from the current SSH target",
+		}
+		return m, nil
+	}
+
+	m.apollon = apollonDrainConfirm{
+		active:   true,
+		fsID:     fs.ID,
+		fsPath:   fs.Path,
+		instance: instance,
+		command:  apollonDrainDisplayCommand(fs.ID, instance),
+		button:   buttonCancel,
+	}
+	return m, nil
+}
+
+func (m model) renderApollonDrainConfirmPopup() string {
+	cancelBtn := "[ Cancel ]"
+	confirmBtn := "[ Confirm ]"
+
+	if m.apollon.button == buttonCancel {
+		cancelBtn = m.styles.selected.Render(cancelBtn)
+	} else {
+		confirmBtn = m.styles.selected.Render(confirmBtn)
+	}
+
+	commandLines := strings.Split(ansi.Hardwrap(m.apollon.command, 72, true), "\n")
+	lines := []string{
+		m.styles.popupTitle.Render("Confirm Apollon Drain"),
+		fmt.Sprintf("Filesystem: %s (id %d)", m.apollon.fsPath, m.apollon.fsID),
+		fmt.Sprintf("Instance:   %s", m.styles.value.Render(m.apollon.instance)),
+		"",
+		"The following command will be executed on eosops:",
+		"",
+	}
+	for _, line := range commandLines {
+		lines = append(lines, m.styles.value.Render(line))
+	}
+	lines = append(lines,
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+		"",
+		m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc close"),
+	)
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
 		Padding(1, 2).
 		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

@@ -315,6 +315,16 @@ func TestNamespaceViewFitsWindowHeight(t *testing.T) {
 	}
 }
 
+func TestFilesystemFooterShowsApollonHotkey(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "x apollon") {
+		t.Fatalf("expected filesystem footer to advertise Apollon drain hotkey, got: %s", footer)
+	}
+}
+
 func TestVisibleFSTsFilterByStatus(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsts = []eos.FstRecord{
@@ -2688,6 +2698,132 @@ func TestFSConfigStatusEditOpensOnEnter(t *testing.T) {
 	// The selection should start at index 0 ("rw") since that's the current value.
 	if m.fsEdit.selected != 0 {
 		t.Errorf("expected fsEdit.selected=0 (rw), got %d", m.fsEdit.selected)
+	}
+}
+
+func TestApollonDrainHotkeyOpensConfirmation(t *testing.T) {
+	m := NewModel(nil, "ssh eospilot  →  root@eospilot-ns-02.cern.ch", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystemsLoading = false
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+	m.fsSelected = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(model)
+
+	if !m.apollon.active {
+		t.Fatalf("expected Apollon confirmation popup to open")
+	}
+	if m.apollon.instance != "eospilot" {
+		t.Fatalf("expected instance to come from original ssh target, got %q", m.apollon.instance)
+	}
+	want := "ssh root@eosops.cern.ch /root/repair/apollon/apollon-cli drain --fsid 7 --instance eospilot"
+	if m.apollon.command != want {
+		t.Fatalf("unexpected Apollon command: got %q want %q", m.apollon.command, want)
+	}
+}
+
+func TestApollonDrainHotkeyShowsAlertWhenInstanceUnknown(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystemsLoading = false
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected missing-instance Apollon action to show an alert")
+	}
+	if !strings.Contains(m.alert.message, "Cannot determine Apollon instance") {
+		t.Fatalf("unexpected alert message: %q", m.alert.message)
+	}
+}
+
+func TestApollonDrainConfirmSupportsGAndGNavigation(t *testing.T) {
+	m := NewModel(nil, "ssh eospublic  →  root@eospublic-ns-02.cern.ch", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.apollon.button != buttonContinue {
+		t.Fatalf("expected G to jump to confirm button, got %d", m.apollon.button)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updated.(model)
+	if m.apollon.button != buttonCancel {
+		t.Fatalf("expected g to jump to cancel button, got %d", m.apollon.button)
+	}
+}
+
+func TestApollonDrainConfirmReturnsCommand(t *testing.T) {
+	m := NewModel(nil, "ssh eospublic  →  root@eospublic-ns-02.cern.ch", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 7, Host: "fst01", Path: "/data/01", ConfigStatus: "rw", Active: "online"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.apollon.active {
+		t.Fatalf("expected Apollon popup to close after confirming")
+	}
+	if cmd == nil {
+		t.Fatalf("expected Apollon confirmation to return a command")
+	}
+	if !strings.Contains(m.status, "Starting Apollon drain") {
+		t.Fatalf("expected status update while starting Apollon drain, got %q", m.status)
+	}
+}
+
+func TestApollonDrainResultMsgShowsAlertOnError(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, _ := m.Update(apollonDrainResultMsg{
+		fsID:     7,
+		instance: "eospublic",
+		output:   "permission denied",
+		err:      fmt.Errorf("exit status 255"),
+	})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected Apollon error result to show alert")
+	}
+	if !strings.Contains(m.alert.message, "permission denied") {
+		t.Fatalf("expected alert to include command output, got %q", m.alert.message)
+	}
+}
+
+func TestApollonDrainResultMsgRefreshesFileSystemsOnSuccess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(apollonDrainResultMsg{
+		fsID:     7,
+		instance: "eospublic",
+	})
+	m = updated.(model)
+
+	if !strings.Contains(m.status, "Apollon drain started for filesystem 7 on eospublic") {
+		t.Fatalf("unexpected success status: %q", m.status)
+	}
+	if cmd == nil {
+		t.Fatalf("expected success to schedule a filesystem refresh")
 	}
 }
 

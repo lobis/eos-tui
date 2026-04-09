@@ -152,6 +152,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.edit.active {
 			return m.updateSpaceStatusEditKeys(msg)
 		}
+		if m.apollon.active {
+			return m.updateApollonDrainKeys(msg)
+		}
 		if m.fsEdit.active {
 			return m.updateFSConfigStatusEditKeys(msg)
 		}
@@ -398,6 +401,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Filesystem %d configstatus updated", m.fsEdit.fsID)
 			return m, loadFileSystemsCmd(m.client)
 		}
+	case apollonDrainResultMsg:
+		if msg.err != nil {
+			detail := fmt.Sprintf("Apollon drain failed for filesystem %d on %s: %v", msg.fsID, msg.instance, msg.err)
+			if msg.output != "" {
+				detail += "\n\n" + msg.output
+			}
+			m.alert = errorAlert{
+				active:  true,
+				message: detail,
+			}
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Apollon drain started for filesystem %d on %s", msg.fsID, msg.instance)
+		return m, loadFileSystemsCmd(m.client)
 	case ioShapingLoadedMsg:
 		m.ioShapingLoading = false
 		if msg.err != nil {
@@ -515,6 +532,8 @@ func (m model) View() string {
 		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
 	} else if m.ioShapingEdit.active {
 		body = m.renderOverlay(body, m.renderIOShapingPolicyEditPopup(), bodyTotalHeight)
+	} else if m.apollon.active {
+		body = m.renderOverlay(body, m.renderApollonDrainConfirmPopup(), bodyTotalHeight)
 	} else if m.fsEdit.active {
 		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyTotalHeight)
 	} else if m.alert.active {

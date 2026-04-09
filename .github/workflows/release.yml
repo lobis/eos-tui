@@ -146,9 +146,86 @@ jobs:
           name: release-${{ matrix.asset_suffix }}
           path: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
 
+  build-rpm:
+    name: Build RPM AlmaLinux ${{ matrix.alma_major }} ${{ matrix.arch }}
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - alma_major: "9"
+            arch: x86_64
+            platform: linux/amd64
+            go_bootstrap_arch: amd64
+          - alma_major: "9"
+            arch: aarch64
+            platform: linux/arm64
+            go_bootstrap_arch: arm64
+          - alma_major: "10"
+            arch: x86_64
+            platform: linux/amd64
+            go_bootstrap_arch: amd64
+          - alma_major: "10"
+            arch: aarch64
+            platform: linux/arm64
+            go_bootstrap_arch: arm64
+    steps:
+      - name: Set up QEMU
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Prepare RPM sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          rm -rf packaging
+          mkdir -p packaging/SOURCES packaging/SPECS
+          git archive --format=tar.gz --prefix="${APP_NAME}-${version}/" -o "packaging/SOURCES/${APP_NAME}-${version}.tar.gz" HEAD
+          cp "${APP_NAME}.spec" packaging/SPECS/
+
+      - name: Build RPM
+        shell: bash
+        env:
+          ALMA_IMAGE: almalinux:${{ matrix.alma_major }}
+          CONTAINER_PLATFORM: ${{ matrix.platform }}
+          GO_BOOTSTRAP_ARCH: ${{ matrix.go_bootstrap_arch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          go_version="$(awk '/^go / { print $2 }' go.mod)"
+          docker run --rm \
+            --platform "${CONTAINER_PLATFORM}" \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            "${ALMA_IMAGE}" \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y tar gzip rpm-build
+              curl -fsSL "https://go.dev/dl/go'"${go_version}"'.linux-'"${GO_BOOTSTRAP_ARCH}"'.tar.gz" -o /tmp/go.tgz
+              rm -rf /usr/local/go
+              tar -C /usr/local -xzf /tmp/go.tgz
+              export PATH=/usr/local/go/bin:$PATH
+              rpmbuild \
+                --define "_topdir /workspace/packaging" \
+                --define "pkg_version '"${version}"'" \
+                --define "pkg_release 1" \
+                -bb /workspace/packaging/SPECS/'"${APP_NAME}"'.spec
+            '
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-rpm-el${{ matrix.alma_major }}-${{ matrix.arch }}
+          path: packaging/RPMS/*/*.rpm
+
   github-release:
     name: Create GitHub release
-    needs: build-native
+    needs: [build-native, build-rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write

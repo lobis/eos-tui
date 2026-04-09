@@ -53,6 +53,13 @@ The Linux release binary is built with `CGO_ENABLED=0`, so the same artifact is
 intended to work across Ubuntu and AlmaLinux 9/10 without separate distro-specific
 builds.
 
+Each release also attaches RPM packages built from `eos-tui.spec` for:
+
+- AlmaLinux 9 x86_64
+- AlmaLinux 9 aarch64
+- AlmaLinux 10 x86_64
+- AlmaLinux 10 aarch64
+
 The workflow also attaches a `SHA256SUMS.txt` file to the GitHub Release so the
 artifacts can be verified after download.
 

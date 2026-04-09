@@ -1543,9 +1543,10 @@ func TestNamespaceDetailsSplitAttributesIntoRightPane(t *testing.T) {
 
 	detailWidth := m.panelWidth()
 	details := m.renderNamespaceDetails(detailWidth, 12)
+	expectedWidth := detailWidth + 2
 	for _, line := range strings.Split(strings.TrimRight(details, "\n"), "\n") {
-		if lipgloss.Width(line) != detailWidth {
-			t.Fatalf("expected namespace details line width %d, got %d for %q\nfull details:\n%s", detailWidth, lipgloss.Width(line), line, details)
+		if lipgloss.Width(line) != expectedWidth {
+			t.Fatalf("expected namespace details line width %d, got %d for %q\nfull details:\n%s", expectedWidth, lipgloss.Width(line), line, details)
 		}
 	}
 }

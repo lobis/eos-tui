@@ -1,0 +1,311 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: eos-tui
+  HOMEBREW_TAP_REPO: lobis/homebrew-tap
+
+jobs:
+  verify:
+    name: Verify release tag and Go checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must match vMAJOR.MINOR.PATCH, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        env:
+          EOS_TEST_SKIP: "1"
+        run: go test ./...
+
+      - name: Build repository
+        run: go build ./...
+
+  build-native:
+    name: Build ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: linux_amd64
+          - label: Linux arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: linux_arm64
+          - label: macOS amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: macos_amd64
+          - label: Windows amd64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            exe_suffix: .exe
+            archive_ext: zip
+            asset_suffix: windows_amd64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXE_SUFFIX: ${{ matrix.exe_suffix }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "dist/${APP_NAME}${EXE_SUFFIX}" .
+
+      - name: Package archive
+        shell: bash
+        env:
+          EXE_SUFFIX: ${{ matrix.exe_suffix }}
+          ARCHIVE_PATH: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
+        run: |
+          set -euo pipefail
+          export BINARY_PATH="dist/${APP_NAME}${EXE_SUFFIX}"
+          python - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          binary_path = Path(os.environ["BINARY_PATH"])
+          archive_path = Path(os.environ["ARCHIVE_PATH"])
+          archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+          if archive_path.suffix == ".zip":
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              zf.write(binary_path, arcname=binary_path.name)
+          else:
+            with tarfile.open(archive_path, "w:gz") as tf:
+              tf.add(binary_path, arcname=binary_path.name)
+          PY
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.asset_suffix }}
+          path: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
+
+  build-rpm:
+    name: Build RPM AlmaLinux ${{ matrix.alma_major }} ${{ matrix.arch }}
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - alma_major: "9"
+            arch: x86_64
+            platform: linux/amd64
+            go_bootstrap_arch: amd64
+          - alma_major: "9"
+            arch: aarch64
+            platform: linux/arm64
+            go_bootstrap_arch: arm64
+          - alma_major: "10"
+            arch: x86_64
+            platform: linux/amd64
+            go_bootstrap_arch: amd64
+          - alma_major: "10"
+            arch: aarch64
+            platform: linux/arm64
+            go_bootstrap_arch: arm64
+    steps:
+      - name: Set up QEMU
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Prepare RPM sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          rm -rf packaging
+          mkdir -p packaging/SOURCES packaging/SPECS
+          git archive --format=tar.gz --prefix="${APP_NAME}-${version}/" -o "packaging/SOURCES/${APP_NAME}-${version}.tar.gz" HEAD
+          cp "${APP_NAME}.spec" packaging/SPECS/
+
+      - name: Build RPM
+        shell: bash
+        env:
+          ALMA_IMAGE: almalinux:${{ matrix.alma_major }}
+          CONTAINER_PLATFORM: ${{ matrix.platform }}
+          GO_BOOTSTRAP_ARCH: ${{ matrix.go_bootstrap_arch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          go_version="$(awk '/^go / { print $2 }' go.mod)"
+          docker run --rm \
+            --platform "${CONTAINER_PLATFORM}" \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            "${ALMA_IMAGE}" \
+            bash -lc '
+              set -euo pipefail
+              dnf install -y tar gzip rpm-build
+              curl -fsSL "https://go.dev/dl/go'"${go_version}"'.linux-'"${GO_BOOTSTRAP_ARCH}"'.tar.gz" -o /tmp/go.tgz
+              rm -rf /usr/local/go
+              tar -C /usr/local -xzf /tmp/go.tgz
+              export PATH=/usr/local/go/bin:$PATH
+              rpmbuild \
+                --define "_topdir /workspace/packaging" \
+                --define "pkg_version '"${version}"'" \
+                --define "pkg_release 1" \
+                -bb /workspace/packaging/SPECS/'"${APP_NAME}"'.spec
+            '
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-rpm-el${{ matrix.alma_major }}-${{ matrix.arch }}
+          path: packaging/RPMS/*/*.rpm
+
+  github-release:
+    name: Create GitHub release
+    needs: [build-native, build-rpm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update tap formula
+        shell: bash
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOMEBREW_TAP_GITHUB_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_TAP_GITHUB_TOKEN is not configured; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+
+          curl -fsSL -o /tmp/eos-tui-source.tar.gz "${source_url}"
+          source_sha="$(sha256sum /tmp/eos-tui-source.tar.gz | awk '{print $1}')"
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" /tmp/homebrew-tap
+          mkdir -p /tmp/homebrew-tap/Formula
+
+          cat > /tmp/homebrew-tap/Formula/eos-tui.rb <<EOF
+          class EosTui < Formula
+            desc "Terminal UI for monitoring and managing EOS storage clusters"
+            homepage "https://github.com/${GITHUB_REPOSITORY}"
+            url "${source_url}"
+            version "${version}"
+            sha256 "${source_sha}"
+            license "MIT"
+            head "https://github.com/${GITHUB_REPOSITORY}.git", branch: "main"
+
+            depends_on "go" => :build
+
+            def install
+              system "go", "build", *std_go_args(ldflags: "-s -w"), "."
+            end
+
+            test do
+              assert_match "Usage:", shell_output("#{bin}/eos-tui --help 2>&1")
+            end
+          end
+          EOF
+
+          cd /tmp/homebrew-tap
+          if git diff --quiet -- Formula/eos-tui.rb; then
+            echo "Homebrew formula already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/eos-tui.rb
+          git commit -m "Update eos-tui to ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

@@ -741,7 +741,18 @@ func TestLogOverlayDoesNotInsertBlankLineUnderTitle(t *testing.T) {
 	if len(lines) < 3 {
 		t.Fatalf("expected log overlay to render at least three lines, got:\n%s", rendered)
 	}
-	if strings.TrimSpace(lines[1]) == "" {
+
+	titleIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, "MGM Log") {
+			titleIdx = i
+			break
+		}
+	}
+	if titleIdx < 0 || titleIdx+1 >= len(lines) {
+		t.Fatalf("expected log overlay to contain a title row followed by content, got:\n%s", rendered)
+	}
+	if strings.TrimSpace(lines[titleIdx+1]) == "" {
 		t.Fatalf("expected first content line to follow title without an empty spacer, got:\n%s", rendered)
 	}
 }
@@ -805,6 +816,75 @@ func TestLogOverlayBottomAlignsShortContent(t *testing.T) {
 	}
 }
 
+func TestLogOverlayDoesNotLeaveBlankRowsBeforeBottomBorder(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two", "three"},
+		filtered: []string{"one", "two", "three"},
+	}
+	m.log.vp.SetContent("one\ntwo\nthree")
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	bottomIdx := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], "└") {
+			bottomIdx = i
+			break
+		}
+	}
+	if bottomIdx < 1 {
+		t.Fatalf("expected boxed log overlay bottom border, got:\n%s", rendered)
+	}
+
+	lastContentIdx := bottomIdx - 1
+	for lastContentIdx >= 0 {
+		inner := strings.TrimSpace(strings.Trim(lines[lastContentIdx], "│ "))
+		if inner != "" {
+			break
+		}
+		lastContentIdx--
+	}
+	if lastContentIdx < 0 || !strings.Contains(lines[lastContentIdx], "three") {
+		t.Fatalf("expected newest log line to sit directly above the bottom border, got:\n%s", rendered)
+	}
+}
+
+func TestBoxedLogOverlayShrinksToShortContent(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+	}
+	m.log.vp.SetContent("one\ntwo")
+
+	rendered := m.renderLogOverlay(18)
+	if got := lipgloss.Height(rendered); got != 18 {
+		t.Fatalf("expected boxed log overlay block height 18, got %d", got)
+	}
+
+	contentLines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	borderCount := 0
+	for _, line := range contentLines {
+		if strings.Contains(line, "┌") || strings.Contains(line, "└") {
+			borderCount++
+		}
+	}
+	if borderCount != 2 {
+		t.Fatalf("expected compact boxed log overlay to render exactly one box, got:\n%s", rendered)
+	}
+}
+
 func TestLogOverlayTogglePlainModeWithF(t *testing.T) {
 	m := NewModel(nil, "test", "/").(model)
 	m.log = logOverlay{active: true, tailing: true}
@@ -834,6 +914,9 @@ func TestLogOverlayFooterShowsPlainModeToggle(t *testing.T) {
 	if !strings.Contains(footer, "t tail off") {
 		t.Fatalf("expected boxed log footer to advertise tail toggle, got: %s", footer)
 	}
+	if !strings.Contains(footer, "w wrap on") {
+		t.Fatalf("expected boxed log footer to advertise wrap toggle, got: %s", footer)
+	}
 
 	m.log.plain = true
 	footer = m.renderFooter()
@@ -842,9 +925,13 @@ func TestLogOverlayFooterShowsPlainModeToggle(t *testing.T) {
 	}
 
 	m.log.tailing = false
+	m.log.wrap = true
 	footer = m.renderFooter()
 	if !strings.Contains(footer, "t tail on") {
 		t.Fatalf("expected paused log footer to advertise tail-on toggle, got: %s", footer)
+	}
+	if !strings.Contains(footer, "w wrap off") {
+		t.Fatalf("expected wrapped log footer to advertise wrap-off toggle, got: %s", footer)
 	}
 }
 
@@ -899,6 +986,46 @@ func TestLogOverlayToggleTailingWithT(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected re-enabling log tailing to schedule reload")
+	}
+}
+
+func TestLogOverlayToggleWrapWithW(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 40
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		allLines: []string{"abcdefghijklmnopqrstuvwxyz0123456789"},
+		filtered: []string{"abcdefghijklmnopqrstuvwxyz0123456789"},
+	}
+	m.refreshLogViewportContent(false)
+
+	before := m.log.vp.TotalLineCount()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	m = updated.(model)
+	if !m.log.wrap {
+		t.Fatalf("expected w to enable log wrapping")
+	}
+	if got := m.log.vp.TotalLineCount(); got <= before {
+		t.Fatalf("expected wrapped content to use more viewport lines, before=%d after=%d", before, got)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	m = updated.(model)
+	if m.log.wrap {
+		t.Fatalf("expected second w to disable log wrapping")
+	}
+}
+
+func TestLogOverlayCtrlCClosesOverlay(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.log = logOverlay{active: true, tailing: true}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(model)
+	if m.log.active {
+		t.Fatalf("expected ctrl+c to close the log overlay")
 	}
 }
 

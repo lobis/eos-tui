@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -526,6 +525,9 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Filter input mode: type to grep, enter to apply, esc to cancel.
 	if m.log.filtering {
 		switch msg.String() {
+		case "ctrl+c":
+			m.log = logOverlay{}
+			return m, nil
 		case "esc":
 			m.log.filtering = false
 			m.log.input.Blur()
@@ -534,14 +536,14 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.log.input.Blur()
 			m.log.filter = m.log.input.Value()
 			m.log.filtered = applyLogFilter(m.log.allLines, m.log.filter)
-			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.refreshLogViewportContent(false)
 			m.log.vp.GotoBottom()
 		default:
 			var cmd tea.Cmd
 			m.log.input, cmd = m.log.input.Update(msg)
 			// Live filter as user types.
 			m.log.filtered = applyLogFilter(m.log.allLines, m.log.input.Value())
-			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.refreshLogViewportContent(false)
 			m.log.vp.GotoBottom()
 			return m, cmd
 		}
@@ -550,7 +552,7 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal navigation.
 	switch msg.String() {
-	case "esc", "q":
+	case "ctrl+c", "esc", "q":
 		m.log = logOverlay{}
 	case "/":
 		m.log.filtering = true
@@ -558,6 +560,10 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.log.input.Focus()
 	case "f":
 		m.log.plain = !m.log.plain
+		m.refreshLogViewportContent(true)
+	case "w":
+		m.log.wrap = !m.log.wrap
+		m.refreshLogViewportContent(true)
 	case "t":
 		m.log.tailing = !m.log.tailing
 		if m.log.tailing {

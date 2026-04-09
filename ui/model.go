@@ -125,6 +125,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Height > 0 {
 			m.height = msg.Height
 		}
+		if m.log.active && m.log.wrap {
+			m.refreshLogViewportContent(true)
+		}
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
 		// Log overlay intercepts all keys when active.
@@ -442,7 +445,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevOffset := m.log.vp.YOffset
 			m.log.allLines = msg.lines
 			m.log.filtered = applyLogFilter(msg.lines, m.log.filter)
-			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+			m.refreshLogViewportContent(false)
 			if wasAtBottom {
 				m.log.vp.GotoBottom()
 			} else {

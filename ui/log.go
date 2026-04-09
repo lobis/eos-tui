@@ -7,6 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // selectedHostForView returns the hostname of the currently selected row in the
@@ -80,21 +82,63 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(loadLogCmd(m.client, host, filePath), logTickCmd())
 }
 
+func (m model) logViewportWidth() int {
+	width := m.contentWidth()
+	if !m.log.plain {
+		width -= 4 // panel border + horizontal padding
+	}
+	return max(1, width)
+}
+
+func renderWrappedLogLines(lines []string, width int, wrap bool) []string {
+	if !wrap || width <= 0 {
+		return append([]string(nil), lines...)
+	}
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		wrapped := ansi.Hardwrap(line, width, true)
+		out = append(out, strings.Split(wrapped, "\n")...)
+	}
+	return out
+}
+
+func (m *model) refreshLogViewportContent(preserveOffset bool) {
+	width := m.logViewportWidth()
+	wasAtBottom := m.log.vp.AtBottom()
+	prevOffset := m.log.vp.YOffset
+	m.log.vp.Width = width
+	rendered := renderWrappedLogLines(m.log.filtered, width, m.log.wrap)
+	m.log.vp.SetContent(strings.Join(rendered, "\n"))
+	if !preserveOffset {
+		return
+	}
+	if wasAtBottom {
+		m.log.vp.GotoBottom()
+		return
+	}
+	maxOffset := max(0, m.log.vp.TotalLineCount()-m.log.vp.Height)
+	m.log.vp.SetYOffset(min(prevOffset, maxOffset))
+}
+
 func (m model) renderLogOverlay(height int) string {
 	width := m.contentWidth()
-	vpWidth := width - 4 // panel border + padding
-	if m.log.plain {
-		vpWidth = width
-	}
+	vpWidth := m.logViewportWidth()
 
 	// Keep viewport sized to available space.
 	filterHeight := 0
 	if m.log.filtering {
 		filterHeight = 2
 	}
-	vpHeight := max(4, height-3-filterHeight) // title line + border (2) [+ filter input block]
+	maxBoxViewportHeight := max(1, height-3-filterHeight) // title line + border (2) [+ filter input block]
+	vpHeight := maxBoxViewportHeight
 	if m.log.plain {
 		vpHeight = max(4, height-filterHeight)
+	} else if m.log.err != nil && !m.log.loading {
+		vpHeight = 1
+	} else {
+		contentLines := max(1, m.log.vp.TotalLineCount())
+		vpHeight = min(contentLines, maxBoxViewportHeight)
 	}
 	m.log.vp.Width = vpWidth
 	m.log.vp.Height = vpHeight
@@ -135,25 +179,32 @@ func (m model) renderLogOverlay(height int) string {
 	}
 
 	inner := strings.Join(lines, "\n")
-	return m.styles.panel.Width(width).Render(inner)
+	panel := m.styles.panel.Width(width).Render(inner)
+	panelHeight := lipgloss.Height(panel)
+	if panelHeight >= height {
+		return panel
+	}
+	return strings.Repeat("\n", height-panelHeight) + panel
 }
 
 func (m model) renderLogViewport() string {
 	view := m.log.vp.View()
-	totalLines := m.log.vp.TotalLineCount()
-	if totalLines <= 0 || totalLines >= m.log.vp.Height {
+	if m.log.plain {
 		return view
 	}
 
-	rawLines := strings.Split(view, "\n")
-	if len(rawLines) > totalLines {
-		rawLines = rawLines[:totalLines]
+	lines := strings.Split(view, "\n")
+	for len(lines) > 0 {
+		inner := strings.TrimSpace(strings.Trim(lines[len(lines)-1], "│ "))
+		if inner != "" {
+			break
+		}
+		lines = lines[:len(lines)-1]
 	}
-	padLines := m.log.vp.Height - totalLines
-	if padLines <= 0 {
-		return strings.Join(rawLines, "\n")
+	if len(lines) == 0 {
+		return ""
 	}
-	return strings.Repeat("\n", padLines) + strings.Join(rawLines, "\n")
+	return strings.Join(lines, "\n")
 }
 
 // applyLogFilter returns lines that case-insensitively contain filter.

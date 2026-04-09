@@ -1,0 +1,268 @@
+package ui
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+func (m model) renderHeader() string {
+	type tabDef struct {
+		label string
+		view  viewID
+	}
+	tabs := []tabDef{
+		{"1 MGM", viewMGM},
+		{"2 QDB", viewQDB},
+		{"3 FST", viewFST},
+		{"4 FS", viewFileSystems},
+		{"5 Namespace", viewNamespace},
+		{"6 Spaces", viewSpaces},
+		{"7 NS Stats", viewNamespaceStats},
+		{"8 Space Status", viewSpaceStatus},
+		{"9 IO Traffic", viewIOShaping},
+		{"0 Groups", viewGroups},
+	}
+
+	parts := []string{m.styles.header.Render("EOS TUI"), "  "}
+	for i, t := range tabs {
+		if i > 0 {
+			parts = append(parts, " ")
+		}
+		if m.activeView == t.view {
+			parts = append(parts, m.styles.tabActive.Render(t.label))
+		} else {
+			parts = append(parts, m.styles.tab.Render(t.label))
+		}
+	}
+
+	left := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+	right := m.styles.label.Render("target ") + m.styles.value.Render(m.endpoint)
+	spacerWidth := max(1, m.contentWidth()-lipgloss.Width(left)-lipgloss.Width(right))
+
+	return lipgloss.JoinHorizontal(lipgloss.Left, left, strings.Repeat(" ", spacerWidth), right)
+}
+
+func (m model) renderFooter() string {
+	if m.log.active {
+		filter := ""
+		if m.log.filter != "" {
+			filter = fmt.Sprintf("  •  filter: %q", m.log.filter)
+		}
+		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  r reload  •  esc close%s", filter)
+		if m.log.filtering {
+			keys = "type to filter  •  enter apply  •  esc cancel"
+		}
+		return m.styles.status.Width(m.contentWidth()).Render(keys)
+	}
+
+	hostViews := m.activeView == viewMGM || m.activeView == viewQDB ||
+		m.activeView == viewFST || m.activeView == viewFileSystems
+	var keys string
+	switch m.activeView {
+	case viewNamespace:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ navigate  •  enter open  •  backspace back  •  g root  •  q quit"
+	case viewIOShaping:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  a apps  •  u users  •  g groups  •  r refresh  •  q quit"
+	case viewFileSystems:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  enter edit configstatus  •  l logs  •  s shell  •  q quit"
+	default:
+		keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  q quit"
+		if hostViews {
+			keys = "tab/1-0 switch  •  ↑↓/jk scroll  •  ctrl+d/u half-page  •  ←→ column  •  S sort  •  /filter  •  l logs  •  s shell  •  q quit"
+		}
+	}
+
+	return m.styles.status.Width(m.contentWidth()).Render(keys)
+}
+
+func (m model) renderBody(availableHeight int) string {
+	switch m.activeView {
+	case viewMGM:
+		return m.renderMGMView(availableHeight)
+	case viewQDB:
+		return m.renderQDBView(availableHeight)
+	case viewFST:
+		return m.renderFSTView(availableHeight)
+	case viewFileSystems:
+		return m.renderFileSystemsView(availableHeight)
+	case viewNamespace:
+		return m.renderNamespaceView(availableHeight)
+	case viewSpaces:
+		return m.renderSpacesView(availableHeight)
+	case viewNamespaceStats:
+		return m.renderNamespaceStatsView(availableHeight)
+	case viewSpaceStatus:
+		return m.renderSpaceStatusView(availableHeight)
+	case viewIOShaping:
+		return m.renderIOShapingView(availableHeight)
+	case viewGroups:
+		return m.renderGroupsView(availableHeight)
+	default:
+		return ""
+	}
+}
+
+func (m model) renderOverlay(body string, popup string, height int) string {
+	bodyLines := strings.Split(body, "\n")
+	popupLines := strings.Split(popup, "\n")
+	width := m.contentWidth()
+
+	for len(bodyLines) < height {
+		bodyLines = append(bodyLines, strings.Repeat(" ", width))
+	}
+
+	popupHeight := len(popupLines)
+	popupWidth := 0
+	for _, line := range popupLines {
+		popupWidth = max(popupWidth, lipgloss.Width(line))
+	}
+	popupWidth = min(popupWidth, width)
+	topPad := max(0, (height-popupHeight)/2)
+	leftPad := max(0, (width-popupWidth)/2)
+
+	for i := 0; i < popupHeight && topPad+i < len(bodyLines); i++ {
+		bodyLine := padVisibleWidth(bodyLines[topPad+i], width)
+		popupLine := padVisibleWidth(popupLines[i], popupWidth)
+		left := ansi.Cut(bodyLine, 0, leftPad)
+		right := ansi.Cut(bodyLine, leftPad+popupWidth, width)
+		bodyLines[topPad+i] = left + popupLine + right
+	}
+
+	if len(bodyLines) > height {
+		bodyLines = bodyLines[:height]
+	}
+	return strings.Join(bodyLines, "\n")
+}
+
+func (m model) metricLine(leftLabel, leftValue, rightLabel, rightValue string) string {
+	left := m.styles.label.Render(leftLabel+" ") + m.styles.value.Render(leftValue)
+	if rightLabel == "" {
+		return left
+	}
+
+	right := m.styles.label.Render(rightLabel+" ") + m.styles.value.Render(rightValue)
+	return fmt.Sprintf("%-42s %s", left, right)
+}
+
+func (m model) contentWidth() int {
+	return max(20, m.width-2)
+}
+
+func (m model) renderSimpleHeaderRow(columns []tableColumn, labels []string) string {
+	cells := make([]string, len(columns))
+	for i, col := range columns {
+		label := ""
+		if i < len(labels) {
+			label = labels[i]
+		}
+		var cell string
+		if col.right {
+			cell = padLeft(label, col.min)
+		} else {
+			cell = padRight(label, col.min)
+		}
+		cells[i] = m.styles.label.Render(cell)
+	}
+	return strings.Join(cells, " ")
+}
+
+func (m model) renderSelectableHeaderRow(columns []tableColumn, labels []string, selected int, sortState sortState, filterState filterState) string {
+	cells := make([]string, 0, len(columns))
+	for i, column := range columns {
+		label := ""
+		if i < len(labels) {
+			label = labels[i]
+		}
+		if sortState.column == i {
+			if sortState.desc {
+				label += "↓"
+			} else {
+				label += "↑"
+			}
+		}
+		if filterState.filters[i] != "" {
+			label += "*"
+		}
+		if i == selected {
+			label = "[" + label + "]"
+		}
+		cell := padRight(label, column.min)
+		if i == selected {
+			cell = m.styles.selected.Render(cell)
+		} else {
+			cell = m.styles.label.Render(cell)
+		}
+		cells = append(cells, cell)
+	}
+	return strings.Join(cells, " ")
+}
+
+// renderFilterSummary returns a line showing all active filters (for display
+// below the column header row).  labelFn maps column index → label string.
+func (m model) renderFilterSummary(filters map[int]string, labelFn func(int) string) string {
+	cols := make([]int, 0, len(filters))
+	for col, v := range filters {
+		if v != "" {
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 {
+		return ""
+	}
+	sort.Ints(cols)
+	parts := make([]string, 0, len(cols))
+	for _, col := range cols {
+		parts = append(parts, m.styles.label.Render(labelFn(col)+"=")+m.styles.value.Render(filters[col]))
+	}
+	return m.styles.label.Render("active filters: ") + strings.Join(parts, m.styles.status.Render("  •  "))
+}
+
+func (m model) renderFilterPopup() string {
+	title := "Filter " + m.activeFilterColumnLabel()
+	if m.popup.view == viewFileSystems {
+		title = "Filter " + m.fsFilterColumnLabel()
+	}
+
+	contentWidth := min(80, max(40, m.contentWidth()-8))
+	inputView := m.popup.input.View()
+	tableView := m.popup.table.View()
+	hint := m.styles.status.Render("Enter apply selected value • Esc cancel")
+
+	box := lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.styles.header.Render(title),
+		"",
+		inputView,
+		"",
+		tableView,
+		"",
+		hint,
+	)
+
+	return m.styles.panelDim.Width(contentWidth).Render(box)
+}
+
+func padVisibleWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	w := lipgloss.Width(s)
+	if w >= width {
+		return ansi.Cut(s, 0, width)
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+func filterValueLabel(current string, active bool, input string) string {
+	if active {
+		return fmt.Sprintf("%q*", input)
+	}
+	if current == "" {
+		return "\"\""
+	}
+	return fmt.Sprintf("%q", current)
+}

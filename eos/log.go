@@ -78,10 +78,9 @@ func (c *Client) logCommand(args []string) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	var command string
 	if target := c.effectiveSSHTarget(); target != "" {
-		// Log as a fully copy-pasteable SSH invocation.
-		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellQuote(shellJoin(args)))
+		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellDisplayJoin(args))
 	} else {
-		command = strings.Join(args, " ")
+		command = shellDisplayJoin(args)
 	}
 	_, _ = f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, command))
 }

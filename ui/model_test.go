@@ -1493,6 +1493,87 @@ func TestNamespaceDetailsRenderAttributes(t *testing.T) {
 	}
 }
 
+func TestNamespaceDetailsSplitAttributesIntoRightPane(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 28
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/eos/dev/example"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+		{Key: "user.comment", Value: "hello"},
+	}
+	m.splash.active = false
+
+	view := m.View()
+	if strings.Count(view, "Selected Namespace Entry") != 1 {
+		t.Fatalf("expected metadata pane header once, got:\n%s", view)
+	}
+	if strings.Count(view, "Attributes") != 1 {
+		t.Fatalf("expected attributes pane header once, got:\n%s", view)
+	}
+	if !strings.Contains(view, "│ Selected Namespace Entry") || !strings.Contains(view, "│ Attributes") {
+		t.Fatalf("expected namespace details to render metadata and attrs side by side, got:\n%s", view)
+	}
+	if strings.Count(view, "┌") < 3 {
+		t.Fatalf("expected namespace view to render a separate attrs pane, got:\n%s", view)
+	}
+}
+
+func TestNamespaceDetailsSplitStaysNearMiddleWhileFittingAttrs(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "example", Path: "/eos/dev/example", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsSelected = 0
+	m.nsAttrsTargetPath = "/eos/dev/example"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.long.attribute.name", Value: "value"},
+	}
+
+	const width = 120
+	gap := 1
+	available := width - gap
+	leftWidth := available / 2
+	rightWidth := available - leftWidth
+	leftNatural := m.namespaceMetadataNaturalWidth()
+	rightNatural := m.namespaceAttrsNaturalWidth()
+	if leftNatural > leftWidth {
+		grow := min(leftNatural-leftWidth, max(0, rightWidth-28))
+		leftWidth += grow
+		rightWidth -= grow
+	}
+	if rightNatural > rightWidth {
+		grow := min(rightNatural-rightWidth, max(0, leftWidth-38))
+		rightWidth += grow
+		leftWidth -= grow
+	}
+
+	if diff := max(leftWidth, rightWidth) - min(leftWidth, rightWidth); diff > 20 {
+		t.Fatalf("expected namespace split to stay roughly centered, got left=%d right=%d", leftWidth, rightWidth)
+	}
+	if rightWidth < rightNatural {
+		t.Fatalf("expected attrs pane to expand enough to fit natural content, got right=%d natural=%d", rightWidth, rightNatural)
+	}
+}
+
 func TestDirectoryLoadedStartsNamespaceAttrLoad(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.client = &eos.Client{}
@@ -1998,6 +2079,49 @@ func TestGroupsViewDoesNotInsertBlankLineBeforeCommandPanel(t *testing.T) {
 	}
 	if !strings.Contains(view, "Free") {
 		t.Fatalf("expected selected group details to include the Free row, got:\n%s", view)
+	}
+}
+
+func TestNamespaceStatsViewDoesNotInsertBlankLineBeforeCommandPanel(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewNamespaceStats
+	m.commandLog.active = true
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos -j -b ns stat",
+	}
+	m.fstStatsLoading = false
+	m.nsStatsLoading = false
+	m.nodeStats = eos.NodeStats{
+		State:       "OK",
+		ThreadCount: 489,
+		FileCount:   78,
+		DirCount:    19,
+		FileDescs:   553,
+	}
+	m.namespaceStats = eos.NamespaceStats{
+		MasterHost:       "mgm01:1094",
+		TotalFiles:       78,
+		TotalDirectories: 19,
+	}
+	m.splash.active = false
+
+	view := m.View()
+	assertCommandPanelAnchored(t, m, view)
+
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	headerHeight := lipgloss.Height(m.renderHeader())
+	footerHeight := lipgloss.Height(m.renderFooter())
+	middleHeight := max(0, m.height-headerHeight-footerHeight)
+	availableHeight := max(4, middleHeight-2)
+	_, commandHeight := m.splitMainAndCommandHeights(availableHeight)
+	commandTitleLine := headerHeight + (middleHeight - commandHeight) + 1
+	if prev := strings.TrimSpace(lines[commandTitleLine-1]); prev == "" {
+		t.Fatalf("expected no blank spacer line before command panel, got:\n%s", view)
+	}
+	if prevPrev := strings.TrimSpace(lines[commandTitleLine-2]); prevPrev == "" {
+		t.Fatalf("expected no extra blank line between general stats and command panel, got:\n%s", view)
 	}
 }
 

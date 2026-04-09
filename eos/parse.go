@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var shellSafeArgPattern = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
 // stripEOSPreamble removes leading lines that are not part of a JSON payload.
 // EOS commands occasionally emit `* <message>` lines on stdout (e.g. error or
 // info annotations) before or after the JSON.  This function returns the first
@@ -36,6 +38,18 @@ func shellJoin(args []string) string {
 		quoted[i] = shellQuote(arg)
 	}
 	return strings.Join(quoted, " ")
+}
+
+func shellDisplayJoin(args []string) string {
+	display := make([]string, len(args))
+	for i, arg := range args {
+		if arg != "" && shellSafeArgPattern.MatchString(arg) {
+			display[i] = arg
+		} else {
+			display[i] = shellQuote(arg)
+		}
+	}
+	return strings.Join(display, " ")
 }
 
 func toUint64(v any) uint64 {

@@ -17,7 +17,8 @@ func (m model) renderNamespaceView(height int) string {
 		naturalListContent = 4 // Title, blank, header, "(empty)" or hint
 	}
 
-	// Details have dynamic height: 7 base lines + 2 for container/file info + optional link line.
+	// Metadata detail pane has a stable natural height; attrs now live in a
+	// dedicated right-hand pane so they no longer resize the metadata area.
 	naturalDetailContent := 9
 	if selected, ok := m.selectedNamespaceEntry(); ok {
 		if selected.Kind != eos.EntryKindContainer {
@@ -29,12 +30,6 @@ func (m model) renderNamespaceView(height int) string {
 		if m.directory.Self.LinkName != "" {
 			naturalDetailContent = 10
 		}
-	}
-	naturalDetailContent += 3
-	if m.nsAttrsLoading || m.nsAttrsErr != nil || len(m.nsAttrs) == 0 {
-		naturalDetailContent++
-	} else {
-		naturalDetailContent += len(m.nsAttrs)
 	}
 
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, naturalDetailContent)
@@ -92,7 +87,111 @@ func (m model) renderNamespaceList(width, height int) string {
 }
 
 func (m model) renderNamespaceDetails(width, height int) string {
-	contentWidth := panelContentWidth(width)
+	if width < 72 {
+		return m.renderNamespaceMetadataPanel(width, height)
+	}
+
+	gap := 1
+	availableWidth := max(1, width-gap)
+	const minLeftWidth = 38
+	const minRightWidth = 28
+
+	leftWidth := availableWidth / 2
+	rightWidth := availableWidth - leftWidth
+
+	leftNaturalWidth := m.namespaceMetadataNaturalWidth()
+	rightNaturalWidth := m.namespaceAttrsNaturalWidth()
+
+	if leftNaturalWidth > leftWidth {
+		grow := min(leftNaturalWidth-leftWidth, max(0, rightWidth-minRightWidth))
+		leftWidth += grow
+		rightWidth -= grow
+	}
+	if rightNaturalWidth > rightWidth {
+		grow := min(rightNaturalWidth-rightWidth, max(0, leftWidth-minLeftWidth))
+		rightWidth += grow
+		leftWidth -= grow
+	}
+	if leftWidth < minLeftWidth {
+		shift := min(minLeftWidth-leftWidth, max(0, rightWidth-minRightWidth))
+		leftWidth += shift
+		rightWidth -= shift
+	}
+	if rightWidth < minRightWidth {
+		shift := min(minRightWidth-rightWidth, max(0, leftWidth-minLeftWidth))
+		rightWidth += shift
+		leftWidth -= shift
+	}
+
+	left := m.renderNamespaceMetadataPanel(leftWidth, height)
+	right := m.renderNamespaceAttrsPanel(rightWidth, height)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+}
+
+func (m model) namespaceMetadataNaturalWidth() int {
+	target := m.directory.Self
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		target = selected
+	}
+
+	lines := []string{
+		"Selected Namespace Entry",
+		target.Path,
+		m.metricLine("Type", entryTypeLabel(target), "ID", fmt.Sprintf("%d", target.ID)),
+		m.metricLine("UID", fmt.Sprintf("%d", target.UID), "GID", fmt.Sprintf("%d", target.GID)),
+		m.metricLine("Size", entrySize(target), "Inode", fmt.Sprintf("%d", target.Inode)),
+		m.metricLine("Modified", formatTime(target.ModifiedAt), "Changed", formatTime(target.ChangedAt)),
+	}
+	if target.Kind == eos.EntryKindContainer {
+		lines = append(lines,
+			m.metricLine("Tree Files", fmt.Sprintf("%d", target.Files), "Tree Dirs", fmt.Sprintf("%d", target.Containers)),
+			m.metricLine("Tree Size", humanBytes(uint64(max64(target.TreeSize, 0))), "Mode", fmt.Sprintf("0%o", target.Mode)),
+		)
+	} else {
+		lines = append(lines,
+			m.metricLine("Layout", fmt.Sprintf("%d", target.LayoutID), "Locations", fmt.Sprintf("%d", target.Locations)),
+			m.metricLine("Flags", fmt.Sprintf("0x%x", target.Flags), "ETag", fallback(target.ETag, "-")),
+		)
+		if target.LinkName != "" {
+			lines = append(lines, m.metricLine("Link", target.LinkName, "", ""))
+		}
+	}
+
+	maxWidth := 0
+	for _, line := range lines {
+		maxWidth = max(maxWidth, lipgloss.Width(line))
+	}
+	return maxWidth + 4
+}
+
+func (m model) namespaceAttrsNaturalWidth() int {
+	target := m.directory.Self
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		target = selected
+	}
+
+	lines := []string{"Attributes", target.Path}
+	switch {
+	case m.nsAttrsLoading && m.nsAttrsTargetPath == target.Path:
+		lines = append(lines, "Loading attributes...")
+	case m.nsAttrsErr != nil && m.nsAttrsTargetPath == target.Path:
+		lines = append(lines, m.nsAttrsErr.Error())
+	case m.nsAttrsLoaded && m.nsAttrsTargetPath == target.Path && len(m.nsAttrs) == 0:
+		lines = append(lines, "(no attributes)")
+	default:
+		for _, attr := range m.nsAttrs {
+			lines = append(lines, fmt.Sprintf("%s = %s", attr.Key, attr.Value))
+		}
+	}
+
+	maxWidth := 0
+	for _, line := range lines {
+		maxWidth = max(maxWidth, lipgloss.Width(line))
+	}
+	return maxWidth + 4
+}
+
+func (m model) renderNamespaceMetadataPanel(width, height int) string {
 	target := m.directory.Self
 	if selected, ok := m.selectedNamespaceEntry(); ok {
 		target = selected
@@ -123,7 +222,22 @@ func (m model) renderNamespaceDetails(width, height int) string {
 		}
 	}
 
-	lines = append(lines, "", m.styles.label.Render("Attributes"))
+	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) renderNamespaceAttrsPanel(width, height int) string {
+	contentWidth := panelContentWidth(width)
+	target := m.directory.Self
+	if selected, ok := m.selectedNamespaceEntry(); ok {
+		target = selected
+	}
+
+	lines := []string{
+		m.styles.label.Render("Attributes"),
+		truncate(target.Path, max(10, contentWidth)),
+		"",
+	}
+
 	switch {
 	case m.nsAttrsLoading && m.nsAttrsTargetPath == target.Path:
 		lines = append(lines, "Loading attributes...")

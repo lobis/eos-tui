@@ -309,6 +309,63 @@ func TestVisibleFileSystemsSortByUsedDesc(t *testing.T) {
 	}
 }
 
+func TestDescendingNodeSortDoesNotTreatEqualRowsAsLess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.fstSort = sortState{column: int(fstSortNoFS), desc: true}
+
+	node := eos.FstRecord{Host: "fst01", Port: 1095, FileSystemCount: 5}
+	if m.lessNode(node, node) {
+		t.Fatalf("expected identical nodes to compare equal in descending sort")
+	}
+
+	m.fsts = []eos.FstRecord{
+		{Host: "fst-b", Port: 1095, FileSystemCount: 5},
+		{Host: "fst-a", Port: 1095, FileSystemCount: 5},
+	}
+	fsts := m.visibleFSTs()
+	if got := []string{fsts[0].Host, fsts[1].Host}; strings.Join(got, ",") != "fst-a,fst-b" {
+		t.Fatalf("expected host tie-breaker to stay deterministic, got %v", got)
+	}
+}
+
+func TestDescendingFileSystemSortDoesNotTreatEqualRowsAsLess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.fsSort = sortState{column: int(fsSortUsed), desc: true}
+
+	fs := eos.FileSystemRecord{ID: 1, Host: "fst01", Path: "/data/1", CapacityBytes: 100, UsedBytes: 50}
+	if m.lessFileSystem(fs, fs) {
+		t.Fatalf("expected identical filesystems to compare equal in descending sort")
+	}
+
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 2, Host: "fst-b", Path: "/data/2", CapacityBytes: 100, UsedBytes: 50},
+		{ID: 1, Host: "fst-a", Path: "/data/1", CapacityBytes: 100, UsedBytes: 50},
+	}
+	fileSystems := m.visibleFileSystems()
+	if got := []uint64{fileSystems[0].ID, fileSystems[1].ID}; got[0] != 1 || got[1] != 2 {
+		t.Fatalf("expected ID tie-breaker to stay deterministic, got %v", got)
+	}
+}
+
+func TestDescendingGroupSortDoesNotTreatEqualRowsAsLess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.groupSort = sortState{column: int(groupSortNoFS), desc: true}
+
+	group := eos.GroupRecord{Name: "default.0", Status: "online", NoFS: 3}
+	if m.lessGroup(group, group) {
+		t.Fatalf("expected identical groups to compare equal in descending sort")
+	}
+
+	m.groups = []eos.GroupRecord{
+		{Name: "default.1", Status: "online", NoFS: 3},
+		{Name: "default.0", Status: "online", NoFS: 3},
+	}
+	groups := m.visibleGroups()
+	if got := []string{groups[0].Name, groups[1].Name}; strings.Join(got, ",") != "default.0,default.1" {
+		t.Fatalf("expected name tie-breaker to stay deterministic, got %v", got)
+	}
+}
+
 func TestFilterPopupAppliesToFSTs(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFST

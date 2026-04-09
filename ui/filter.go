@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"strings"
@@ -223,99 +224,119 @@ func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
 }
 
 func (m model) lessNode(a, b eos.FstRecord) bool {
-	var less bool
+	var primary int
 	switch fstSortColumn(m.fstSort.column) {
 	case fstSortType:
-		less = strings.Compare(a.Type, b.Type) < 0
+		primary = cmp.Compare(a.Type, b.Type)
 	case fstSortHost:
-		less = strings.Compare(a.Host, b.Host) < 0
+		primary = cmp.Compare(a.Host, b.Host)
 	case fstSortPort:
-		less = a.Port < b.Port
+		primary = cmp.Compare(a.Port, b.Port)
 	case fstSortStatus:
-		less = strings.Compare(a.Status, b.Status) < 0
+		primary = cmp.Compare(a.Status, b.Status)
 	case fstSortGeotag:
-		less = strings.Compare(a.Geotag, b.Geotag) < 0
+		primary = cmp.Compare(a.Geotag, b.Geotag)
 	case fstSortActivated:
-		less = strings.Compare(a.Activated, b.Activated) < 0
+		primary = cmp.Compare(a.Activated, b.Activated)
 	case fstSortNoFS:
-		less = a.FileSystemCount < b.FileSystemCount
+		primary = cmp.Compare(a.FileSystemCount, b.FileSystemCount)
 	case fstSortHeartbeat:
-		less = a.HeartbeatDelta < b.HeartbeatDelta
+		primary = cmp.Compare(a.HeartbeatDelta, b.HeartbeatDelta)
 	case fstSortEOSVersion:
-		less = strings.Compare(a.EOSVersion, b.EOSVersion) < 0
+		primary = cmp.Compare(a.EOSVersion, b.EOSVersion)
 	default:
-		less = strings.Compare(a.Host, b.Host) < 0
+		primary = cmp.Compare(a.Host, b.Host)
 	}
-	if equivalentNodeSortValue(m.fstSort.column, a, b) {
-		less = strings.Compare(a.Host, b.Host) < 0
+	if primary != 0 {
+		if m.fstSort.desc {
+			return primary > 0
+		}
+		return primary < 0
 	}
-	if m.fstSort.desc {
-		return !less
+
+	if tie := cmp.Compare(a.Host, b.Host); tie != 0 {
+		return tie < 0
 	}
-	return less
+	return cmp.Compare(a.Port, b.Port) < 0
 }
 
 func (m model) lessFileSystem(a, b eos.FileSystemRecord) bool {
-	var less bool
+	var primary int
 	switch fsSortColumn(m.fsSort.column) {
 	case fsSortHost:
-		less = strings.Compare(a.Host, b.Host) < 0
+		primary = cmp.Compare(a.Host, b.Host)
 	case fsSortPort:
-		less = a.Port < b.Port
+		primary = cmp.Compare(a.Port, b.Port)
 	case fsSortID:
-		less = a.ID < b.ID
+		primary = cmp.Compare(a.ID, b.ID)
 	case fsSortPath:
-		less = strings.Compare(a.Path, b.Path) < 0
+		primary = cmp.Compare(a.Path, b.Path)
 	case fsSortGroup:
-		less = strings.Compare(a.SchedGroup, b.SchedGroup) < 0
+		primary = cmp.Compare(a.SchedGroup, b.SchedGroup)
 	case fsSortGeotag:
-		less = strings.Compare(a.Geotag, b.Geotag) < 0
+		primary = cmp.Compare(a.Geotag, b.Geotag)
 	case fsSortBoot:
-		less = strings.Compare(a.Boot, b.Boot) < 0
+		primary = cmp.Compare(a.Boot, b.Boot)
 	case fsSortConfigStatus:
-		less = strings.Compare(a.ConfigStatus, b.ConfigStatus) < 0
+		primary = cmp.Compare(a.ConfigStatus, b.ConfigStatus)
 	case fsSortDrain:
-		less = strings.Compare(a.DrainStatus, b.DrainStatus) < 0
+		primary = cmp.Compare(a.DrainStatus, b.DrainStatus)
 	case fsSortUsed:
-		less = usagePercent(a.UsedBytes, a.CapacityBytes) < usagePercent(b.UsedBytes, b.CapacityBytes)
+		primary = cmp.Compare(usagePercent(a.UsedBytes, a.CapacityBytes), usagePercent(b.UsedBytes, b.CapacityBytes))
 	case fsSortStatus:
-		less = strings.Compare(a.Active, b.Active) < 0
+		primary = cmp.Compare(a.Active, b.Active)
 	case fsSortHealth:
-		less = strings.Compare(a.Health, b.Health) < 0
+		primary = cmp.Compare(a.Health, b.Health)
 	default:
-		less = a.ID < b.ID
+		primary = cmp.Compare(a.ID, b.ID)
 	}
-	if equivalentFileSystemSortValue(m.fsSort.column, a, b) {
-		less = a.ID < b.ID
+	if primary != 0 {
+		if m.fsSort.desc {
+			return primary > 0
+		}
+		return primary < 0
 	}
-	if m.fsSort.desc {
-		return !less
+
+	if tie := cmp.Compare(a.ID, b.ID); tie != 0 {
+		return tie < 0
 	}
-	return less
+	if tie := cmp.Compare(a.Host, b.Host); tie != 0 {
+		return tie < 0
+	}
+	return cmp.Compare(a.Path, b.Path) < 0
 }
 
 func (m model) lessGroup(a, b eos.GroupRecord) bool {
-	less := false
+	var primary int
 	switch groupSortColumn(m.groupSort.column) {
 	case groupSortName:
-		less = a.Name < b.Name
+		primary = cmp.Compare(a.Name, b.Name)
 	case groupSortStatus:
-		less = a.Status < b.Status
+		primary = cmp.Compare(a.Status, b.Status)
 	case groupSortNoFS:
-		less = a.NoFS < b.NoFS
+		primary = cmp.Compare(a.NoFS, b.NoFS)
 	case groupSortCapacity:
-		less = a.CapacityBytes < b.CapacityBytes
+		primary = cmp.Compare(a.CapacityBytes, b.CapacityBytes)
 	case groupSortUsed:
-		less = a.UsedBytes < b.UsedBytes
+		primary = cmp.Compare(a.UsedBytes, b.UsedBytes)
 	case groupSortFree:
-		less = a.FreeBytes < b.FreeBytes
+		primary = cmp.Compare(a.FreeBytes, b.FreeBytes)
 	case groupSortFiles:
-		less = a.NumFiles < b.NumFiles
+		primary = cmp.Compare(a.NumFiles, b.NumFiles)
+	default:
+		primary = cmp.Compare(a.Name, b.Name)
 	}
-	if m.groupSort.desc {
-		return !less
+	if primary != 0 {
+		if m.groupSort.desc {
+			return primary > 0
+		}
+		return primary < 0
 	}
-	return less
+
+	if tie := cmp.Compare(a.Name, b.Name); tie != 0 {
+		return tie < 0
+	}
+	return cmp.Compare(a.Status, b.Status) < 0
 }
 
 func equivalentNodeSortValue(column int, a, b eos.FstRecord) bool {

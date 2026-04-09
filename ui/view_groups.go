@@ -110,4 +110,3 @@ func (m model) renderGroupDetails(width, height int) string {
 
 	return m.styles.panelDim.Width(contentWidth).Height(panelContentHeight(height)).Render(box)
 }
-

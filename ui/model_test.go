@@ -1365,6 +1365,9 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 		if !strings.Contains(footer, "shell") {
 			t.Errorf("view %d: expected 'shell' in footer, got: %s", v, footer)
 		}
+		if !strings.Contains(footer, "L commands") {
+			t.Errorf("view %d: expected 'L commands' in footer, got: %s", v, footer)
+		}
 	}
 
 	for _, v := range noHostViews {
@@ -1375,6 +1378,9 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 		}
 		if v != viewNamespace && strings.Contains(footer, " logs") {
 			t.Errorf("view %d: 'logs' should not appear in footer for non-host views, got: %s", v, footer)
+		}
+		if !strings.Contains(footer, "L commands") {
+			t.Errorf("view %d: expected 'L commands' in footer, got: %s", v, footer)
 		}
 	}
 }
@@ -1508,5 +1514,43 @@ func TestFSConfigStatusResultMsgShowsAlertOnError(t *testing.T) {
 	}
 	if !strings.Contains(m.alert.message, "permission denied") {
 		t.Errorf("expected alert message to contain 'permission denied', got %q", m.alert.message)
+	}
+}
+
+func TestShiftLToggleShowsAndHidesCommandPanel(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	m = updated.(model)
+	if !m.commandLog.active {
+		t.Fatalf("expected command panel to become active")
+	}
+	if cmd == nil {
+		t.Fatalf("expected command panel toggle to schedule a load")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	m = updated.(model)
+	if m.commandLog.active {
+		t.Fatalf("expected command panel to close on second Shift+L")
+	}
+}
+
+func TestCommandPanelRendersRecentCommands(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.commandLog.active = true
+	m.commandLog.filePath = "/tmp/eos-tui.log"
+	m.commandLog.lines = []string{
+		"[2026-04-09 10:00:00] eos -j node ls",
+		"[2026-04-09 10:00:01] ssh -o BatchMode=yes root@host 'eos -j fs ls'",
+	}
+
+	view := m.View()
+	for _, needle := range []string{"Recent commands", "eos -j node ls", "/tmp/eos-tui.log"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected command panel view to contain %q, got:\n%s", needle, view)
+		}
 	}
 }

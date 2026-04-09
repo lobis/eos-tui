@@ -64,6 +64,18 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(loadInfraCmd(m.client), tickCmd())
 }
 
+func (m model) toggleCommandLog() (tea.Model, tea.Cmd) {
+	m.commandLog.active = !m.commandLog.active
+	if !m.commandLog.active {
+		m.commandLog.loading = false
+		return m, nil
+	}
+
+	m.commandLog.loading = true
+	m.commandLog.err = nil
+	return m, tea.Batch(loadCommandHistoryCmd(m.client), commandLogTickCmd())
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -149,6 +161,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.onViewChanged()
 		case "r":
 			return m.refreshActiveView()
+		case "L":
+			return m.toggleCommandLog()
 		case "l":
 			return m.openLogOverlay()
 		case "s":
@@ -371,6 +385,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
 			m.log.vp.GotoBottom()
 		}
+	case commandHistoryLoadedMsg:
+		m.commandLog.loading = false
+		m.commandLog.filePath = msg.filePath
+		m.commandLog.err = msg.err
+		if msg.err == nil {
+			m.commandLog.lines = msg.lines
+		}
+	case commandLogTickMsg:
+		if m.commandLog.active {
+			m.commandLog.loading = true
+			return m, tea.Batch(loadCommandHistoryCmd(m.client), commandLogTickCmd())
+		}
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
@@ -381,13 +407,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	bodyHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
+	availableHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
 
 	if m.log.active {
-		body := m.renderLogOverlay(bodyHeight)
+		body := m.renderLogOverlay(availableHeight)
 		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 	}
 
+	bodyHeight, commandHeight := m.splitMainAndCommandHeights(availableHeight)
 	body := m.renderBody(bodyHeight)
 	if m.popup.active {
 		body = m.renderBodyWithPopup(body, bodyHeight)
@@ -397,6 +424,11 @@ func (m model) View() string {
 		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyHeight)
 	} else if m.alert.active {
 		body = m.renderOverlay(body, m.renderErrorAlert(), bodyHeight)
+	}
+
+	if commandHeight > 0 {
+		commandPanel := m.renderCommandPanel(commandHeight)
+		return m.styles.app.Render(header + "\n" + body + "\n" + commandPanel + "\n" + footer)
 	}
 
 	return m.styles.app.Render(header + "\n" + body + "\n" + footer)

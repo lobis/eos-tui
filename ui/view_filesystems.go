@@ -3,8 +3,8 @@ package ui
 import (
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lobis/eos-tui/eos"
 )

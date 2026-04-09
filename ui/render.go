@@ -60,7 +60,14 @@ func (m model) renderFooter() string {
 		if m.log.filter != "" {
 			filter = fmt.Sprintf("  •  filter: %q", m.log.filter)
 		}
-		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  r reload  •  esc close%s", filter)
+		tailHint := "t tail off"
+		if !m.log.tailing {
+			tailHint = "t tail on"
+		}
+		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f plain  •  %s  •  r reload  •  esc close%s", tailHint, filter)
+		if m.log.plain {
+			keys = fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f boxed  •  %s  •  r reload  •  esc close%s", tailHint, filter)
+		}
 		if m.log.filtering {
 			keys = "type to filter  •  enter apply  •  esc cancel"
 		}

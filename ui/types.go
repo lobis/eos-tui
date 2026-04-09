@@ -294,6 +294,8 @@ type filterPopup struct {
 
 type logOverlay struct {
 	active    bool
+	plain     bool
+	tailing   bool
 	host      string // specific host to read from (empty = effective target)
 	filePath  string
 	title     string

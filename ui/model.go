@@ -451,7 +451,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case logTickMsg:
-		if m.log.active {
+		if m.log.active && m.log.tailing {
 			return m, tea.Batch(loadLogCmd(m.client, m.log.host, m.log.filePath), logTickCmd())
 		}
 	case commandHistoryLoadedMsg:
@@ -493,7 +493,7 @@ func (m model) View() string {
 	availableHeight := max(4, middleHeight-2)
 
 	if m.log.active {
-		body := m.normalizeRenderedBlock(m.renderLogOverlay(availableHeight), middleHeight)
+		body := m.normalizeRenderedBlock(m.renderLogOverlay(middleHeight), middleHeight)
 		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 	}
 

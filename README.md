@@ -25,6 +25,15 @@ go install github.com/lobis/eos-tui@latest
 
 *Note: Ensure `$GOPATH/bin` is in your `PATH`.*
 
+### Via Homebrew
+
+You can install EOS TUI from the `lobis` tap:
+
+```bash
+brew tap lobis/tap
+brew install eos-tui
+```
+
 ### From Source
 
 Clone the repository and build using the provided Makefile:
@@ -62,6 +71,10 @@ Each release also attaches RPM packages built from `eos-tui.spec` for:
 
 The workflow also attaches a `SHA256SUMS.txt` file to the GitHub Release so the
 artifacts can be verified after download.
+
+If you want release tags to update the Homebrew formula automatically, add a
+repository secret named `HOMEBREW_TAP_GITHUB_TOKEN` with `contents:write` access
+to `lobis/homebrew-tap`.
 
 ## Usage
 

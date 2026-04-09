@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -892,6 +893,89 @@ func TestBoxedLogOverlayShrinksToShortContent(t *testing.T) {
 	}
 	if borderCount != 2 {
 		t.Fatalf("expected compact boxed log overlay to render exactly one box, got:\n%s", rendered)
+	}
+}
+
+// TestLogOverlayNeverExceedsContentWidth verifies that renderLogOverlay never
+// produces a line wider than m.contentWidth(), for a range of terminal widths
+// and with potentially overflow-triggering content.  The right panel border
+// must also be present on every content line.
+//
+// Background: in lipgloss v1, Width(w) sets content+padding width; the two
+// border characters are added on top, making the outer box Width+2.  The log
+// overlay must call Width(contentWidth-2) so the outer matches contentWidth
+// and normalizeRenderedBlock does not clip the right border.
+func TestLogOverlayNeverExceedsContentWidth(t *testing.T) {
+	termWidths := []int{80, 100, 120, 160, 200}
+	contents := []struct {
+		name     string
+		title    string
+		filePath string
+		lines    []string
+	}{
+		{
+			name:     "long lines",
+			title:    "MGM Log  [node.cern.ch]",
+			filePath: "/var/log/eos/mgm/xrdlog.mgm",
+			lines:    []string{strings.Repeat("x", 300)},
+		},
+		{
+			name:     "long hostname",
+			title:    "FST Log  [eos-storage-fst-pool-node-01-very-long-hostname.cern.ch]",
+			filePath: "/var/log/eos/fst/xrdlog.fst",
+			lines:    []string{"some content"},
+		},
+		{
+			name:     "many short lines",
+			title:    "MGM Log  [node.cern.ch]",
+			filePath: "/var/log/eos/mgm/xrdlog.mgm",
+			lines:    []string{"line one", "line two", "line three"},
+		},
+		{
+			name:     "long title and long lines",
+			title:    "QDB Log  [eos-mgm-qdb-very-long-hostname-01.cern.ch]",
+			filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+			lines:    []string{strings.Repeat("a", 500), strings.Repeat("b", 500)},
+		},
+	}
+
+	for _, tw := range termWidths {
+		for _, c := range contents {
+			t.Run(fmt.Sprintf("termWidth=%d/%s", tw, c.name), func(t *testing.T) {
+				m := NewModel(nil, "test", "/").(model)
+				m.width = tw
+				m.height = 40
+				m.splash.active = false
+				m.log = logOverlay{
+					active:   true,
+					filePath: c.filePath,
+					title:    c.title,
+					allLines: c.lines,
+					filtered: c.lines,
+				}
+
+				rendered := m.renderLogOverlay(30)
+				contentWidth := m.contentWidth()
+
+				for i, line := range strings.Split(rendered, "\n") {
+					w := lipgloss.Width(line)
+					if w > contentWidth {
+						t.Errorf("line %d too wide: got %d, want <= %d\n  %q", i, w, contentWidth, ansi.Strip(line))
+					}
+					// Every content line (left border present, not a box corner)
+					// must also carry the right border.
+					stripped := ansi.Strip(line)
+					if strings.HasPrefix(stripped, "│") &&
+						!strings.HasPrefix(stripped, "┌") &&
+						!strings.HasPrefix(stripped, "└") {
+						trimmed := strings.TrimRight(stripped, " ")
+						if !strings.HasSuffix(trimmed, "│") {
+							t.Errorf("content line %d missing right border │ (w=%d):\n  %q", i, w, stripped)
+						}
+					}
+				}
+			})
+		}
 	}
 }
 

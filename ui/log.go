@@ -90,7 +90,10 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 func (m model) logViewportWidth() int {
 	width := m.contentWidth()
 	if !m.log.plain {
-		width -= 4 // panel border + horizontal padding
+		// In lipgloss v1, Width(w) includes padding but NOT borders.  We call
+		// Width(contentWidth-2) so the outer panel = contentWidth.  The actual
+		// inner content area = (contentWidth-2) - 2*padding = contentWidth - 4.
+		width -= 4
 	}
 	return max(1, width)
 }
@@ -193,7 +196,12 @@ func (m model) renderLogOverlay(height int) string {
 	}
 
 	inner := strings.Join(lines, "\n")
-	panel := m.styles.panel.Width(width).Render(inner)
+	// In lipgloss v1, Width() sets content+padding width; borders are added on
+	// top.  With Padding(0,1) and NormalBorder the border contributes 2 extra
+	// chars (left+right), so the rendered outer width = Width + 2.  We want
+	// outer = m.contentWidth() so that normalizeRenderedBlock doesn't clip the
+	// right border, therefore pass Width(contentWidth - 2).
+	panel := m.styles.panel.Width(width - 2).Render(inner)
 	panelHeight := lipgloss.Height(panel)
 	if panelHeight >= height {
 		return panel

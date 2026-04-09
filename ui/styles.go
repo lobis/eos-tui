@@ -37,5 +37,14 @@ func newStyles() styles {
 			Bold(true),
 		status: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")),
+		splash: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("123")),
+		splashDim: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("80")),
+		splashBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("80")).
+			Padding(1, 3),
 	}
 }

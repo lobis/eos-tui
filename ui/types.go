@@ -124,6 +124,7 @@ type commandHistoryLoadedMsg struct {
 type ioShapingTickMsg struct{}
 type ioShapingPolicyTickMsg struct{}
 type commandLogTickMsg struct{}
+type splashTickMsg struct{}
 
 type tickMsg time.Time
 
@@ -200,6 +201,11 @@ type commandPanel struct {
 	filePath string
 	lines    []string
 	err      error
+}
+
+type startupSplash struct {
+	active bool
+	frame  int
 }
 
 type filterState struct {
@@ -331,6 +337,9 @@ type styles struct {
 	value     lipgloss.Style
 	error     lipgloss.Style
 	status    lipgloss.Style
+	splash    lipgloss.Style
+	splashDim lipgloss.Style
+	splashBox lipgloss.Style
 }
 
 type tableColumn struct {
@@ -422,6 +431,7 @@ type model struct {
 	alert       errorAlert
 	log         logOverlay
 	commandLog  commandPanel
+	splash      startupSplash
 
 	styles styles
 }

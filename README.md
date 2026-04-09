@@ -42,32 +42,30 @@ The binary will be available in the `./bin` directory.
 Start the TUI by specifying an SSH target (gateway) for the EOS cluster:
 
 ```bash
-eos-tui -ssh eospilot
+eos-tui --ssh eospilot
 ```
 
 If you want EOS TUI to automatically trust first-seen SSH host keys instead of
 showing the OpenSSH confirmation prompt, enable:
 
 ```bash
-eos-tui -ssh eospilot -ssh-accept-new-host-keys
+eos-tui --ssh eospilot --ssh-accept-new-host-keys
 ```
 
 ### Command Line Arguments
 
-- `-ssh`: gateway/initial SSH host (e.g. `eospilot`). The tool will automatically discover the MGM leader and route subsequent commands directly.
-- `-ssh-accept-new-host-keys`: opt in to `StrictHostKeyChecking=accept-new` for SSH connections. This auto-accepts new host keys but still rejects changed keys.
-- `-path`: initial namespace path to browse (default `/`).
-- `-timeout`: per-request timeout (default `15s`).
-- `-no-alt-screen`: disable alternate screen mode.
+- `--ssh`: gateway/initial SSH host (e.g. `eospilot`). The tool will automatically discover the MGM leader and route subsequent commands directly.
+- `--ssh-accept-new-host-keys`: opt in to `StrictHostKeyChecking=accept-new` for SSH connections. This auto-accepts new host keys but still rejects changed keys.
+- `--timeout`: per-request timeout (default `15s`).
+- `--no-alt-screen`: disable alternate screen mode.
 
 Environment variables:
 
-- `EOS_TUI_SSH`: same as `-ssh`.
-- `EOS_TUI_SSH_TARGET`: compatibility alias for `-ssh`.
-- `EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS`: same as `-ssh-accept-new-host-keys`.
-- `EOS_TUI_PATH`: same as `-path`.
-- `EOS_TUI_TIMEOUT`: same as `-timeout`.
-- `EOS_TUI_NO_ALT_SCREEN`: same as `-no-alt-screen`.
+- `EOS_TUI_SSH`: same as `--ssh`.
+- `EOS_TUI_SSH_TARGET`: compatibility alias for `--ssh`.
+- `EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS`: same as `--ssh-accept-new-host-keys`.
+- `EOS_TUI_TIMEOUT`: same as `--timeout`.
+- `EOS_TUI_NO_ALT_SCREEN`: same as `--no-alt-screen`.
 
 ## Keybindings
 
@@ -91,3 +89,11 @@ Environment variables:
 
 History of all executed EOS commands is kept per session in `~/.eos-tui/sessions/`.
 The latest session is also symlinked at `~/.eos-tui/latest.log`.
+
+## Session State
+
+EOS TUI restores lightweight UI state from `~/.eos-tui/ui-state.json`, including:
+
+- the last browsed namespace path
+- the last active view
+- whether the recent-commands panel was open

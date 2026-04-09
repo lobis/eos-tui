@@ -50,11 +50,11 @@ func assertCommandPanelAnchored(t *testing.T, m model, view string) {
 	}
 }
 
-func TestNewModelRendersMenuWithoutWindowSize(t *testing.T) {
+func TestNewModelRendersStartupSplashWithoutWindowSize(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 
 	view := m.View()
-	for _, needle := range []string{"EOS TUI", "1 MGM", "2 QDB", "3 FST", "4 FS", "5 Namespace"} {
+	for _, needle := range []string{"███████", "████████", "initializing cluster view"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected initial view to contain %q, got:\n%s", needle, view)
 		}
@@ -72,8 +72,34 @@ func TestZeroWindowSizeDoesNotEraseDefaultLayout(t *testing.T) {
 	}
 
 	view := m.View()
-	if !strings.Contains(view, "EOS TUI") {
-		t.Fatalf("expected rendered view to still contain menu header, got:\n%s", view)
+	if !strings.Contains(view, "initializing cluster view") {
+		t.Fatalf("expected rendered view to still contain startup splash, got:\n%s", view)
+	}
+}
+
+func TestStartupSplashHidesAfterInitialDataArrives(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	m.fstStatsLoading = false
+	m.fstsLoading = false
+	m.fileSystemsLoading = false
+	m.spacesLoading = false
+	m.nsStatsLoading = false
+	m.nsLoading = false
+	m.groupsLoading = false
+	m.spaceStatusLoading = false
+	m.ioShapingLoading = false
+	m.commandLog.loading = false
+
+	updated, _ := m.Update(splashTickMsg{})
+	m = updated.(model)
+
+	if m.splash.active {
+		t.Fatalf("expected startup splash to deactivate once initial loading is complete")
+	}
+	view := m.View()
+	if strings.Contains(view, "initializing cluster view") {
+		t.Fatalf("expected startup splash to disappear after loading, got:\n%s", view)
 	}
 }
 
@@ -757,6 +783,7 @@ func TestSpacesViewShowsLoadingState(t *testing.T) {
 	m.height = 30
 	m.activeView = viewSpaces
 	m.spacesLoading = true
+	m.splash.active = false
 
 	view := m.View()
 	if !strings.Contains(view, "Loading") {
@@ -770,6 +797,7 @@ func TestNamespaceStatsViewShowsLoadingState(t *testing.T) {
 	m.height = 30
 	m.activeView = viewNamespaceStats
 	m.nsStatsLoading = true
+	m.splash.active = false
 
 	view := m.View()
 	if !strings.Contains(view, "Loading") {
@@ -1289,6 +1317,7 @@ func TestGroupsViewShowsLoadingState(t *testing.T) {
 	m.height = 30
 	m.activeView = viewGroups
 	m.groupsLoading = true
+	m.splash.active = false
 
 	view := m.View()
 	if !strings.Contains(view, "Loading") {
@@ -1607,6 +1636,7 @@ func TestCommandPanelRendersRecentCommands(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.width = 120
 	m.height = 30
+	m.splash.active = false
 	m.commandLog.active = true
 	m.commandLog.filePath = "/tmp/eos-tui.log"
 	m.commandLog.lines = []string{

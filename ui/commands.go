@@ -13,6 +13,7 @@ import (
 
 const commandLogRefreshInterval = 300 * time.Millisecond
 const commandLogTailLines = 200
+const startupSplashTickInterval = 120 * time.Millisecond
 
 // loadInfraCmd fans out all infrastructure fetches in parallel.  Each
 // component delivers its own typed message to the Bubble Tea runtime as soon
@@ -179,5 +180,11 @@ func loadCommandHistoryCmd(client *eos.Client) tea.Cmd {
 func commandLogTickCmd() tea.Cmd {
 	return tea.Tick(commandLogRefreshInterval, func(time.Time) tea.Msg {
 		return commandLogTickMsg{}
+	})
+}
+
+func splashTickCmd() tea.Cmd {
+	return tea.Tick(startupSplashTickInterval, func(time.Time) tea.Msg {
+		return splashTickMsg{}
 	})
 }

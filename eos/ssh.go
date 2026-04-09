@@ -7,6 +7,25 @@ import (
 	"strings"
 )
 
+func (c *Client) sshOptions(batchMode bool) []string {
+	options := []string{}
+	if batchMode {
+		options = append(options, "-o", "BatchMode=yes")
+	} else {
+		options = append(options, "-o", "BatchMode=no")
+	}
+	if c.acceptNewHostKeys {
+		options = append(options, "-o", "StrictHostKeyChecking=accept-new")
+	}
+	return options
+}
+
+func (c *Client) SSHArgs(batchMode bool, extraArgs ...string) []string {
+	args := c.sshOptions(batchMode)
+	args = append(args, extraArgs...)
+	return args
+}
+
 func (c *Client) runCommand(args ...string) ([]byte, error) {
 	c.logCommand(args)
 
@@ -20,7 +39,8 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 		out, err = exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
 	} else {
 		remoteCommand := strings.Join(args, " ")
-		out, err = exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", target, remoteCommand).CombinedOutput()
+		sshArgs := append(c.SSHArgs(true), target, remoteCommand)
+		out, err = exec.CommandContext(ctx, "ssh", sshArgs...).CombinedOutput()
 	}
 
 	if err != nil {
@@ -66,9 +86,11 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	var out []byte
 	var err error
 	if effective == "" {
-		out, err = exec.CommandContext(ctxTimeout, "ssh", "-o", "BatchMode=yes", target, tailCmd).CombinedOutput()
+		sshArgs := append(c.SSHArgs(true), target, tailCmd)
+		out, err = exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
 	} else {
-		out, err = exec.CommandContext(ctxTimeout, "ssh", "-o", "BatchMode=yes", "-J", effective, target, tailCmd).CombinedOutput()
+		sshArgs := append(c.SSHArgs(true), "-J", effective, target, tailCmd)
+		out, err = exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
 	}
 	if err != nil {
 		c.logResponse(tailArgs, out, err)
@@ -96,4 +118,8 @@ func (c *Client) SSHTargetForHost(host string) (target, jump string) {
 		return target, effective
 	}
 	return target, ""
+}
+
+func (c *Client) AcceptNewHostKeys() bool {
+	return c.acceptNewHostKeys
 }

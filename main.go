@@ -16,10 +16,11 @@ import (
 
 func main() {
 	var (
-		sshTarget   = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
-		rootPath    = flag.String("path", envOrDefault("EOS_TUI_PATH", "/"), "initial namespace path")
-		timeout     = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
-		noAltScreen = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
+		sshTarget         = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
+		rootPath          = flag.String("path", envOrDefault("EOS_TUI_PATH", "/"), "initial namespace path")
+		timeout           = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
+		noAltScreen       = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
+		acceptNewHostKeys = flag.Bool("ssh-accept-new-host-keys", envBoolOrDefault("EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS", false), "auto-accept first-seen SSH host keys using StrictHostKeyChecking=accept-new")
 	)
 	flag.Parse()
 
@@ -27,8 +28,9 @@ func main() {
 	defer cancel()
 
 	client, err := eos.New(ctx, eos.Config{
-		SSHTarget: *sshTarget,
-		Timeout:   *timeout,
+		SSHTarget:         *sshTarget,
+		Timeout:           *timeout,
+		AcceptNewHostKeys: *acceptNewHostKeys,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create EOS client: %v\n", err)

@@ -15,8 +15,9 @@ func New(_ context.Context, cfg Config) (*Client, error) {
 	}
 
 	c := &Client{
-		sshTarget: cfg.SSHTarget,
-		timeout:   timeout,
+		sshTarget:         cfg.SSHTarget,
+		timeout:           timeout,
+		acceptNewHostKeys: cfg.AcceptNewHostKeys,
 	}
 	c.sessionLogPath = initSessionLog()
 	return c, nil

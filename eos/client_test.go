@@ -680,6 +680,26 @@ func TestSSHTargetForHostRemoteDifferentHost(t *testing.T) {
 	}
 }
 
+func TestSSHArgsDefault(t *testing.T) {
+	c := &Client{}
+
+	got := c.SSHArgs(true, "root@host", "hostname")
+	want := []string{"-o", "BatchMode=yes", "root@host", "hostname"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected SSH args: got %v want %v", got, want)
+	}
+}
+
+func TestSSHArgsAcceptNewHostKeys(t *testing.T) {
+	c := &Client{acceptNewHostKeys: true}
+
+	got := c.SSHArgs(false, "-t", "root@host")
+	want := []string{"-o", "BatchMode=no", "-o", "StrictHostKeyChecking=accept-new", "-t", "root@host"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected SSH args: got %v want %v", got, want)
+	}
+}
+
 func TestHostOnly(t *testing.T) {
 	tests := []struct {
 		input string

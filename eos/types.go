@@ -3,8 +3,9 @@ package eos
 import "time"
 
 type Config struct {
-	SSHTarget string
-	Timeout   time.Duration
+	SSHTarget         string
+	Timeout           time.Duration
+	AcceptNewHostKeys bool
 }
 
 type Client struct {
@@ -15,6 +16,7 @@ type Client struct {
 	// sshTarget is used as-is.
 	resolvedSSHTarget string
 	timeout           time.Duration
+	acceptNewHostKeys bool
 	// sessionLogPath is the log file for this specific session, set once at
 	// construction time.  Empty means logging is disabled (e.g. home dir error).
 	sessionLogPath string

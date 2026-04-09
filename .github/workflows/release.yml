@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: eos-tui
+
+jobs:
+  verify:
+    name: Verify release tag and Go checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must match vMAJOR.MINOR.PATCH, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        env:
+          EOS_TEST_SKIP: "1"
+        run: go test ./...
+
+      - name: Build repository
+        run: go build ./...
+
+  build-native:
+    name: Build ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: linux_amd64
+          - label: macOS amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: macos_amd64
+          - label: Windows amd64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            exe_suffix: .exe
+            archive_ext: zip
+            asset_suffix: windows_amd64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXE_SUFFIX: ${{ matrix.exe_suffix }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o "dist/${APP_NAME}${EXE_SUFFIX}" .
+
+      - name: Package archive
+        shell: bash
+        env:
+          EXE_SUFFIX: ${{ matrix.exe_suffix }}
+          ARCHIVE_PATH: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
+        run: |
+          set -euo pipefail
+          export BINARY_PATH="dist/${APP_NAME}${EXE_SUFFIX}"
+          python - <<'PY'
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          binary_path = Path(os.environ["BINARY_PATH"])
+          archive_path = Path(os.environ["ARCHIVE_PATH"])
+          archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+          if archive_path.suffix == ".zip":
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              zf.write(binary_path, arcname=binary_path.name)
+          else:
+            with tarfile.open(archive_path, "w:gz") as tf:
+              tf.add(binary_path, arcname=binary_path.name)
+          PY
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.asset_suffix }}
+          path: dist/${{ env.APP_NAME }}_${{ github.ref_name }}_${{ matrix.asset_suffix }}.${{ matrix.archive_ext }}
+
+  github-release:
+    name: Create GitHub release
+    needs: build-native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true

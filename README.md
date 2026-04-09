@@ -37,6 +37,23 @@ make build
 
 The binary will be available in the `./bin` directory.
 
+## Releases
+
+Creating and pushing a tag that matches `vMAJOR.MINOR.PATCH`, for example
+`v0.1.2`, triggers the GitHub release workflow.
+
+Each release publishes downloadable binaries for:
+
+- macOS amd64
+- Windows amd64
+- Linux amd64
+
+The Linux release binary is built with `CGO_ENABLED=0`, so the same artifact is
+intended to work across Ubuntu and AlmaLinux 9/10 without separate builds.
+
+The workflow also attaches a `SHA256SUMS.txt` file to the GitHub Release so the
+artifacts can be verified after download.
+
 ## Usage
 
 Start the TUI by specifying an SSH target (gateway) for the EOS cluster:

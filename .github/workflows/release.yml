@@ -294,7 +294,14 @@ jobs:
             end
 
             def install
-              binary = "${APP_NAME}_${GITHUB_REF_NAME}_\#{OS.mac? ? "macos_arm64" : (Hardware::CPU.arm? ? "linux_arm64" : "linux_amd64")}"
+              binary =
+                if OS.mac?
+                  "${APP_NAME}_${GITHUB_REF_NAME}_macos_arm64"
+                elsif Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+                  "${APP_NAME}_${GITHUB_REF_NAME}_linux_arm64"
+                else
+                  "${APP_NAME}_${GITHUB_REF_NAME}_linux_amd64"
+                end
               bin.install binary => "${APP_NAME}"
             end
 
@@ -303,6 +310,8 @@ jobs:
             end
           end
           EOF
+
+          ruby -c /tmp/homebrew-tap/Formula/eos-tui.rb
 
           cd /tmp/homebrew-tap
           if git diff --quiet -- Formula/eos-tui.rb; then

@@ -72,6 +72,13 @@ jobs:
             exe_suffix: ""
             archive_ext: tar.gz
             asset_suffix: linux_amd64
+          - label: Linux arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            exe_suffix: ""
+            archive_ext: tar.gz
+            asset_suffix: linux_arm64
           - label: macOS amd64
             runner: macos-latest
             goos: darwin

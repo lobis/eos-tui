@@ -47,9 +47,11 @@ Each release publishes downloadable binaries for:
 - macOS amd64
 - Windows amd64
 - Linux amd64
+- Linux arm64
 
 The Linux release binary is built with `CGO_ENABLED=0`, so the same artifact is
-intended to work across Ubuntu and AlmaLinux 9/10 without separate builds.
+intended to work across Ubuntu and AlmaLinux 9/10 without separate distro-specific
+builds.
 
 The workflow also attaches a `SHA256SUMS.txt` file to the GitHub Release so the
 artifacts can be verified after download.

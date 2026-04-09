@@ -54,6 +54,9 @@ func TestNewModelDefaultsToEosPathWhenNoPersistedStateExists(t *testing.T) {
 	if m.directory.Path != "/eos" {
 		t.Fatalf("expected default namespace path /eos, got %q", m.directory.Path)
 	}
+	if !m.commandLog.active {
+		t.Fatalf("expected command panel to start open by default")
+	}
 }
 
 func TestNewModelIgnoresPersistedStateWhenRootPathProvided(t *testing.T) {
@@ -72,8 +75,8 @@ func TestNewModelIgnoresPersistedStateWhenRootPathProvided(t *testing.T) {
 	if m.activeView != viewNamespaceStats {
 		t.Fatalf("expected default active view when explicit path is provided, got %d", m.activeView)
 	}
-	if m.commandLog.active {
-		t.Fatalf("expected command panel to start closed when explicit path is provided")
+	if !m.commandLog.active {
+		t.Fatalf("expected command panel to start open by default when explicit path is provided")
 	}
 }
 
@@ -99,8 +102,8 @@ func TestPersistedStateUpdatesOnDirectoryLoadViewChangeAndCommandPanelToggle(t *
 	if state.ActiveView != viewGroups {
 		t.Fatalf("expected persisted active view %d, got %d", viewGroups, state.ActiveView)
 	}
-	if !state.CommandLogVisible {
-		t.Fatalf("expected persisted command panel visibility")
+	if state.CommandLogVisible {
+		t.Fatalf("expected persisted command panel visibility to reflect the toggled closed state")
 	}
 }
 
@@ -117,7 +120,7 @@ func TestLoadPersistedUIStateIgnoresCorruptFile(t *testing.T) {
 	}
 
 	state := loadPersistedUIState()
-	if state.NamespacePath != "" || state.ActiveView != viewNamespaceStats || state.CommandLogVisible {
+	if state.NamespacePath != "" || state.ActiveView != viewNamespaceStats || !state.CommandLogVisible {
 		t.Fatalf("expected zero-value state for corrupt file, got %+v", state)
 	}
 }

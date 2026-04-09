@@ -26,11 +26,13 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		table.WithHeight(8),
 	)
 
-	state := persistedUIState{}
+	state := defaultPersistedUIState()
 	activeView := defaultActiveView()
+	commandLogVisible := true
 	if rootPath == "" {
 		state = loadPersistedUIState()
 		activeView = state.ActiveView
+		commandLogVisible = state.CommandLogVisible
 	}
 	initialPath := rootPath
 	if initialPath == "" {
@@ -39,7 +41,6 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 	if initialPath == "" {
 		initialPath = "/eos"
 	}
-	commandLogVisible := state.CommandLogVisible
 
 	return model{
 		client:             client,

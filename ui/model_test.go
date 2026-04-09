@@ -1529,6 +1529,15 @@ func TestNamespaceDetailsSplitAttributesIntoRightPane(t *testing.T) {
 	if strings.Count(view, "┌") < 3 {
 		t.Fatalf("expected namespace view to render a separate attrs pane, got:\n%s", view)
 	}
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "Selected Namespace Entry") || strings.Contains(line, "Attributes") || strings.Contains(line, "sys.acl =") {
+			trimmed := strings.TrimRight(line, " ")
+			if !(strings.HasSuffix(trimmed, "│") || strings.HasSuffix(trimmed, "┐") || strings.HasSuffix(trimmed, "┘")) {
+				t.Fatalf("expected split-pane line to keep its right border, got %q\nfull view:\n%s", trimmed, view)
+			}
+		}
+	}
 }
 
 func TestNamespaceDetailsSplitStaysNearMiddleWhileFittingAttrs(t *testing.T) {
@@ -1943,17 +1952,20 @@ func TestShiftLToggleShowsAndHidesCommandPanel(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = updated.(model)
-	if !m.commandLog.active {
-		t.Fatalf("expected command panel to become active")
+	if m.commandLog.active {
+		t.Fatalf("expected command panel to close on first Shift+L when default-open")
 	}
-	if cmd == nil {
-		t.Fatalf("expected command panel toggle to schedule a load")
+	if cmd != nil {
+		t.Fatalf("expected closing the command panel not to schedule a reload")
 	}
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = updated.(model)
-	if m.commandLog.active {
-		t.Fatalf("expected command panel to close on second Shift+L")
+	if !m.commandLog.active {
+		t.Fatalf("expected command panel to reopen on second Shift+L")
+	}
+	if cmd == nil {
+		t.Fatalf("expected reopening the command panel to schedule a load")
 	}
 }
 
@@ -1963,6 +1975,7 @@ func TestCommandPanelRendersRecentCommands(t *testing.T) {
 	m.height = 30
 	m.splash.active = false
 	m.commandLog.active = true
+	m.commandLog.loading = false
 	m.commandLog.filePath = "/tmp/eos-tui.log"
 	m.commandLog.lines = []string{
 		"[2026-04-09 10:00:00] eos -j node ls",

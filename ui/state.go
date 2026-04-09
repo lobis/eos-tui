@@ -14,21 +14,28 @@ type persistedUIState struct {
 	CommandLogVisible bool   `json:"command_log_visible"`
 }
 
+func defaultPersistedUIState() persistedUIState {
+	return persistedUIState{
+		ActiveView:        defaultActiveView(),
+		CommandLogVisible: true,
+	}
+}
+
 func loadPersistedUIState() persistedUIState {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return persistedUIState{ActiveView: defaultActiveView()}
+		return defaultPersistedUIState()
 	}
 
 	path := filepath.Join(home, ".eos-tui", persistedUIStateFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return persistedUIState{ActiveView: defaultActiveView()}
+		return defaultPersistedUIState()
 	}
 
 	var state persistedUIState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return persistedUIState{ActiveView: defaultActiveView()}
+		return defaultPersistedUIState()
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)

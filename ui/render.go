@@ -64,12 +64,16 @@ func (m model) renderFooter() string {
 		if !m.log.tailing {
 			tailHint = "t tail on"
 		}
-		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f plain  •  %s  •  r reload  •  esc close%s", tailHint, filter)
+		wrapHint := "w wrap on"
+		if m.log.wrap {
+			wrapHint = "w wrap off"
+		}
+		keys := fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f plain  •  %s  •  %s  •  r reload  •  esc/ctrl+c close%s", wrapHint, tailHint, filter)
 		if m.log.plain {
-			keys = fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f boxed  •  %s  •  r reload  •  esc close%s", tailHint, filter)
+			keys = fmt.Sprintf("↑↓/jk scroll  •  g top  •  G bottom  •  / filter  •  f boxed  •  %s  •  %s  •  r reload  •  esc/ctrl+c close%s", wrapHint, tailHint, filter)
 		}
 		if m.log.filtering {
-			keys = "type to filter  •  enter apply  •  esc cancel"
+			keys = "type to filter  •  enter apply  •  esc cancel  •  ctrl+c close"
 		}
 		return m.styles.status.Render(padVisibleWidth(keys, m.contentWidth()))
 	}

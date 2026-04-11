@@ -224,6 +224,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSpacesKeys(msg)
 		case viewNamespaceStats:
 			// read-only
+		case viewSpaceStatus:
+			if msg.String() == "enter" {
+				return m.startSpaceStatusEdit()
+			}
+			return m.updateSpaceStatusKeys(msg)
 		case viewIOShaping:
 			return m.updateIOShapingKeys(msg)
 		case viewGroups:
@@ -596,6 +601,8 @@ func (m model) startupLoading() bool {
 		return len(m.spaces) == 0 && m.spacesLoading
 	case viewNamespaceStats:
 		return m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsLoading
+	case viewSpaceStatus:
+		return len(m.spaceStatus) == 0 && m.spaceStatusLoading
 	case viewIOShaping:
 		return len(m.ioShapingMergedRows()) == 0 && m.ioShapingLoading
 	case viewGroups:
@@ -661,6 +668,8 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Batch(cmds...)
+	case viewSpaceStatus:
+		return m.maybeLoadSpaceStatus(m.currentSpaceStatusName())
 	case viewIOShaping:
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil
@@ -701,6 +710,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.nodeStatsErr = nil
 		m.status = "Refreshing general stats..."
 		return m, tea.Batch(loadNamespaceStatsCmd(m.client), loadNodeStatsCmd(m.client))
+	case viewSpaceStatus:
+		m.spaceStatusLoading = true
+		m.spaceStatusErr = nil
+		m.status = fmt.Sprintf("Refreshing space status for %s...", m.currentSpaceStatusName())
+		return m, loadSpaceStatusCmd(m.client, m.currentSpaceStatusName())
 	case viewIOShaping:
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil

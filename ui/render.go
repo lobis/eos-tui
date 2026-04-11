@@ -121,7 +121,7 @@ func (m model) renderBody(availableHeight int) string {
 	case viewNamespaceStats:
 		return m.renderNamespaceStatsView(availableHeight)
 	case viewSpaceStatus:
-		return m.renderSpacesView(availableHeight)
+		return m.renderSpaceStatusView(availableHeight)
 	case viewIOShaping:
 		return m.renderIOShapingView(availableHeight)
 	case viewGroups:

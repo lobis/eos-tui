@@ -951,3 +951,416 @@ func TestIOShapingPolicyRemoveArgsForUser(t *testing.T) {
 		t.Fatalf("unexpected io shaping policy rm args: got %v want %v", got, want)
 	}
 }
+
+// --- splitHostPort ---
+
+func TestSplitHostPort(t *testing.T) {
+	t.Run("host:port", func(t *testing.T) {
+		host, port := splitHostPort("host:1234")
+		if host != "host" || port != 1234 {
+			t.Fatalf("expected (host, 1234), got (%q, %d)", host, port)
+		}
+	})
+	t.Run("host only", func(t *testing.T) {
+		host, port := splitHostPort("host")
+		if host != "host" || port != 0 {
+			t.Fatalf("expected (host, 0), got (%q, %d)", host, port)
+		}
+	})
+	t.Run("host:abc", func(t *testing.T) {
+		host, port := splitHostPort("host:abc")
+		if host != "host" || port != 0 {
+			t.Fatalf("expected (host, 0), got (%q, %d)", host, port)
+		}
+	})
+}
+
+// --- cleanPath ---
+
+func TestCleanPathEmpty(t *testing.T) {
+	if got := cleanPath(""); got != "/" {
+		t.Fatalf("expected %q, got %q", "/", got)
+	}
+}
+
+func TestCleanPathRelative(t *testing.T) {
+	if got := cleanPath("foo/bar"); got != "/foo/bar" {
+		t.Fatalf("expected %q, got %q", "/foo/bar", got)
+	}
+}
+
+func TestCleanPathTrailingSlash(t *testing.T) {
+	if got := cleanPath("/eos/"); got != "/eos" {
+		t.Fatalf("expected %q, got %q", "/eos", got)
+	}
+}
+
+func TestCleanPathAlreadyClean(t *testing.T) {
+	if got := cleanPath("/eos/dev"); got != "/eos/dev" {
+		t.Fatalf("expected %q, got %q", "/eos/dev", got)
+	}
+}
+
+// --- parseHumanBytes ---
+
+func TestParseHumanBytesAllUnits(t *testing.T) {
+	tests := []struct {
+		input string
+		want  uint64
+	}{
+		{"10 KB", 10 * 1024},
+		{"2 MB", 2 * 1024 * 1024},
+		{"3 GB", 3 * 1024 * 1024 * 1024},
+		{"1 TB", 1024 * 1024 * 1024 * 1024},
+		{"512 B", 512},
+		{"", 0},
+		{"42", 0}, // single field, missing unit
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := parseHumanBytes(tt.input); got != tt.want {
+				t.Fatalf("parseHumanBytes(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- parseUint ---
+
+func TestParseUintEmpty(t *testing.T) {
+	if got := parseUint(""); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+func TestParseUintMultipleFields(t *testing.T) {
+	if got := parseUint("123 [booted]"); got != 123 {
+		t.Fatalf("expected 123, got %d", got)
+	}
+}
+
+// --- toUint64 ---
+
+func TestToUint64AdditionalTypes(t *testing.T) {
+	t.Run("string returns 0", func(t *testing.T) {
+		if got := toUint64("hello"); got != 0 {
+			t.Fatalf("expected 0, got %d", got)
+		}
+	})
+	t.Run("int(5) returns 5", func(t *testing.T) {
+		if got := toUint64(int(5)); got != 5 {
+			t.Fatalf("expected 5, got %d", got)
+		}
+	})
+	t.Run("int64(10) returns 10", func(t *testing.T) {
+		if got := toUint64(int64(10)); got != 10 {
+			t.Fatalf("expected 10, got %d", got)
+		}
+	})
+}
+
+// --- ensureRootPrefix ---
+
+func TestEnsureRootPrefixAlreadyPresent(t *testing.T) {
+	if got := ensureRootPrefix("root@host"); got != "root@host" {
+		t.Fatalf("expected %q, got %q", "root@host", got)
+	}
+}
+
+func TestEnsureRootPrefixNotPresent(t *testing.T) {
+	if got := ensureRootPrefix("host"); got != "root@host" {
+		t.Fatalf("expected %q, got %q", "root@host", got)
+	}
+}
+
+// --- ShellJoin / ShellDisplayJoin ---
+
+func TestShellJoinExported(t *testing.T) {
+	got := ShellJoin([]string{"echo", "hello world"})
+	if !strings.Contains(got, "hello world") {
+		t.Fatalf("expected quoted arg in result, got %q", got)
+	}
+}
+
+func TestShellDisplayJoinExported(t *testing.T) {
+	got := ShellDisplayJoin([]string{"ls", "-la", "/tmp/my dir"})
+	if !strings.Contains(got, "ls") {
+		t.Fatalf("expected ls in result, got %q", got)
+	}
+	if !strings.Contains(got, "/tmp/my dir") {
+		t.Fatalf("expected quoted path in result, got %q", got)
+	}
+}
+
+// --- HostOnly (exported) ---
+
+func TestHostOnlyExported(t *testing.T) {
+	if got := HostOnly("host:1234"); got != "host" {
+		t.Fatalf("expected %q, got %q", "host", got)
+	}
+}
+
+// --- NormalizeClusterInstance ---
+
+func TestNormalizeClusterInstanceWhitespace(t *testing.T) {
+	if got := NormalizeClusterInstance(" "); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestNormalizeClusterInstanceTabsNewlines(t *testing.T) {
+	if got := NormalizeClusterInstance("a\tb"); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+// --- parseNamespaceAttrs ---
+
+func TestParseNamespaceAttrsEmptyInput(t *testing.T) {
+	attrs := parseNamespaceAttrs([]byte(""))
+	if len(attrs) != 0 {
+		t.Fatalf("expected 0 attrs, got %d", len(attrs))
+	}
+}
+
+func TestParseNamespaceAttrsStarLines(t *testing.T) {
+	input := "* this is a header\nkey1=val1\n"
+	attrs := parseNamespaceAttrs([]byte(input))
+	if len(attrs) != 1 {
+		t.Fatalf("expected 1 attr, got %d", len(attrs))
+	}
+	if attrs[0].Key != "key1" || attrs[0].Value != "val1" {
+		t.Fatalf("unexpected attr: %+v", attrs[0])
+	}
+}
+
+func TestParseNamespaceAttrsNoEquals(t *testing.T) {
+	input := "no-equals-here\nkey=value\n"
+	attrs := parseNamespaceAttrs([]byte(input))
+	if len(attrs) != 1 {
+		t.Fatalf("expected 1 attr, got %d", len(attrs))
+	}
+	if attrs[0].Key != "key" || attrs[0].Value != "value" {
+		t.Fatalf("unexpected attr: %+v", attrs[0])
+	}
+}
+
+// --- entryFromCLI ---
+
+func TestEntryFromCLIRootPath(t *testing.T) {
+	info := cliFileInfo{
+		Name: "",
+		Path: "/",
+		Mode: 040755, // directory
+	}
+	entry := entryFromCLI(info)
+	if entry.Name != "/" {
+		t.Fatalf("expected name %q, got %q", "/", entry.Name)
+	}
+	if entry.Path != "/" {
+		t.Fatalf("expected path %q, got %q", "/", entry.Path)
+	}
+	if entry.Kind != EntryKindContainer {
+		t.Fatalf("expected kind %q, got %q", EntryKindContainer, entry.Kind)
+	}
+}
+
+func TestEntryFromCLIWithLinkTarget(t *testing.T) {
+	info := cliFileInfo{
+		Name:       "mylink",
+		Path:       "/eos/mylink",
+		LinkTarget: "/eos/target",
+	}
+	entry := entryFromCLI(info)
+	if entry.LinkName != "/eos/target" {
+		t.Fatalf("expected link target %q, got %q", "/eos/target", entry.LinkName)
+	}
+}
+
+// --- parseRaftInfo ---
+
+func TestParseRaftInfoEmpty(t *testing.T) {
+	info := parseRaftInfo([]byte(""))
+	if info.Leader != "" || info.Myself != "" || len(info.Nodes) != 0 {
+		t.Fatalf("expected zero-value raftInfo, got %+v", info)
+	}
+}
+
+func TestParseRaftInfoNoSeparatorLine(t *testing.T) {
+	// Lines without spaces are skipped by the parser.
+	info := parseRaftInfo([]byte("NOSPACEHERE\n"))
+	if info.Leader != "" {
+		t.Fatalf("expected empty leader, got %q", info.Leader)
+	}
+}
+
+// --- parseSpaceStatus ---
+
+func TestParseSpaceStatusEmpty(t *testing.T) {
+	records := parseSpaceStatus([]byte(""))
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+}
+
+func TestParseSpaceStatusNoDelimiter(t *testing.T) {
+	records := parseSpaceStatus([]byte("no delimiter here\nkey:=val\n"))
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].Key != "key" || records[0].Value != "val" {
+		t.Fatalf("unexpected record: %+v", records[0])
+	}
+}
+
+// --- ioShapingPolicySetArgs ---
+
+func TestIOShapingPolicySetArgsEmptyID(t *testing.T) {
+	_, err := ioShapingPolicySetArgs(IOShapingPolicyUpdate{
+		Mode: IOShapingApps,
+		ID:   "",
+	})
+	if err == nil {
+		t.Fatal("expected error for empty ID")
+	}
+}
+
+func TestIOShapingPolicySetArgsForUser(t *testing.T) {
+	got, err := ioShapingPolicySetArgs(IOShapingPolicyUpdate{
+		Mode:    IOShapingUsers,
+		ID:      "user1",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "--uid user1") {
+		t.Fatalf("expected --uid user1, got %v", got)
+	}
+	if !strings.Contains(joined, "--enable") {
+		t.Fatalf("expected --enable, got %v", got)
+	}
+}
+
+func TestIOShapingPolicyTargetFlagInvalidMode(t *testing.T) {
+	_, err := ioShapingPolicyTargetFlag(IOShapingMode(99))
+	if err == nil {
+		t.Fatal("expected error for invalid mode")
+	}
+}
+
+// --- ioShapingPolicyRemoveArgs ---
+
+func TestIOShapingPolicyRemoveArgsEmptyID(t *testing.T) {
+	_, err := ioShapingPolicyRemoveArgs(IOShapingApps, "")
+	if err == nil {
+		t.Fatal("expected error for empty ID")
+	}
+}
+
+func TestIOShapingPolicyRemoveArgsForGroup(t *testing.T) {
+	got, err := ioShapingPolicyRemoveArgs(IOShapingGroups, "grp1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"eos", "io", "shaping", "policy", "rm", "--gid", "grp1"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestIOShapingPolicyRemoveArgsForApp(t *testing.T) {
+	got, err := ioShapingPolicyRemoveArgs(IOShapingApps, "myapp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"eos", "io", "shaping", "policy", "rm", "--app", "myapp"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// --- isSessionCommandLine ---
+
+func TestIsSessionCommandLineValid(t *testing.T) {
+	if !isSessionCommandLine("[2024-01-01 00:00:00] ssh root@host eos version") {
+		t.Fatal("expected true for valid command line")
+	}
+}
+
+func TestIsSessionCommandLineError(t *testing.T) {
+	if isSessionCommandLine("[2024-01-01 00:00:00] ERROR something went wrong") {
+		t.Fatal("expected false for ERROR line")
+	}
+}
+
+func TestIsSessionCommandLineOutput(t *testing.T) {
+	if isSessionCommandLine("[2024-01-01 00:00:00]   output: some data") {
+		t.Fatal("expected false for output line")
+	}
+}
+
+func TestIsSessionCommandLineNoPrefix(t *testing.T) {
+	if isSessionCommandLine("no bracket prefix") {
+		t.Fatal("expected false for line without bracket prefix")
+	}
+}
+
+// --- parseEOSServerVersion ---
+
+func TestParseEOSServerVersionEmpty(t *testing.T) {
+	if got := parseEOSServerVersion([]byte("")); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestParseEOSServerVersionNoMatch(t *testing.T) {
+	if got := parseEOSServerVersion([]byte("random text\nnothing here\n")); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+// --- Client accessor methods ---
+
+func TestAcceptNewHostKeysFromClient(t *testing.T) {
+	c := &Client{acceptNewHostKeys: true}
+	if !c.AcceptNewHostKeys() {
+		t.Fatal("expected AcceptNewHostKeys to return true")
+	}
+	c2 := &Client{acceptNewHostKeys: false}
+	if c2.AcceptNewHostKeys() {
+		t.Fatal("expected AcceptNewHostKeys to return false")
+	}
+}
+
+func TestOriginalSSHTargetFromClient(t *testing.T) {
+	c := &Client{sshTarget: "myhost"}
+	if got := c.OriginalSSHTarget(); got != "myhost" {
+		t.Fatalf("expected %q, got %q", "myhost", got)
+	}
+}
+
+func TestResolvedSSHTargetFromClient(t *testing.T) {
+	t.Run("uses resolvedSSHTarget when set", func(t *testing.T) {
+		c := &Client{sshTarget: "orig", resolvedSSHTarget: "resolved"}
+		if got := c.ResolvedSSHTarget(); got != "resolved" {
+			t.Fatalf("expected %q, got %q", "resolved", got)
+		}
+	})
+	t.Run("falls back to sshTarget", func(t *testing.T) {
+		c := &Client{sshTarget: "orig"}
+		if got := c.ResolvedSSHTarget(); got != "orig" {
+			t.Fatalf("expected %q, got %q", "orig", got)
+		}
+	})
+}
+
+// --- Client.Close ---
+
+func TestClientClose(t *testing.T) {
+	c := &Client{}
+	if err := c.Close(); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}

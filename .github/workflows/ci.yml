@@ -266,7 +266,7 @@ jobs:
           #   - disable weak-dep pulls and GPG checks for speed,
           #   - disable any non-base repos that might be unreachable.
           kubectl exec eos-mgm-0 -c "${MGM_CONTAINER}" -- bash -c "
-            set -e
+            set -eo pipefail
             echo '--- Installing openssh-server and socat ---'
 
             # Disable any non-standard repos that may be unreachable from kind.
@@ -278,11 +278,29 @@ jobs:
               esac
             done
 
-            timeout 120 dnf install -y \
-              --nogpgcheck \
-              --setopt=timeout=30 \
-              --setopt=install_weak_deps=False \
-              openssh-server socat 2>&1 | tail -10
+            # Retry dnf up to 3 times — mirrors inside kind can be flaky.
+            for attempt in 1 2 3; do
+              echo \"  dnf install attempt \$attempt/3\"
+              if timeout 120 dnf install -y \
+                   --nogpgcheck \
+                   --setopt=timeout=30 \
+                   --setopt=install_weak_deps=False \
+                   openssh-server socat; then
+                break
+              fi
+              if [ \"\$attempt\" -eq 3 ]; then
+                echo 'ERROR: dnf install failed after 3 attempts'
+                exit 1
+              fi
+              echo '  retrying in 5s...'
+              sleep 5
+            done
+
+            # Sanity-check that sshd was actually installed.
+            if [ ! -x /usr/sbin/sshd ]; then
+              echo 'ERROR: /usr/sbin/sshd not found after dnf install'
+              exit 1
+            fi
 
             echo '--- Configuring authorized_keys ---'
             mkdir -p /root/.ssh

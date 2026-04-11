@@ -137,6 +137,7 @@ func (m *model) refreshLogViewportContent(preserveOffset bool) {
 func (m model) renderLogOverlay(height int) string {
 	width := m.contentWidth()
 	vpWidth := m.logViewportWidth()
+	hasCachedContent := len(m.log.allLines) > 0
 
 	// Keep viewport sized to available space.
 	filterHeight := 0
@@ -147,7 +148,7 @@ func (m model) renderLogOverlay(height int) string {
 	vpHeight := maxBoxViewportHeight
 	if m.log.plain {
 		vpHeight = max(4, height-filterHeight)
-	} else if m.log.err != nil && !m.log.loading {
+	} else if m.log.err != nil && !m.log.loading && !hasCachedContent {
 		vpHeight = 1
 	}
 	// Always use the full available height so the panel fills the screen
@@ -173,7 +174,11 @@ func (m model) renderLogOverlay(height int) string {
 	if m.log.loading {
 		totalInfo = "  loading..."
 	} else if m.log.err != nil {
-		totalInfo = "  " + m.log.err.Error()
+		if hasCachedContent {
+			totalInfo = "  reload failed; showing cached lines"
+		} else {
+			totalInfo = "  failed to load log"
+		}
 	}
 	titleLine := m.styles.popupTitle.Render(m.log.title) +
 		m.styles.label.Render("  "+m.log.filePath) +
@@ -184,7 +189,7 @@ func (m model) renderLogOverlay(height int) string {
 
 	lines := []string{titleLine}
 
-	if m.log.err != nil && !m.log.loading {
+	if m.log.err != nil && !m.log.loading && !hasCachedContent {
 		// Truncate error messages so they don't overflow the panel width.
 		lines = append(lines, padVisibleWidth(m.styles.error.Render(ansi.Truncate(m.log.err.Error(), vpWidth, "…")), vpWidth))
 	} else {

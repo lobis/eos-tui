@@ -13,9 +13,10 @@ import (
 func (m model) renderSpaceStatusView(height int) string {
 	width := m.panelWidth()
 	contentWidth := panelContentWidth(width)
+	spaceName := m.currentSpaceStatusName()
 
 	if m.spaceStatusLoading {
-		return m.styles.panelDim.Width(width).Render(fitLines([]string{"Loading space status..."}, height))
+		return m.styles.panelDim.Width(width).Render(fitLines([]string{fmt.Sprintf("Loading space status for %s...", spaceName)}, height))
 	}
 	if m.spaceStatusErr != nil {
 		return m.styles.panelDim.Width(width).Render(fitLines([]string{m.styles.error.Render(m.spaceStatusErr.Error())}, height))
@@ -26,21 +27,26 @@ func (m model) renderSpaceStatusView(height int) string {
 		{title: "value", min: 40, weight: 2},
 	})
 
-	title := m.styles.label.Render("EOS Space Status (default)")
+	title := m.styles.label.Render(fmt.Sprintf("EOS Space Status (%s)", spaceName))
 	lines := []string{
 		title,
 		"",
 		m.renderSimpleHeaderRow(columns, []string{"parameter", "value"}),
 	}
 
-	start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, height-len(lines)))
-	for i := start; i < end; i++ {
-		record := m.spaceStatus[i]
-		line := formatTableRow(columns, []string{record.Key, record.Value})
-		if i == m.spaceStatusSelected {
-			line = m.styles.selected.Width(contentWidth).Render(line)
+	if len(m.spaceStatus) == 0 {
+		lines = append(lines, "(no space status entries)")
+	} else {
+		start, end := visibleWindow(len(m.spaceStatus), m.spaceStatusSelected, max(1, height-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(m.spaceStatus))
+		for i := start; i < end; i++ {
+			record := m.spaceStatus[i]
+			line := formatTableRow(columns, []string{record.Key, record.Value})
+			if i == m.spaceStatusSelected {
+				line = m.styles.selected.Width(contentWidth).Render(line)
+			}
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
 	}
 
 	return m.styles.panel.Width(width).Render(fitLines(lines, height))
@@ -67,6 +73,7 @@ func (m model) startSpaceStatusEdit() (tea.Model, tea.Cmd) {
 	m.edit = spaceStatusEdit{
 		active:     true,
 		stage:      editStageInput,
+		space:      m.currentSpaceStatusName(),
 		record:     record,
 		input:      input,
 		button:     buttonCancel,
@@ -117,7 +124,7 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 		confirmBtn = m.styles.selected.Render(confirmBtn)
 	}
 
-	command := fmt.Sprintf("eos space config default %s=%s", m.edit.record.Key, m.edit.input.Value())
+	command := fmt.Sprintf("eos space config %s %s=%s", m.edit.space, m.edit.record.Key, m.edit.input.Value())
 
 	lines := []string{
 		m.styles.popupTitle.Render("Confirm Configuration Change"),
@@ -136,4 +143,37 @@ func (m model) renderSpaceStatusConfirmPopup() string {
 		BorderForeground(lipgloss.Color("196")).
 		Padding(1, 2).
 		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) currentSpaceStatusName() string {
+	if m.spaceStatusTarget != "" {
+		return m.spaceStatusTarget
+	}
+	if space, ok := m.selectedSpace(); ok {
+		return space.Name
+	}
+	return "space"
+}
+
+func (m model) openSelectedSpaceStatus() (tea.Model, tea.Cmd) {
+	space, ok := m.selectedSpace()
+	if !ok {
+		return m, nil
+	}
+
+	targetChanged := m.spaceStatusTarget != space.Name
+	m.spaceStatusActive = true
+	m.spaceStatusTarget = space.Name
+	if targetChanged {
+		m.spaceStatus = nil
+		m.spaceStatusErr = nil
+		m.spaceStatusSelected = 0
+	}
+
+	if !targetChanged && !m.spaceStatusLoading && m.spaceStatusErr == nil && len(m.spaceStatus) > 0 {
+		m.status = fmt.Sprintf("Viewing space status for %s", space.Name)
+		return m, nil
+	}
+
+	return m.maybeLoadSpaceStatus(space.Name)
 }

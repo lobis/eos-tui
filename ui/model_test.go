@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -644,7 +645,6 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		{"FST", viewFST},
 		{"FS", viewFileSystems},
 		{"Spaces", viewSpaces},
-		{"SpaceStatus", viewSpaceStatus},
 		{"IOTraffic", viewIOShaping},
 		{"Groups", viewGroups},
 	}
@@ -1265,6 +1265,66 @@ func TestSpacesViewRendersWithData(t *testing.T) {
 	for _, needle := range []string{"EOS Spaces", "default", "ecbench", "groupbalancer"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected spaces view to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestSpacesEnterOpensSelectedSpaceStatusView(t *testing.T) {
+	m := NewModel(&eos.Client{}, "local eos cli", "/").(model)
+	m.activeView = viewSpaces
+	m.spacesLoading = false
+	m.spaces = []eos.SpaceRecord{
+		{Name: "default", Type: "groupbalancer"},
+		{Name: "project", Type: "groupbalancer"},
+	}
+	m.spacesSelected = 1
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.spaceStatusActive {
+		t.Fatalf("expected enter to open the nested space status view")
+	}
+	if m.spaceStatusTarget != "project" {
+		t.Fatalf("expected selected space to become the status target, got %q", m.spaceStatusTarget)
+	}
+	if !m.spaceStatusLoading {
+		t.Fatalf("expected opening a space status view to trigger loading")
+	}
+	if cmd == nil {
+		t.Fatalf("expected a load command when opening the nested space status view")
+	}
+}
+
+func TestSpacesEscClosesNestedSpaceStatusView(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewSpaces
+	m.spaceStatusActive = true
+	m.spaceStatusTarget = "default"
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "groupmod", Value: "24"}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+
+	if m.spaceStatusActive {
+		t.Fatalf("expected esc to return from nested space status view to spaces list")
+	}
+}
+
+func TestNestedSpaceStatusViewRendersSelectedSpaceName(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewSpaces
+	m.spaceStatusActive = true
+	m.spaceStatusTarget = "project"
+	m.spaceStatusLoading = false
+	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "groupbalancer.threshold", Value: "5"}}
+
+	view := m.View()
+	for _, needle := range []string{"EOS Space Status (project)", "groupbalancer.threshold", "5"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected nested space status view to contain %q, got:\n%s", needle, view)
 		}
 	}
 }
@@ -2025,7 +2085,7 @@ func TestGroupsViewRendersWithData(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "8 Groups", "Selected Group", "Free"} {
+	for _, needle := range []string{"EOS Groups", "default.0", "default.1", "online", "offline", "7 Groups", "Selected Group", "Free"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected groups view to contain %q, got:\n%s", needle, view)
 		}
@@ -2109,11 +2169,11 @@ func TestSwitchingToGroupsTriggersLoad(t *testing.T) {
 	m.groups = nil
 	m.groupsErr = nil
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
 	m = updated.(model)
 
 	if m.activeView != viewGroups {
-		t.Fatalf("expected activeView=viewGroups after pressing 8, got %d", m.activeView)
+		t.Fatalf("expected activeView=viewGroups after pressing 7, got %d", m.activeView)
 	}
 	if !m.groupsLoading {
 		t.Fatalf("expected groupsLoading=true after switching to groups view")
@@ -2135,11 +2195,10 @@ func TestHotkeysFollowNewViewOrdering(t *testing.T) {
 		{'3', viewFileSystems},
 		{'4', viewNamespace},
 		{'5', viewSpaces},
-		{'6', viewSpaceStatus},
-		{'7', viewIOShaping},
-		{'8', viewGroups},
-		{'9', viewMGM},
-		{'0', viewQDB},
+		{'6', viewIOShaping},
+		{'7', viewGroups},
+		{'8', viewMGM},
+		{'9', viewQDB},
 	}
 
 	for _, tc := range cases {
@@ -2160,7 +2219,6 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		viewFileSystems,
 		viewNamespace,
 		viewSpaces,
-		viewSpaceStatus,
 		viewIOShaping,
 		viewGroups,
 		viewMGM,
@@ -2678,7 +2736,7 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 	m.height = 30
 
 	hostViews := []viewID{viewMGM, viewQDB, viewFST, viewFileSystems}
-	noHostViews := []viewID{viewSpaces, viewNamespaceStats, viewSpaceStatus, viewIOShaping, viewGroups}
+	noHostViews := []viewID{viewSpaces, viewNamespaceStats, viewIOShaping, viewGroups}
 
 	for _, v := range hostViews {
 		m.activeView = v
@@ -2711,7 +2769,7 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 }
 
 func TestLogHotkeyIsNoOpOnViewsWithoutHost(t *testing.T) {
-	noHostViews := []viewID{viewNamespace, viewNamespaceStats, viewSpaces, viewSpaceStatus, viewIOShaping, viewGroups}
+	noHostViews := []viewID{viewNamespace, viewNamespaceStats, viewSpaces, viewIOShaping, viewGroups}
 	for _, v := range noHostViews {
 		m := NewModel(nil, "local eos cli", "/").(model)
 		m.activeView = v
@@ -2747,8 +2805,8 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups} {
 		m.activeView = v
 		footer := m.renderFooter()
-		if !strings.Contains(footer, "tab/0-9") {
-			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
+		if !strings.Contains(footer, "tab/1-9") {
+			t.Errorf("view %d: expected footer to show tab/1-9, got: %s", v, footer)
 		}
 		if strings.Contains(footer, "tab/1-0") {
 			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
@@ -3002,7 +3060,9 @@ func TestFSConfigStatusEditSupportsGAndGNavigation(t *testing.T) {
 
 func TestSpaceStatusEditConfirmSupportsGAndGNavigation(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
-	m.activeView = viewSpaceStatus
+	m.activeView = viewSpaces
+	m.spaceStatusActive = true
+	m.spaceStatusTarget = "default"
 	m.spaceStatus = []eos.SpaceStatusRecord{{Key: "groupbalancer.threshold", Value: "5"}}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -3507,6 +3567,44 @@ func TestLogRefreshPreservesScrollWhenNotAtBottom(t *testing.T) {
 	}
 	if !strings.Contains(m.log.vp.View(), "two") {
 		t.Fatalf("expected viewport content to stay anchored near previous offset, got:\n%s", m.log.vp.View())
+	}
+}
+
+func TestTransientLogReloadErrorKeepsPreviousContentVisible(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log.active = true
+	m.log.filePath = "/var/log/eos/fst/xrdlog.fst"
+	m.log.title = "FST Log  [fst01]"
+	m.log.vp = viewport.New(80, 4)
+	m.log.allLines = []string{"line one", "line two", "line three"}
+	m.log.filtered = append([]string(nil), m.log.allLines...)
+	m.log.vp.SetContent(strings.Join(m.log.filtered, "\n"))
+	m.log.loading = false
+
+	updated, _ := m.Update(logLoadedMsg{
+		filePath: m.log.filePath,
+		err:      errors.New("tail /var/log/eos/fst/xrdlog.fst on fst01: exit status 255"),
+	})
+	m = updated.(model)
+
+	if m.log.err == nil {
+		t.Fatalf("expected transient reload error to be recorded")
+	}
+	if len(m.log.allLines) != 3 || m.log.allLines[0] != "line one" {
+		t.Fatalf("expected cached log lines to be preserved after transient reload error, got %+v", m.log.allLines)
+	}
+
+	rendered := m.renderLogOverlay(18)
+	if !strings.Contains(rendered, "line three") {
+		t.Fatalf("expected overlay to keep rendering cached log content, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "exit status 255") {
+		t.Fatalf("expected transient reload error not to replace the viewport body, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "reload failed; showing cached lines") {
+		t.Fatalf("expected compact reload failure hint in title, got:\n%s", rendered)
 	}
 }
 

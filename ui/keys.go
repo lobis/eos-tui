@@ -280,6 +280,8 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	half := max(1, m.height/6)
 	switch msg.String() {
+	case "enter":
+		return m.openSelectedSpaceStatus()
 	case "up", "k":
 		if m.spacesSelected > 0 {
 			m.spacesSelected--
@@ -308,6 +310,10 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateSpaceStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	half := max(1, m.height/6)
 	switch msg.String() {
+	case "left", "backspace":
+		m.spaceStatusActive = false
+		m.status = "Returned to spaces list"
+		return m, nil
 	case "up", "k":
 		if m.spaceStatusSelected > 0 {
 			m.spaceStatusSelected--
@@ -463,7 +469,7 @@ func (m model) updateSpaceStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		} else if m.edit.stage == editStageConfirm {
 			if m.edit.button == buttonContinue {
-				return m, runSpaceConfigCmd(m.client, m.edit.record.Key, m.edit.input.Value())
+				return m, runSpaceConfigCmd(m.client, m.edit.space, m.edit.record.Key, m.edit.input.Value())
 			}
 		}
 	}

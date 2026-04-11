@@ -79,14 +79,14 @@ func TestEntryFromCLIFile(t *testing.T) {
 	}
 }
 
-func TestParseSpaceStatus(t *testing.T) {
+func TestParseSpaceStatusLegacy(t *testing.T) {
 	input := `
 groupbalancer.threshold          := 5
 groupmod                         := 24
 lru                              := on
 tgc.totalbytes                   := 1000000000000000000
 `
-	records := parseSpaceStatus([]byte(input))
+	records := parseSpaceStatusLegacy([]byte(input))
 
 	if len(records) != 4 {
 		t.Fatalf("expected 4 records, got %d", len(records))
@@ -97,6 +97,80 @@ tgc.totalbytes                   := 1000000000000000000
 	}
 	if records[3].Key != "tgc.totalbytes" || records[3].Value != "1000000000000000000" {
 		t.Fatalf("unexpected record 3: %+v", records[3])
+	}
+}
+
+func TestParseSpaceStatusJSON(t *testing.T) {
+	input := `{
+  "result": [
+    {
+      "groupbalancer": {
+        "threshold": 5
+      },
+      "groupmod": 24,
+      "lru": {
+        "status": "on"
+      },
+      "inspector": {
+        "status": "off"
+      },
+      "tgc": {
+        "totalbytes": 1000000000000000000
+      }
+    }
+  ],
+  "retc": "0"
+}`
+
+	records, err := parseSpaceStatusJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("parseSpaceStatusJSON() error = %v", err)
+	}
+
+	got := make(map[string]string, len(records))
+	for _, record := range records {
+		got[record.Key] = record.Value
+	}
+
+	want := map[string]string{
+		"groupbalancer.threshold": "5",
+		"groupmod":                "24",
+		"inspector.status":        "off",
+		"lru.status":              "on",
+		"tgc.totalbytes":          "1000000000000000000",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d flattened records, got %d: %+v", len(want), len(got), got)
+	}
+	for key, wantValue := range want {
+		if got[key] != wantValue {
+			t.Fatalf("record %q = %q, want %q", key, got[key], wantValue)
+		}
+	}
+}
+
+func TestParseSpaceStatusJSONWithPreamble(t *testing.T) {
+	input := "* info: connected\n" + `{
+  "result": [
+    {
+      "space": {
+        "converter": {
+          "status": "on"
+        }
+      }
+    }
+  ]
+}`
+
+	records, err := parseSpaceStatusJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("parseSpaceStatusJSON() error = %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].Key != "space.converter.status" || records[0].Value != "on" {
+		t.Fatalf("unexpected record: %+v", records[0])
 	}
 }
 

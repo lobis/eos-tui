@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -66,14 +67,27 @@ func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
 func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRecord, error) {
 	_ = ctx
 
-	// TODO: use JSON output once it is reliable.
-	// output, err := c.runCommand("eos", "-j", "-b", "space", "status", name)
-	output, err := c.runCommand("eos", "-b", "space", "status", name)
-	if err != nil {
-		return nil, fmt.Errorf("eos space status %s: %w", name, err)
+	output, err := c.runCommand("eos", "--json", "-b", "space", "status", name)
+	if err == nil {
+		records, parseErr := parseSpaceStatusJSON(output)
+		if parseErr == nil && len(records) > 0 {
+			return records, nil
+		}
 	}
 
-	return parseSpaceStatus(output), nil
+	// TEMPORARY COMPATIBILITY WORKAROUND: older EOS clients still ship a broken
+	// JSON implementation for `eos space status`. Keep the legacy text parser as
+	// a fallback until those versions are out of support, then remove this block
+	// and the parseSpaceStatusLegacy helper.
+	legacyOutput, legacyErr := c.runCommand("eos", "-b", "space", "status", name)
+	if legacyErr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("eos space status %s: json path failed: %w; legacy fallback failed: %w", name, err, legacyErr)
+		}
+		return nil, fmt.Errorf("eos space status %s: %w", name, legacyErr)
+	}
+
+	return parseSpaceStatusLegacy(legacyOutput), nil
 }
 
 func (c *Client) SpaceConfig(ctx context.Context, name string, key, value string) error {
@@ -92,7 +106,77 @@ func (c *Client) SpaceConfig(ctx context.Context, name string, key, value string
 	return nil
 }
 
-func parseSpaceStatus(output []byte) []SpaceStatusRecord {
+func parseSpaceStatusJSON(output []byte) ([]SpaceStatusRecord, error) {
+	var payload struct {
+		Result []map[string]any `json:"result"`
+	}
+
+	if err := json.Unmarshal(stripEOSPreamble(output), &payload); err != nil {
+		return nil, fmt.Errorf("parse space status json: %w", err)
+	}
+	if len(payload.Result) == 0 {
+		return nil, nil
+	}
+
+	flattened := make(map[string]string)
+	flattenSpaceStatusMap(flattened, "", payload.Result[0])
+	if len(flattened) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]string, 0, len(flattened))
+	for key := range flattened {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	records := make([]SpaceStatusRecord, 0, len(keys))
+	for _, key := range keys {
+		records = append(records, SpaceStatusRecord{
+			Key:   key,
+			Value: flattened[key],
+		})
+	}
+	return records, nil
+}
+
+func flattenSpaceStatusMap(dst map[string]string, prefix string, value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			next := key
+			if prefix != "" {
+				next = prefix + "." + key
+			}
+			flattenSpaceStatusMap(dst, next, child)
+		}
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			parts = append(parts, formatSpaceStatusValue(item))
+		}
+		dst[prefix] = strings.Join(parts, ",")
+	case nil:
+		dst[prefix] = ""
+	default:
+		dst[prefix] = formatSpaceStatusValue(typed)
+	}
+}
+
+func formatSpaceStatusValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case bool:
+		return strconv.FormatBool(typed)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func parseSpaceStatusLegacy(output []byte) []SpaceStatusRecord {
 	lines := strings.Split(string(output), "\n")
 	records := make([]SpaceStatusRecord, 0, len(lines))
 	for _, line := range lines {

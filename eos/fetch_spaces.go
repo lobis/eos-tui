@@ -176,6 +176,12 @@ func formatSpaceStatusValue(value any) string {
 	}
 }
 
+// parseSpaceStatus is kept as a compatibility shim for existing tests and
+// callers that still expect the legacy text parser name.
+func parseSpaceStatus(output []byte) []SpaceStatusRecord {
+	return parseSpaceStatusLegacy(output)
+}
+
 func parseSpaceStatusLegacy(output []byte) []SpaceStatusRecord {
 	lines := strings.Split(string(output), "\n")
 	records := make([]SpaceStatusRecord, 0, len(lines))

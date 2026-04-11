@@ -89,7 +89,7 @@ func TestPersistedStateUpdatesOnDirectoryLoadViewChangeAndCommandPanelToggle(t *
 	updated, _ := m.Update(directoryLoadedMsg{directory: eos.Directory{Path: "/eos/dev"}})
 	m = updated.(model)
 
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
 	m = updated.(model)
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
@@ -104,6 +104,22 @@ func TestPersistedStateUpdatesOnDirectoryLoadViewChangeAndCommandPanelToggle(t *
 	}
 	if state.CommandLogVisible {
 		t.Fatalf("expected persisted command panel visibility to reflect the toggled closed state")
+	}
+}
+
+func TestLoadPersistedUIStateMigratesDeprecatedSpaceStatusView(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	savePersistedUIState(persistedUIState{
+		NamespacePath:     "/eos/dev",
+		ActiveView:        viewSpaceStatus,
+		CommandLogVisible: true,
+	})
+
+	state := loadPersistedUIState()
+	if state.ActiveView != viewSpaces {
+		t.Fatalf("expected deprecated space status view to migrate to spaces, got %d", state.ActiveView)
 	}
 }
 

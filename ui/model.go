@@ -34,6 +34,9 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		activeView = state.ActiveView
 		commandLogVisible = state.CommandLogVisible
 	}
+	if activeView == viewSpaceStatus {
+		activeView = viewSpaces
+	}
 	initialPath := rootPath
 	if initialPath == "" {
 		initialPath = state.NamespacePath
@@ -54,7 +57,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		spacesLoading:      true,
 		nsStatsLoading:     true,
 		nsLoading:          activeView == viewNamespace,
-		spaceStatusLoading: true,
+		spaceStatusLoading: false,
 		groupsLoading:      activeView == viewGroups,
 		ioShapingLoading:   activeView == viewIOShaping,
 		directory: eos.Directory{
@@ -92,8 +95,6 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, loadDirectoryCmd(m.client, m.directory.Path))
 	case viewGroups:
 		cmds = append(cmds, loadGroupsCmd(m.client))
-	case viewSpaceStatus:
-		cmds = append(cmds, loadSpaceStatusCmd(m.client))
 	case viewIOShaping:
 		cmds = append(cmds, loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client), ioShapingTickCmd(), ioShapingPolicyTickCmd())
 	}
@@ -165,6 +166,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "esc":
+			if m.activeView == viewSpaces && m.spaceStatusActive {
+				m.spaceStatusActive = false
+				m.status = "Returned to spaces list"
+				return m, nil
+			}
 			switch m.activeView {
 			case viewFST:
 				if len(m.fstFilter.filters) > 0 {
@@ -184,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			m.activeView = nextOrderedView(m.activeView, -1)
 			return m.onViewChanged()
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9", "0":
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			m.activeView, _ = viewForHotkey(msg.String())
 			return m.onViewChanged()
 		case "r":
@@ -209,14 +215,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewNamespace:
 			return m.updateNamespaceKeys(msg)
 		case viewSpaces:
+			if m.spaceStatusActive {
+				if msg.String() == "enter" {
+					return m.startSpaceStatusEdit()
+				}
+				return m.updateSpaceStatusKeys(msg)
+			}
 			return m.updateSpacesKeys(msg)
 		case viewNamespaceStats:
 			// read-only
-		case viewSpaceStatus:
-			if msg.String() == "enter" {
-				return m.startSpaceStatusEdit()
-			}
-			return m.updateSpaceStatusKeys(msg)
 		case viewIOShaping:
 			return m.updateIOShapingKeys(msg)
 		case viewGroups:
@@ -376,22 +383,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
 		return m.startNamespaceAttrLoad(true)
 	case spaceStatusLoadedMsg:
+		if msg.space != m.spaceStatusTarget {
+			return m, nil
+		}
 		m.spaceStatusLoading = false
 		m.spaceStatusErr = msg.err
 		if msg.err != nil {
-			m.status = fmt.Sprintf("Space status refresh failed: %v", msg.err)
+			m.status = fmt.Sprintf("Space %s status refresh failed: %v", msg.space, msg.err)
 		} else {
 			m.spaceStatus = msg.records
 			m.spaceStatusSelected = clampIndex(m.spaceStatusSelected, len(m.spaceStatus))
-			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+			m.status = fmt.Sprintf("Loaded space status for %s", msg.space)
 		}
 	case spaceConfigResultMsg:
 		m.edit.active = false
 		if msg.err != nil {
 			m.status = m.styles.error.Render(fmt.Sprintf("Space config failed: %v", msg.err))
 		} else {
-			m.status = "Space configuration updated successfully"
-			return m, loadSpaceStatusCmd(m.client)
+			m.status = fmt.Sprintf("Space %s configuration updated successfully", msg.space)
+			return m, loadSpaceStatusCmd(m.client, msg.space)
 		}
 	case fsConfigStatusResultMsg:
 		m.fsEdit.active = false
@@ -580,11 +590,12 @@ func (m model) startupLoading() bool {
 	case viewNamespace:
 		return !m.nsLoaded && m.nsLoading
 	case viewSpaces:
+		if m.spaceStatusActive {
+			return m.spaceStatusLoading && len(m.spaceStatus) == 0
+		}
 		return len(m.spaces) == 0 && m.spacesLoading
 	case viewNamespaceStats:
 		return m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsLoading
-	case viewSpaceStatus:
-		return len(m.spaceStatus) == 0 && m.spaceStatusLoading
 	case viewIOShaping:
 		return len(m.ioShapingMergedRows()) == 0 && m.ioShapingLoading
 	case viewGroups:
@@ -623,6 +634,9 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			m.spacesErr = nil
 			return m, loadSpacesCmd(m.client)
 		}
+		if m.spaceStatusActive {
+			return m.maybeLoadSpaceStatus(m.spaceStatusTarget)
+		}
 		return m, nil
 	case viewGroups:
 		if !m.groupsLoading && len(m.groups) == 0 && m.groupsErr == nil {
@@ -647,8 +661,6 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Batch(cmds...)
-	case viewSpaceStatus:
-		return m.maybeLoadSpaceStatus()
 	case viewIOShaping:
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil
@@ -667,6 +679,12 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Refreshing namespace %s...", m.directory.Path)
 		return m, loadDirectoryCmd(m.client, m.directory.Path)
 	case viewSpaces:
+		if m.spaceStatusActive {
+			m.spaceStatusLoading = true
+			m.spaceStatusErr = nil
+			m.status = fmt.Sprintf("Refreshing space status for %s...", m.spaceStatusTarget)
+			return m, loadSpaceStatusCmd(m.client, m.spaceStatusTarget)
+		}
 		m.spacesLoading = true
 		m.spacesErr = nil
 		m.status = "Refreshing spaces..."
@@ -683,11 +701,6 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.nodeStatsErr = nil
 		m.status = "Refreshing general stats..."
 		return m, tea.Batch(loadNamespaceStatsCmd(m.client), loadNodeStatsCmd(m.client))
-	case viewSpaceStatus:
-		m.spaceStatusLoading = true
-		m.spaceStatusErr = nil
-		m.status = "Refreshing space status..."
-		return m, loadSpaceStatusCmd(m.client)
 	case viewIOShaping:
 		m.ioShapingLoading = true
 		m.ioShapingErr = nil
@@ -755,15 +768,19 @@ func (m model) startNamespaceAttrLoad(force bool) (tea.Model, tea.Cmd) {
 	return m, loadNamespaceAttrsCmd(m.client, path)
 }
 
-func (m model) maybeLoadSpaceStatus() (tea.Model, tea.Cmd) {
-	if !m.spaceStatusLoading && len(m.spaceStatus) > 0 {
+func (m model) maybeLoadSpaceStatus(space string) (tea.Model, tea.Cmd) {
+	if space == "" || m.client == nil {
+		return m, nil
+	}
+	if !m.spaceStatusLoading && m.spaceStatusErr == nil && m.spaceStatusTarget == space && len(m.spaceStatus) > 0 {
 		return m, nil
 	}
 
+	m.spaceStatusTarget = space
 	m.spaceStatusLoading = true
 	m.spaceStatusErr = nil
-	m.status = "Loading space status..."
-	return m, loadSpaceStatusCmd(m.client)
+	m.status = fmt.Sprintf("Loading space status for %s...", space)
+	return m, loadSpaceStatusCmd(m.client, space)
 }
 
 func (m model) computeClusterHealth() string {

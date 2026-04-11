@@ -39,6 +39,9 @@ func loadPersistedUIState() persistedUIState {
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
+	if state.ActiveView == viewSpaceStatus {
+		state.ActiveView = viewSpaces
+	}
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
 		state.ActiveView = defaultActiveView()
 	}
@@ -57,6 +60,9 @@ func savePersistedUIState(state persistedUIState) {
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
+	if state.ActiveView == viewSpaceStatus {
+		state.ActiveView = viewSpaces
+	}
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
 		state.ActiveView = defaultActiveView()
 	}
@@ -99,9 +105,13 @@ func savePersistedUIState(state persistedUIState) {
 }
 
 func (m model) persistedUIState() persistedUIState {
+	activeView := m.activeView
+	if activeView == viewSpaceStatus {
+		activeView = viewSpaces
+	}
 	return persistedUIState{
 		NamespacePath:     m.directory.Path,
-		ActiveView:        m.activeView,
+		ActiveView:        activeView,
 		CommandLogVisible: m.commandLog.active,
 	}
 }

@@ -4,9 +4,15 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/lobis/eos-tui/eos"
 )
 
 func (m model) renderSpacesView(height int) string {
+	if m.spaceStatusActive {
+		return m.renderSpaceStatusView(height)
+	}
+
 	const fixedHeaderLines = 3 // title, blank, column headers
 	naturalListContent := fixedHeaderLines + len(m.spaces)
 	const spaceDetailLines = 8 // fixed lines rendered by renderSpaceDetails
@@ -95,4 +101,11 @@ func (m model) renderSpaceDetails(width, height int) string {
 
 func (m model) renderSpaceHeaderRow(columns []tableColumn) string {
 	return m.renderSimpleHeaderRow(columns, []string{"name", "type", "status", "groups", "files", "dirs", "usage %"})
+}
+
+func (m model) selectedSpace() (eos.SpaceRecord, bool) {
+	if len(m.spaces) == 0 || m.spacesSelected < 0 || m.spacesSelected >= len(m.spaces) {
+		return eos.SpaceRecord{}, false
+	}
+	return m.spaces[m.spacesSelected], true
 }

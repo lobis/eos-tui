@@ -126,10 +126,10 @@ func runNamespaceAttrSetCmd(client *eos.Client, path, key, value string) tea.Cmd
 	}
 }
 
-func loadSpaceStatusCmd(client *eos.Client) tea.Cmd {
+func loadSpaceStatusCmd(client *eos.Client, space string) tea.Cmd {
 	return func() tea.Msg {
-		records, err := client.SpaceStatus(context.Background(), "default")
-		return spaceStatusLoadedMsg{records: records, err: err}
+		records, err := client.SpaceStatus(context.Background(), space)
+		return spaceStatusLoadedMsg{space: space, records: records, err: err}
 	}
 }
 
@@ -165,10 +165,10 @@ func runIOShapingPolicyRemoveCmd(client *eos.Client, mode eos.IOShapingMode, id 
 	}
 }
 
-func runSpaceConfigCmd(client *eos.Client, key, value string) tea.Cmd {
+func runSpaceConfigCmd(client *eos.Client, space, key, value string) tea.Cmd {
 	return func() tea.Msg {
-		err := client.SpaceConfig(context.Background(), "default", key, value)
-		return spaceConfigResultMsg{err: err}
+		err := client.SpaceConfig(context.Background(), space, key, value)
+		return spaceConfigResultMsg{space: space, err: err}
 	}
 }
 

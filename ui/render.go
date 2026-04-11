@@ -83,15 +83,21 @@ func (m model) renderFooter() string {
 	var keys string
 	switch m.activeView {
 	case viewNamespace:
-		keys = "tab/0-9  •  ↑↓/jk  •  g/G top/bottom  •  → open  •  enter attrs  •  backspace back  •  L commands  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  g/G top/bottom  •  → open  •  enter attrs  •  backspace back  •  L commands  •  q quit"
+	case viewSpaces:
+		if m.spaceStatusActive {
+			keys = "tab/1-9  •  ↑↓/jk  •  enter edit  •  esc/backspace/← back  •  r refresh  •  L commands  •  q quit"
+		} else {
+			keys = "tab/1-9  •  ↑↓/jk  •  enter open  •  r refresh  •  L commands  •  q quit"
+		}
 	case viewIOShaping:
-		keys = "tab/0-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  enter edit  •  d delete  •  r refresh  •  L commands  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  enter edit  •  d delete  •  r refresh  •  L commands  •  q quit"
 	case viewFileSystems:
-		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  enter cfg  •  x apollon  •  l logs  •  L commands  •  s shell  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  enter cfg  •  x apollon  •  l logs  •  L commands  •  s shell  •  q quit"
 	default:
-		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  L commands  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  L commands  •  q quit"
 		if hostViews {
-			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  l logs  •  L commands  •  s shell  •  q quit"
+			keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  l logs  •  L commands  •  s shell  •  q quit"
 		}
 	}
 
@@ -115,7 +121,7 @@ func (m model) renderBody(availableHeight int) string {
 	case viewNamespaceStats:
 		return m.renderNamespaceStatsView(availableHeight)
 	case viewSpaceStatus:
-		return m.renderSpaceStatusView(availableHeight)
+		return m.renderSpacesView(availableHeight)
 	case viewIOShaping:
 		return m.renderIOShapingView(availableHeight)
 	case viewGroups:

@@ -23,7 +23,7 @@ const (
 	viewNamespace
 	viewSpaces
 	viewNamespaceStats
-	viewSpaceStatus
+	viewSpaceStatus // deprecated: kept for persisted-state migration only
 	viewIOShaping
 	viewGroups
 )
@@ -42,11 +42,10 @@ var orderedViewTabs = []viewTab{
 	{key: "3", label: "3 FS", view: viewFileSystems},
 	{key: "4", label: "4 Namespace", view: viewNamespace},
 	{key: "5", label: "5 Spaces", view: viewSpaces},
-	{key: "6", label: "6 Space Status", view: viewSpaceStatus},
-	{key: "7", label: "7 IO Traffic", view: viewIOShaping},
-	{key: "8", label: "8 Groups", view: viewGroups},
-	{key: "9", label: "9 MGM", view: viewMGM},
-	{key: "0", label: "0 QDB", view: viewQDB},
+	{key: "6", label: "6 IO Traffic", view: viewIOShaping},
+	{key: "7", label: "7 Groups", view: viewGroups},
+	{key: "8", label: "8 MGM", view: viewMGM},
+	{key: "9", label: "9 QDB", view: viewQDB},
 }
 
 func defaultActiveView() viewID {
@@ -139,12 +138,14 @@ type namespaceAttrSetResultMsg struct {
 }
 
 type spaceStatusLoadedMsg struct {
+	space   string
 	records []eos.SpaceStatusRecord
 	err     error
 }
 
 type spaceConfigResultMsg struct {
-	err error
+	space string
+	err   error
 }
 
 type ioShapingLoadedMsg struct {
@@ -246,6 +247,7 @@ const (
 type spaceStatusEdit struct {
 	active     bool
 	stage      spaceStatusEditStage
+	space      string
 	record     eos.SpaceStatusRecord
 	input      textinput.Model
 	button     buttonID
@@ -527,6 +529,7 @@ type model struct {
 	spacesErr            error
 	spacesSelected       int
 	spacesColumnSelected int
+	spaceStatusActive    bool
 
 	groups               []eos.GroupRecord
 	groupsLoading        bool
@@ -556,6 +559,7 @@ type model struct {
 	spaceStatusLoading  bool
 	spaceStatusErr      error
 	spaceStatusSelected int
+	spaceStatusTarget   string
 
 	ioShaping         []eos.IOShapingRecord
 	ioShapingPolicies []eos.IOShapingPolicyRecord

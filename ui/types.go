@@ -148,6 +148,15 @@ type spaceConfigResultMsg struct {
 	err   error
 }
 
+type groupSetResultMsg struct {
+	group  string
+	status string
+	err    error
+	batch  bool
+	count  int
+	failed []string
+}
+
 type ioShapingLoadedMsg struct {
 	records []eos.IOShapingRecord
 	mode    eos.IOShapingMode
@@ -193,6 +202,12 @@ type fsConfigStatusResultMsg struct {
 	err error
 }
 
+type fsConfigStatusBatchResultMsg struct {
+	value     string
+	attempted int
+	failed    []string
+}
+
 type apollonDrainResultMsg struct {
 	fsID     uint64
 	instance string
@@ -216,6 +231,10 @@ type fsConfigStatusEdit struct {
 	fsPath   string
 	current  string
 	selected int // index into configStatusOptions
+	applyAll bool
+	targets  []fileSystemTarget
+	confirm  bool
+	button   buttonID
 }
 
 type apollonDrainConfirm struct {
@@ -227,7 +246,19 @@ type apollonDrainConfirm struct {
 	button   buttonID
 }
 
+type groupDrainConfirm struct {
+	active   bool
+	group    string
+	current  string
+	selected int
+	applyAll bool
+	targets  []string
+	confirm  bool
+	button   buttonID
+}
+
 var configStatusOptions = []string{"rw", "ro", "drain", "empty"}
+var groupStatusOptions = []string{"on", "drain", "off"}
 
 type spaceStatusEditStage int
 
@@ -243,6 +274,11 @@ const (
 	buttonCancel buttonID = iota
 	buttonContinue
 )
+
+type fileSystemTarget struct {
+	id   uint64
+	path string
+}
 
 type spaceStatusEdit struct {
 	active     bool
@@ -273,7 +309,8 @@ type namespaceAttrEdit struct {
 type ioShapingEditStage int
 
 const (
-	ioShapingEditStageSelect ioShapingEditStage = iota
+	ioShapingEditStageTarget ioShapingEditStage = iota
+	ioShapingEditStageSelect
 	ioShapingEditStageInput
 	ioShapingEditStageDeleteConfirm
 )
@@ -294,6 +331,7 @@ type ioShapingPolicyEdit struct {
 	stage            ioShapingEditStage
 	mode             eos.IOShapingMode
 	targetID         string
+	createMode       bool
 	hadPolicy        bool
 	enabled          bool
 	limitRead        string
@@ -307,12 +345,13 @@ type ioShapingPolicyEdit struct {
 }
 
 type filterPopup struct {
-	active bool
-	view   viewID
-	column int
-	input  textinput.Model
-	table  table.Model
-	values []string
+	active    bool
+	view      viewID
+	column    int
+	input     textinput.Model
+	table     table.Model
+	values    []string
+	navigated bool
 }
 
 type logOverlay struct {
@@ -362,6 +401,8 @@ type mgmFilterColumn int
 type qdbFilterColumn int
 type fsFilterColumn int
 type fsSortColumn int
+type spaceFilterColumn int
+type spaceSortColumn int
 type groupFilterColumn int
 type groupSortColumn int
 
@@ -425,6 +466,28 @@ const (
 )
 
 const groupSortNone groupSortColumn = -1
+
+const (
+	spaceFilterName spaceFilterColumn = iota
+	spaceFilterType
+	spaceFilterStatus
+	spaceFilterGroups
+	spaceFilterFiles
+	spaceFilterDirs
+	spaceFilterUsage
+)
+
+const spaceSortNone spaceSortColumn = -1
+
+const (
+	spaceSortName spaceSortColumn = iota
+	spaceSortType
+	spaceSortStatus
+	spaceSortGroups
+	spaceSortFiles
+	spaceSortDirs
+	spaceSortUsage
+)
 
 const (
 	groupFilterName groupFilterColumn = iota
@@ -529,6 +592,8 @@ type model struct {
 	spacesErr            error
 	spacesSelected       int
 	spacesColumnSelected int
+	spaceFilter          filterState
+	spaceSort            sortState
 	spaceStatusActive    bool
 
 	groups               []eos.GroupRecord
@@ -581,6 +646,7 @@ type model struct {
 	edit        spaceStatusEdit
 	fsEdit      fsConfigStatusEdit
 	apollon     apollonDrainConfirm
+	groupDrain  groupDrainConfirm
 	alert       errorAlert
 	log         logOverlay
 	commandLog  commandPanel

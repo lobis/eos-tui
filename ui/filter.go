@@ -3,13 +3,17 @@ package ui
 import (
 	"cmp"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/table"
 
 	"github.com/lobis/eos-tui/eos"
 )
+
+var globMatcherCache sync.Map
 
 func (m model) visibleFSTs() []eos.FstRecord {
 	fsts := make([]eos.FstRecord, 0, len(m.fsts))
@@ -76,13 +80,31 @@ func (m model) visibleGroups() []eos.GroupRecord {
 	return groups
 }
 
+func (m model) visibleSpaces() []eos.SpaceRecord {
+	spaces := append([]eos.SpaceRecord(nil), m.spaces...)
+	if len(m.spaceFilter.filters) > 0 {
+		filtered := make([]eos.SpaceRecord, 0, len(spaces))
+		for _, s := range spaces {
+			if m.matchesSpaceFilters(s) {
+				filtered = append(filtered, s)
+			}
+		}
+		spaces = filtered
+	}
+	if m.spaceSort.column >= 0 {
+		sort.SliceStable(spaces, func(i, j int) bool {
+			return m.lessSpace(spaces[i], spaces[j])
+		})
+	}
+	return spaces
+}
+
 func (m model) matchesNodeFilters(node eos.FstRecord) bool {
 	for column, query := range m.fstFilter.filters {
 		if query == "" {
 			continue
 		}
-		value := strings.ToLower(m.fstFilterValueForColumn(node, column))
-		if !strings.Contains(value, strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fstFilterValueForColumn(node, column), query) {
 			return false
 		}
 	}
@@ -94,7 +116,7 @@ func (m model) matchesNodeFiltersExcept(node eos.FstRecord, excludeColumn int) b
 		if col == excludeColumn || query == "" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(m.fstFilterValueForColumn(node, col)), strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fstFilterValueForColumn(node, col), query) {
 			return false
 		}
 	}
@@ -106,8 +128,7 @@ func (m model) matchesFileSystemFilters(fs eos.FileSystemRecord) bool {
 		if query == "" {
 			continue
 		}
-		value := strings.ToLower(m.fsFilterValueForColumn(fs, column))
-		if !strings.Contains(value, strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fsFilterValueForColumn(fs, column), query) {
 			return false
 		}
 	}
@@ -119,7 +140,7 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 		if col == excludeColumn || query == "" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(m.fsFilterValueForColumn(fs, col)), strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fsFilterValueForColumn(fs, col), query) {
 			return false
 		}
 	}
@@ -128,12 +149,103 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 
 func (m model) matchesGroupFilters(g eos.GroupRecord) bool {
 	for col, filter := range m.groupFilter.filters {
-		val := strings.ToLower(m.groupFilterValueForColumn(g, col))
-		if !strings.Contains(val, strings.ToLower(filter)) {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.groupFilterValueForColumn(g, col), filter) {
 			return false
 		}
 	}
 	return true
+}
+
+func (m model) matchesGroupFiltersExcept(g eos.GroupRecord, excludeColumn int) bool {
+	for col, filter := range m.groupFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.groupFilterValueForColumn(g, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesSpaceFilters(s eos.SpaceRecord) bool {
+	for col, filter := range m.spaceFilter.filters {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.spaceFilterValueForColumn(s, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesSpaceFiltersExcept(s eos.SpaceRecord, excludeColumn int) bool {
+	for col, filter := range m.spaceFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.spaceFilterValueForColumn(s, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesFilterQuery(value, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+
+	value = strings.ToLower(value)
+	if !strings.ContainsAny(query, "*?") {
+		return strings.Contains(value, query)
+	}
+
+	return matchesGlobPattern(value, query)
+}
+
+func matchesGlobPattern(value, pattern string) bool {
+	re := globPatternRegexp(pattern)
+	if re == nil {
+		return false
+	}
+	return re.MatchString(value)
+}
+
+func globPatternRegexp(pattern string) *regexp.Regexp {
+	if cached, ok := globMatcherCache.Load(pattern); ok {
+		if re, ok := cached.(*regexp.Regexp); ok {
+			return re
+		}
+		return nil
+	}
+
+	var expr strings.Builder
+	expr.WriteString("^")
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			expr.WriteString(".*")
+		case '?':
+			expr.WriteString(".")
+		default:
+			expr.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	expr.WriteString("$")
+
+	re, err := regexp.Compile(expr.String())
+	if err != nil {
+		globMatcherCache.Store(pattern, (*regexp.Regexp)(nil))
+		return nil
+	}
+	globMatcherCache.Store(pattern, re)
+	return re
 }
 
 func (m model) fstFilterValue(node eos.FstRecord) string {
@@ -200,6 +312,31 @@ func (m model) fsFilterValueForColumn(fs eos.FileSystemRecord, column int) strin
 
 func (m model) groupFilterValue(g eos.GroupRecord) string {
 	return m.groupFilterValueForColumn(g, m.groupFilter.column)
+}
+
+func (m model) spaceFilterValue(s eos.SpaceRecord) string {
+	return m.spaceFilterValueForColumn(s, m.spaceFilter.column)
+}
+
+func (m model) spaceFilterValueForColumn(s eos.SpaceRecord, column int) string {
+	switch spaceFilterColumn(column) {
+	case spaceFilterName:
+		return s.Name
+	case spaceFilterType:
+		return s.Type
+	case spaceFilterStatus:
+		return s.Status
+	case spaceFilterGroups:
+		return fmt.Sprintf("%d", s.Groups)
+	case spaceFilterFiles:
+		return fmt.Sprintf("%d", s.NumFiles)
+	case spaceFilterDirs:
+		return fmt.Sprintf("%d", s.NumContainers)
+	case spaceFilterUsage:
+		return fmt.Sprintf("%.2f", usagePercent(s.UsedBytes, s.CapacityBytes))
+	default:
+		return s.Name
+	}
 }
 
 func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
@@ -339,6 +476,39 @@ func (m model) lessGroup(a, b eos.GroupRecord) bool {
 	return cmp.Compare(a.Status, b.Status) < 0
 }
 
+func (m model) lessSpace(a, b eos.SpaceRecord) bool {
+	var primary int
+	switch spaceSortColumn(m.spaceSort.column) {
+	case spaceSortName:
+		primary = cmp.Compare(a.Name, b.Name)
+	case spaceSortType:
+		primary = cmp.Compare(a.Type, b.Type)
+	case spaceSortStatus:
+		primary = cmp.Compare(a.Status, b.Status)
+	case spaceSortGroups:
+		primary = cmp.Compare(a.Groups, b.Groups)
+	case spaceSortFiles:
+		primary = cmp.Compare(a.NumFiles, b.NumFiles)
+	case spaceSortDirs:
+		primary = cmp.Compare(a.NumContainers, b.NumContainers)
+	case spaceSortUsage:
+		primary = cmp.Compare(usagePercent(a.UsedBytes, a.CapacityBytes), usagePercent(b.UsedBytes, b.CapacityBytes))
+	default:
+		primary = cmp.Compare(a.Name, b.Name)
+	}
+	if primary != 0 {
+		if m.spaceSort.desc {
+			return primary > 0
+		}
+		return primary < 0
+	}
+
+	if tie := cmp.Compare(a.Name, b.Name); tie != 0 {
+		return tie < 0
+	}
+	return cmp.Compare(a.Status, b.Status) < 0
+}
+
 func equivalentNodeSortValue(column int, a, b eos.FstRecord) bool {
 	switch fstSortColumn(column) {
 	case fstSortType:
@@ -415,6 +585,17 @@ func (m model) nextFileSystemSortState() sortState {
 	return sortState{column: int(fsSortNone)}
 }
 
+func (m model) nextSpaceSortState() sortState {
+	selected := m.spacesColumnSelected
+	if m.spaceSort.column != selected {
+		return sortState{column: selected}
+	}
+	if !m.spaceSort.desc {
+		return sortState{column: selected, desc: true}
+	}
+	return sortState{column: int(spaceSortNone)}
+}
+
 func (m model) nodeColumnIsEnum(column int) bool {
 	switch fstFilterColumn(column) {
 	case fstFilterType, fstFilterStatus, fstFilterActivated:
@@ -445,11 +626,29 @@ func groupColumnCount() int {
 	return 7
 }
 
+func spaceColumnCount() int {
+	return 7
+}
+
 func (m model) uniqueGroupValues(column int) []string {
 	seen := make(map[string]bool)
 	var values []string
 	for _, g := range m.groups {
 		val := m.groupFilterValueForColumn(g, column)
+		if val != "" && !seen[val] {
+			seen[val] = true
+			values = append(values, val)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+func (m model) uniqueSpaceValues(column int) []string {
+	seen := make(map[string]bool)
+	var values []string
+	for _, s := range m.spaces {
+		val := m.spaceFilterValueForColumn(s, column)
 		if val != "" && !seen[val] {
 			seen[val] = true
 			values = append(values, val)
@@ -475,6 +674,14 @@ func (m model) fsSelectedColumnLabel() string {
 	return label
 }
 
+func (m model) spaceSelectedColumnLabel() string {
+	column := m.spaceFilter.column
+	m.spaceFilter.column = m.spacesColumnSelected
+	label := m.spaceFilterColumnLabel()
+	m.spaceFilter.column = column
+	return label
+}
+
 func (m model) fstSortStateLabel() string {
 	if m.fstSort.column < 0 {
 		return "none"
@@ -487,6 +694,13 @@ func (m model) fsSortStateLabel() string {
 		return "none"
 	}
 	return fmt.Sprintf("%s %s", m.fsSortColumnLabel(), sortDirectionLabel(m.fsSort.desc))
+}
+
+func (m model) spaceSortStateLabel() string {
+	if m.spaceSort.column < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%s %s", m.spaceSortColumnLabel(), sortDirectionLabel(m.spaceSort.desc))
 }
 
 func (m model) fstFilterColumnLabel() string {
@@ -624,6 +838,50 @@ func (m model) groupFilterColumnLabel() string {
 	}
 }
 
+func (m model) spaceFilterColumnLabel() string {
+	switch spaceFilterColumn(m.spaceFilter.column) {
+	case spaceFilterName:
+		return "name"
+	case spaceFilterType:
+		return "type"
+	case spaceFilterStatus:
+		return "status"
+	case spaceFilterGroups:
+		return "groups"
+	case spaceFilterFiles:
+		return "files"
+	case spaceFilterDirs:
+		return "dirs"
+	case spaceFilterUsage:
+		return "usage %"
+	default:
+		return "name"
+	}
+}
+
+func (m model) spaceSortColumnLabel() string {
+	switch spaceSortColumn(m.spaceSort.column) {
+	case spaceSortName:
+		return "name"
+	case spaceSortType:
+		return "type"
+	case spaceSortStatus:
+		return "status"
+	case spaceSortGroups:
+		return "groups"
+	case spaceSortFiles:
+		return "files"
+	case spaceSortDirs:
+		return "dirs"
+	case spaceSortUsage:
+		return "usage %"
+	case spaceSortNone:
+		return "none"
+	default:
+		return "name"
+	}
+}
+
 func (m model) groupSortColumnLabel() string {
 	switch groupSortColumn(m.groupSort.column) {
 	case groupSortName:
@@ -651,6 +909,8 @@ func (m model) activeFilterColumnLabel() string {
 	switch m.activeView {
 	case viewFileSystems:
 		return m.fsFilterColumnLabel()
+	case viewSpaces:
+		return m.spaceFilterColumnLabel()
 	case viewGroups:
 		return m.groupFilterColumnLabel()
 	default:
@@ -661,9 +921,13 @@ func (m model) activeFilterColumnLabel() string {
 func (m *model) openFilterPopup() {
 	m.popup.active = true
 	m.popup.view = m.activeView
+	m.popup.navigated = false
 	if m.activeView == viewFileSystems {
 		m.popup.column = m.fsColumnSelected
 		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else if m.activeView == viewSpaces {
+		m.popup.column = m.spacesColumnSelected
+		m.popup.input.SetValue(m.spaceFilter.filters[m.spacesColumnSelected])
 	} else if m.activeView == viewGroups {
 		m.popup.column = m.groupsColumnSelected
 		m.popup.input.SetValue(m.groupFilter.filters[m.groupsColumnSelected])
@@ -683,6 +947,7 @@ func (m *model) openFilterPopup() {
 
 func (m *model) closeFilterPopup(status string) {
 	m.popup.active = false
+	m.popup.navigated = false
 	m.popup.input.Blur()
 	m.popup.input.SetValue("")
 	m.popup.values = nil
@@ -691,13 +956,19 @@ func (m *model) closeFilterPopup(status string) {
 }
 
 func (m *model) applyPopupSelection() {
+	typedValue := strings.TrimSpace(m.popup.input.Value())
 	row := m.popup.table.SelectedRow()
-	if len(row) == 0 {
-		m.closeFilterPopup("No filter value selected")
-		return
+	value := typedValue
+	if m.popup.navigated || typedValue == "" {
+		if len(row) == 0 {
+			m.closeFilterPopup("No filter value selected")
+			return
+		}
+		value = row[0]
+		if value == "(no matches)" && typedValue != "" {
+			value = typedValue
+		}
 	}
-
-	value := row[0]
 	if value == "(no matches)" {
 		m.closeFilterPopup("No matching filter value")
 		return
@@ -716,6 +987,15 @@ func (m *model) applyPopupSelection() {
 		}
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
 		m.closeFilterPopup(fmt.Sprintf("Filesystem filters active: %d", len(m.fsFilter.filters)))
+	case viewSpaces:
+		m.spaceFilter.column = m.popup.column
+		if value == "" {
+			delete(m.spaceFilter.filters, m.popup.column)
+		} else {
+			m.spaceFilter.filters[m.popup.column] = value
+		}
+		m.spacesSelected = clampIndex(0, len(m.visibleSpaces()))
+		m.closeFilterPopup(fmt.Sprintf("Space filters active: %d", len(m.spaceFilter.filters)))
 	case viewGroups:
 		m.groupFilter.column = m.popup.column
 		if value == "" {
@@ -738,7 +1018,7 @@ func (m *model) applyPopupSelection() {
 }
 
 func (m *model) updatePopupRows() {
-	needle := strings.ToLower(strings.TrimSpace(m.popup.input.Value()))
+	needle := strings.TrimSpace(m.popup.input.Value())
 	values := m.popupValues()
 	rows := make([]table.Row, 0, len(values))
 	for _, value := range values {
@@ -746,7 +1026,7 @@ func (m *model) updatePopupRows() {
 		if label == "" {
 			label = "(no filter)"
 		}
-		if needle == "" || strings.Contains(strings.ToLower(label), needle) {
+		if needle == "" || matchesFilterQuery(label, needle) {
 			rows = append(rows, table.Row{label})
 		}
 	}
@@ -772,6 +1052,28 @@ func (m model) popupValues() []string {
 				continue
 			}
 			value := m.fsFilterValueForColumn(fs, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	case viewSpaces:
+		for _, s := range m.spaces {
+			if !m.matchesSpaceFiltersExcept(s, m.popup.column) {
+				continue
+			}
+			value := m.spaceFilterValueForColumn(s, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	case viewGroups:
+		for _, g := range m.groups {
+			if !m.matchesGroupFiltersExcept(g, m.popup.column) {
+				continue
+			}
+			value := m.groupFilterValueForColumn(g, m.popup.column)
 			if !seen[value] {
 				seen[value] = true
 				values = append(values, value)

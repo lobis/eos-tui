@@ -14,7 +14,7 @@ func (m model) renderSpacesView(height int) string {
 	}
 
 	const fixedHeaderLines = 3 // title, blank, column headers
-	naturalListContent := fixedHeaderLines + len(m.spaces)
+	naturalListContent := fixedHeaderLines + len(m.visibleSpaces())
 	const spaceDetailLines = 8 // fixed lines rendered by renderSpaceDetails
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, spaceDetailLines)
 	width := m.panelWidth()
@@ -26,9 +26,10 @@ func (m model) renderSpacesView(height int) string {
 
 func (m model) renderSpacesList(width, height int) string {
 	contentWidth := panelContentWidth(width)
+	spaces := m.visibleSpaces()
 
-	dataRows := make([][]string, len(m.spaces))
-	for i, space := range m.spaces {
+	dataRows := make([][]string, len(spaces))
+	for i, space := range spaces {
 		dataRows[i] = []string{
 			space.Name,
 			space.Type,
@@ -61,11 +62,11 @@ func (m model) renderSpacesList(width, height int) string {
 		lines = append(lines, "Loading spaces...")
 	} else if m.spacesErr != nil {
 		lines = append(lines, m.styles.error.Render(m.spacesErr.Error()))
-	} else if len(m.spaces) == 0 {
+	} else if len(spaces) == 0 {
 		lines = append(lines, "(no spaces)")
 	} else {
-		start, end := visibleWindow(len(m.spaces), m.spacesSelected, max(1, panelContentHeight(height)-len(lines)))
-		lines[0] = title + renderScrollSummary(start, end, len(m.spaces))
+		start, end := visibleWindow(len(spaces), m.spacesSelected, max(1, panelContentHeight(height)-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(spaces))
 		for i := start; i < end; i++ {
 			line := formatTableRow(columns, dataRows[i])
 			if i == m.spacesSelected {
@@ -79,11 +80,12 @@ func (m model) renderSpacesList(width, height int) string {
 }
 
 func (m model) renderSpaceDetails(width, height int) string {
-	if len(m.spaces) == 0 || m.spacesSelected >= len(m.spaces) {
+	spaces := m.visibleSpaces()
+	if len(spaces) == 0 || m.spacesSelected >= len(spaces) {
 		return m.styles.panelDim.Width(width).Render(fitLines([]string{"No space selected"}, panelContentHeight(height)))
 	}
 
-	space := m.spaces[m.spacesSelected]
+	space := spaces[m.spacesSelected]
 
 	lines := []string{
 		m.renderSectionTitle("Selected Space", panelContentWidth(width)),
@@ -100,12 +102,13 @@ func (m model) renderSpaceDetails(width, height int) string {
 }
 
 func (m model) renderSpaceHeaderRow(columns []tableColumn) string {
-	return m.renderSimpleHeaderRow(columns, []string{"name", "type", "status", "groups", "files", "dirs", "usage %"})
+	return m.renderSelectableHeaderRow(columns, []string{"name", "type", "status", "groups", "files", "dirs", "usage %"}, m.spacesColumnSelected, m.spaceSort, m.spaceFilter)
 }
 
 func (m model) selectedSpace() (eos.SpaceRecord, bool) {
-	if len(m.spaces) == 0 || m.spacesSelected < 0 || m.spacesSelected >= len(m.spaces) {
+	spaces := m.visibleSpaces()
+	if len(spaces) == 0 || m.spacesSelected < 0 || m.spacesSelected >= len(spaces) {
 		return eos.SpaceRecord{}, false
 	}
-	return m.spaces[m.spacesSelected], true
+	return spaces[m.spacesSelected], true
 }

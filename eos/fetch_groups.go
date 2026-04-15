@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 func (c *Client) Groups(ctx context.Context) ([]GroupRecord, error) {
@@ -57,4 +58,36 @@ func (c *Client) Groups(ctx context.Context) ([]GroupRecord, error) {
 	})
 
 	return groups, nil
+}
+
+func (c *Client) SetGroupStatus(ctx context.Context, group, status string) error {
+	_ = ctx
+
+	args, err := groupSetArgs(group, status)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.runCommand(args...)
+	if err != nil {
+		return fmt.Errorf("eos group set %s %s: %w", group, status, err)
+	}
+
+	return nil
+}
+
+func groupSetArgs(group, status string) ([]string, error) {
+	group = strings.TrimSpace(group)
+	status = strings.TrimSpace(status)
+	if group == "" {
+		return nil, fmt.Errorf("group name is required")
+	}
+
+	switch status {
+	case "on", "off", "drain":
+	default:
+		return nil, fmt.Errorf("unsupported group status %q", status)
+	}
+
+	return []string{"eos", "-b", "group", "set", group, status}, nil
 }

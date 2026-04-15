@@ -937,6 +937,25 @@ func TestIOShapingPolicySetArgsForGroupDisable(t *testing.T) {
 	}
 }
 
+func TestGroupSetArgsForDrain(t *testing.T) {
+	got, err := groupSetArgs("default.1", "drain")
+	if err != nil {
+		t.Fatalf("expected group set args to build, got error %v", err)
+	}
+
+	want := []string{"eos", "-b", "group", "set", "default.1", "drain"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected group set args: got %v want %v", got, want)
+	}
+}
+
+func TestGroupSetArgsRejectsInvalidStatus(t *testing.T) {
+	_, err := groupSetArgs("default.1", "paused")
+	if err == nil {
+		t.Fatal("expected invalid group status to fail")
+	}
+}
+
 func TestIOShapingPolicyRemoveArgsForUser(t *testing.T) {
 	got, err := ioShapingPolicyRemoveArgs(IOShapingUsers, "1001")
 	if err != nil {

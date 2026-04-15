@@ -6,6 +6,32 @@ import (
 	"github.com/lobis/eos-tui/eos"
 )
 
+func TestMatchesFilterQuery(t *testing.T) {
+	cases := []struct {
+		name   string
+		value  string
+		query  string
+		expect bool
+	}{
+		{name: "empty matches everything", value: "default.0", query: "", expect: true},
+		{name: "plain text uses contains", value: "default.0", query: "fault", expect: true},
+		{name: "plain text is case insensitive", value: "default.0", query: "FAULT", expect: true},
+		{name: "glob prefix", value: "default.0", query: "def*", expect: true},
+		{name: "glob suffix", value: "default.0", query: "*.0", expect: true},
+		{name: "glob infix", value: "default.0", query: "d*t.0", expect: true},
+		{name: "glob single char", value: "node01", query: "node0?", expect: true},
+		{name: "glob mismatch", value: "node01", query: "node1?", expect: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchesFilterQuery(tc.value, tc.query); got != tc.expect {
+				t.Fatalf("matchesFilterQuery(%q, %q) = %v, want %v", tc.value, tc.query, got, tc.expect)
+			}
+		})
+	}
+}
+
 func newTestModel(t *testing.T) model {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -104,6 +130,68 @@ func TestVisibleGroupsFiltersAndSorts(t *testing.T) {
 	got = m.visibleGroups()
 	if got[0].NoFS != 10 {
 		t.Fatalf("expected first NoFS=10, got %d", got[0].NoFS)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// visibleSpaces
+// ---------------------------------------------------------------------------
+
+func TestVisibleSpacesFiltersAndSorts(t *testing.T) {
+	m := newTestModel(t)
+	m.spaces = []eos.SpaceRecord{
+		{Name: "default", Status: "on", Groups: 5, UsedBytes: 80, CapacityBytes: 100},
+		{Name: "scratch", Status: "off", Groups: 2, UsedBytes: 10, CapacityBytes: 100},
+		{Name: "default-drain", Status: "drain", Groups: 9, UsedBytes: 40, CapacityBytes: 100},
+	}
+
+	got := m.visibleSpaces()
+	if len(got) != 3 {
+		t.Fatalf("expected 3, got %d", len(got))
+	}
+
+	m.spaceFilter = filterState{filters: map[int]string{int(spaceFilterName): "default"}}
+	got = m.visibleSpaces()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 filtered spaces, got %d", len(got))
+	}
+
+	m.spaceFilter = filterState{filters: map[int]string{}}
+	m.spaceSort = sortState{column: int(spaceSortGroups)}
+	got = m.visibleSpaces()
+	if got[0].Groups != 2 || got[1].Groups != 5 || got[2].Groups != 9 {
+		t.Fatalf("expected groups [2,5,9], got [%d,%d,%d]", got[0].Groups, got[1].Groups, got[2].Groups)
+	}
+
+	m.spaceSort = sortState{column: int(spaceSortUsage), desc: true}
+	got = m.visibleSpaces()
+	if got[0].Name != "default" || got[1].Name != "default-drain" || got[2].Name != "scratch" {
+		t.Fatalf("unexpected usage sort order: [%s,%s,%s]", got[0].Name, got[1].Name, got[2].Name)
+	}
+}
+
+func TestVisibleSpacesDefaultsPreserveInsertionOrder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	m.spaces = []eos.SpaceRecord{
+		{Name: "first"},
+		{Name: "second"},
+		{Name: "third"},
+	}
+
+	if len(m.spaceFilter.filters) != 0 {
+		t.Fatalf("expected default space filters to be empty, got %v", m.spaceFilter.filters)
+	}
+	if m.spaceSort.column != int(spaceSortNone) {
+		t.Fatalf("expected default space sort to be cleared, got %+v", m.spaceSort)
+	}
+
+	got := m.visibleSpaces()
+	if len(got) != 3 {
+		t.Fatalf("expected 3 visible spaces, got %d", len(got))
+	}
+	if got[0].Name != "first" || got[1].Name != "second" || got[2].Name != "third" {
+		t.Fatalf("expected insertion order [first second third], got [%s %s %s]", got[0].Name, got[1].Name, got[2].Name)
 	}
 }
 
@@ -208,6 +296,46 @@ func TestMatchesGroupFilters(t *testing.T) {
 	}
 }
 
+func TestMatchesGroupFiltersExcept(t *testing.T) {
+	m := newTestModel(t)
+	g := eos.GroupRecord{Name: "default.0", Status: "on", NoFS: 5}
+
+	m.groupFilter = filterState{filters: map[int]string{
+		int(groupFilterName):   "def*",
+		int(groupFilterStatus): "off",
+	}}
+
+	if m.matchesGroupFilters(g) {
+		t.Fatal("full match should fail")
+	}
+	if !m.matchesGroupFiltersExcept(g, int(groupFilterStatus)) {
+		t.Fatal("expected match when excluding status column")
+	}
+	if m.matchesGroupFiltersExcept(g, int(groupFilterName)) {
+		t.Fatal("expected mismatch when excluding only name")
+	}
+}
+
+func TestMatchesSpaceFiltersExcept(t *testing.T) {
+	m := newTestModel(t)
+	s := eos.SpaceRecord{Name: "default", Status: "on", Groups: 5}
+
+	m.spaceFilter = filterState{filters: map[int]string{
+		int(spaceFilterName):   "default",
+		int(spaceFilterStatus): "off",
+	}}
+
+	if m.matchesSpaceFilters(s) {
+		t.Fatal("full match should fail")
+	}
+	if !m.matchesSpaceFiltersExcept(s, int(spaceFilterStatus)) {
+		t.Fatal("expected match when excluding status column")
+	}
+	if m.matchesSpaceFiltersExcept(s, int(spaceFilterName)) {
+		t.Fatal("expected mismatch when excluding only name")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // fsFilterValueForColumn
 // ---------------------------------------------------------------------------
@@ -288,6 +416,39 @@ func TestGroupFilterValueForColumn(t *testing.T) {
 	for _, tc := range cases {
 		got := m.groupFilterValueForColumn(g, tc.col)
 		if got != tc.expect {
+			t.Errorf("column %d: expected %q, got %q", tc.col, tc.expect, got)
+		}
+	}
+}
+
+func TestSpaceFilterValueForColumn(t *testing.T) {
+	m := newTestModel(t)
+	s := eos.SpaceRecord{
+		Name:          "default",
+		Type:          "space",
+		Status:        "on",
+		Groups:        5,
+		NumFiles:      1000,
+		NumContainers: 42,
+		UsedBytes:     25,
+		CapacityBytes: 100,
+	}
+
+	cases := []struct {
+		col    int
+		expect string
+	}{
+		{int(spaceFilterName), "default"},
+		{int(spaceFilterType), "space"},
+		{int(spaceFilterStatus), "on"},
+		{int(spaceFilterGroups), "5"},
+		{int(spaceFilterFiles), "1000"},
+		{int(spaceFilterDirs), "42"},
+		{int(spaceFilterUsage), "25.00"},
+		{999, "default"},
+	}
+	for _, tc := range cases {
+		if got := m.spaceFilterValueForColumn(s, tc.col); got != tc.expect {
 			t.Errorf("column %d: expected %q, got %q", tc.col, tc.expect, got)
 		}
 	}
@@ -421,6 +582,33 @@ func TestLessGroupAllColumns(t *testing.T) {
 	}
 }
 
+func TestLessSpaceAllColumns(t *testing.T) {
+	m := newTestModel(t)
+	a := eos.SpaceRecord{Name: "a", Type: "a", Status: "a", Groups: 1, NumFiles: 10, NumContainers: 2, UsedBytes: 10, CapacityBytes: 100}
+	b := eos.SpaceRecord{Name: "b", Type: "b", Status: "b", Groups: 5, NumFiles: 20, NumContainers: 4, UsedBytes: 50, CapacityBytes: 100}
+
+	columns := []spaceSortColumn{
+		spaceSortName, spaceSortType, spaceSortStatus,
+		spaceSortGroups, spaceSortFiles, spaceSortDirs, spaceSortUsage,
+	}
+
+	for _, col := range columns {
+		m.spaceSort = sortState{column: int(col)}
+		if !m.lessSpace(a, b) {
+			t.Errorf("col %d asc: expected a < b", col)
+		}
+		m.spaceSort.desc = true
+		if !m.lessSpace(b, a) {
+			t.Errorf("col %d desc: expected b < a", col)
+		}
+	}
+
+	m.spaceSort = sortState{column: 999}
+	if !m.lessSpace(a, b) {
+		t.Error("default: expected a < b by name")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // equivalentNodeSortValue
 // ---------------------------------------------------------------------------
@@ -536,6 +724,29 @@ func TestNextFileSystemSortState(t *testing.T) {
 	}
 }
 
+func TestNextSpaceSortState(t *testing.T) {
+	m := newTestModel(t)
+
+	m.spacesColumnSelected = 3
+	m.spaceSort = sortState{column: int(spaceSortNone)}
+	s := m.nextSpaceSortState()
+	if s.column != 3 || s.desc {
+		t.Fatalf("expected col=3 asc, got col=%d desc=%v", s.column, s.desc)
+	}
+
+	m.spaceSort = sortState{column: 3}
+	s = m.nextSpaceSortState()
+	if s.column != 3 || !s.desc {
+		t.Fatalf("expected col=3 desc, got col=%d desc=%v", s.column, s.desc)
+	}
+
+	m.spaceSort = sortState{column: 3, desc: true}
+	s = m.nextSpaceSortState()
+	if s.column != int(spaceSortNone) {
+		t.Fatalf("expected spaceSortNone, got %d", s.column)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // nodeColumnIsEnum / fsColumnIsEnum
 // ---------------------------------------------------------------------------
@@ -587,6 +798,12 @@ func TestGroupColumnCount(t *testing.T) {
 	}
 }
 
+func TestSpaceColumnCount(t *testing.T) {
+	if spaceColumnCount() != 7 {
+		t.Fatalf("expected 7, got %d", spaceColumnCount())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // uniqueGroupValues
 // ---------------------------------------------------------------------------
@@ -615,6 +832,23 @@ func TestUniqueGroupValues(t *testing.T) {
 	}
 }
 
+func TestUniqueSpaceValues(t *testing.T) {
+	m := newTestModel(t)
+	m.spaces = []eos.SpaceRecord{
+		{Name: "b", Status: "on"},
+		{Name: "a", Status: "off"},
+		{Name: "b", Status: "on"},
+	}
+
+	names := m.uniqueSpaceValues(int(spaceFilterName))
+	if len(names) != 2 {
+		t.Fatalf("expected 2 unique names, got %d", len(names))
+	}
+	if names[0] != "a" || names[1] != "b" {
+		t.Fatalf("expected sorted names [a b], got %v", names)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Label functions
 // ---------------------------------------------------------------------------
@@ -638,6 +872,24 @@ func TestFsSortStateLabel(t *testing.T) {
 	m.fsSort = sortState{column: int(fsSortID), desc: true}
 	if got := m.fsSortStateLabel(); got != "id desc" {
 		t.Fatalf("expected 'id desc', got %q", got)
+	}
+}
+
+func TestSpaceSortStateLabel(t *testing.T) {
+	m := newTestModel(t)
+	m.spaceSort = sortState{column: int(spaceSortNone)}
+	if got := m.spaceSortStateLabel(); got != "none" {
+		t.Fatalf("expected 'none', got %q", got)
+	}
+
+	m.spaceSort = sortState{column: int(spaceSortName)}
+	if got := m.spaceSortStateLabel(); got != "name asc" {
+		t.Fatalf("expected 'name asc', got %q", got)
+	}
+
+	m.spaceSort = sortState{column: int(spaceSortUsage), desc: true}
+	if got := m.spaceSortStateLabel(); got != "usage % desc" {
+		t.Fatalf("expected 'usage %% desc', got %q", got)
 	}
 }
 
@@ -763,6 +1015,59 @@ func TestGroupFilterColumnLabelAll(t *testing.T) {
 	}
 }
 
+func TestSpaceFilterColumnLabelAll(t *testing.T) {
+	m := newTestModel(t)
+	cases := []struct {
+		col   spaceFilterColumn
+		label string
+	}{
+		{spaceFilterName, "name"},
+		{spaceFilterType, "type"},
+		{spaceFilterStatus, "status"},
+		{spaceFilterGroups, "groups"},
+		{spaceFilterFiles, "files"},
+		{spaceFilterDirs, "dirs"},
+		{spaceFilterUsage, "usage %"},
+	}
+	for _, tc := range cases {
+		m.spaceFilter.column = int(tc.col)
+		if got := m.spaceFilterColumnLabel(); got != tc.label {
+			t.Errorf("spaceFilter col %d: expected %q, got %q", tc.col, tc.label, got)
+		}
+	}
+	m.spaceFilter.column = 999
+	if got := m.spaceFilterColumnLabel(); got != "name" {
+		t.Errorf("default: expected 'name', got %q", got)
+	}
+}
+
+func TestSpaceSortColumnLabelAll(t *testing.T) {
+	m := newTestModel(t)
+	cases := []struct {
+		col   spaceSortColumn
+		label string
+	}{
+		{spaceSortName, "name"},
+		{spaceSortType, "type"},
+		{spaceSortStatus, "status"},
+		{spaceSortGroups, "groups"},
+		{spaceSortFiles, "files"},
+		{spaceSortDirs, "dirs"},
+		{spaceSortUsage, "usage %"},
+		{spaceSortNone, "none"},
+	}
+	for _, tc := range cases {
+		m.spaceSort.column = int(tc.col)
+		if got := m.spaceSortColumnLabel(); got != tc.label {
+			t.Errorf("spaceSort col %d: expected %q, got %q", tc.col, tc.label, got)
+		}
+	}
+	m.spaceSort.column = 999
+	if got := m.spaceSortColumnLabel(); got != "name" {
+		t.Errorf("default: expected 'name', got %q", got)
+	}
+}
+
 func TestGroupSortColumnLabelAll(t *testing.T) {
 	m := newTestModel(t)
 	cases := []struct {
@@ -809,6 +1114,13 @@ func TestActiveFilterColumnLabelForDifferentViews(t *testing.T) {
 	m.groupFilter.column = int(groupFilterStatus)
 	if got := m.activeFilterColumnLabel(); got != "status" {
 		t.Errorf("Groups view: expected 'status', got %q", got)
+	}
+
+	// Spaces view.
+	m.activeView = viewSpaces
+	m.spaceFilter.column = int(spaceFilterUsage)
+	if got := m.activeFilterColumnLabel(); got != "usage %" {
+		t.Errorf("Spaces view: expected 'usage %%', got %q", got)
 	}
 
 	// Default (FST) view.

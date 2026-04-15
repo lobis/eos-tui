@@ -69,9 +69,11 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		groupsColumnSelected: int(groupFilterName),
 		fstSort:              sortState{column: int(fstSortNone)},
 		fsSort:               sortState{column: int(fsSortNone)},
+		spaceSort:            sortState{column: int(spaceSortNone)},
 		groupSort:            sortState{column: int(groupSortNone)},
 		fstFilter:            filterState{filters: map[int]string{}},
 		fsFilter:             filterState{filters: map[int]string{}},
+		spaceFilter:          filterState{filters: map[int]string{}},
 		groupFilter:          filterState{filters: map[int]string{}},
 		popup: filterPopup{
 			input: input,
@@ -156,6 +158,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.edit.active {
 			return m.updateSpaceStatusEditKeys(msg)
 		}
+		if m.groupDrain.active {
+			return m.updateGroupDrainKeys(msg)
+		}
 		if m.apollon.active {
 			return m.updateApollonDrainKeys(msg)
 		}
@@ -181,6 +186,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.fsFilter.filters) > 0 {
 					m.fsFilter.filters = map[int]string{}
 					m.status = "Filesystem filters cleared"
+				}
+			case viewSpaces:
+				if len(m.spaceFilter.filters) > 0 {
+					m.spaceFilter.filters = map[int]string{}
+					m.spacesSelected = clampIndex(m.spacesSelected, len(m.visibleSpaces()))
+					m.status = "Space filters cleared"
+				}
+			case viewGroups:
+				if len(m.groupFilter.filters) > 0 {
+					m.groupFilter.filters = map[int]string{}
+					m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
+					m.status = "Group filters cleared"
 				}
 			}
 			return m, nil
@@ -328,7 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Spaces refresh failed: %v", msg.err)
 		} else {
 			m.spaces = msg.spaces
-			m.spacesSelected = clampIndex(m.spacesSelected, len(m.spaces))
+			m.spacesSelected = clampIndex(m.spacesSelected, len(m.visibleSpaces()))
 		}
 	case groupsLoadedMsg:
 		m.groupsLoading = false
@@ -408,6 +425,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Space %s configuration updated successfully", msg.space)
 			return m, loadSpaceStatusCmd(m.client, msg.space)
 		}
+	case groupSetResultMsg:
+		m.groupDrain.active = false
+		if msg.batch {
+			if len(msg.failed) > 0 {
+				m.alert = errorAlert{
+					active:  true,
+					message: fmt.Sprintf("group set partially failed (%d/%d failed)\n\n%s", len(msg.failed), msg.count, strings.Join(msg.failed, "\n")),
+				}
+				return m, loadGroupsCmd(m.client)
+			}
+			m.status = fmt.Sprintf("Set %d groups to %s", msg.count, msg.status)
+			return m, loadGroupsCmd(m.client)
+		}
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("group set failed: %v", msg.err),
+			}
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Group %s set to %s", msg.group, msg.status)
+		return m, loadGroupsCmd(m.client)
 	case fsConfigStatusResultMsg:
 		m.fsEdit.active = false
 		if msg.err != nil {
@@ -419,6 +458,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Filesystem %d configstatus updated", m.fsEdit.fsID)
 			return m, loadFileSystemsCmd(m.client)
 		}
+	case fsConfigStatusBatchResultMsg:
+		m.fsEdit.active = false
+		if len(msg.failed) > 0 {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("filesystem configstatus partially failed (%d/%d failed)\n\n%s", len(msg.failed), msg.attempted, strings.Join(msg.failed, "\n")),
+			}
+			return m, loadFileSystemsCmd(m.client)
+		}
+		m.status = fmt.Sprintf("Updated configstatus=%s on %d filesystems", msg.value, msg.attempted)
+		return m, loadFileSystemsCmd(m.client)
 	case apollonDrainResultMsg:
 		if msg.err != nil {
 			detail := fmt.Sprintf("Apollon drain failed for filesystem %d on %s: %v", msg.fsID, msg.instance, msg.err)
@@ -567,6 +617,8 @@ func (m model) View() string {
 		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
 	} else if m.ioShapingEdit.active {
 		body = m.renderOverlay(body, m.renderIOShapingPolicyEditPopup(), bodyTotalHeight)
+	} else if m.groupDrain.active {
+		body = m.renderOverlay(body, m.renderGroupDrainConfirmPopup(), bodyTotalHeight)
 	} else if m.apollon.active {
 		body = m.renderOverlay(body, m.renderApollonDrainConfirmPopup(), bodyTotalHeight)
 	} else if m.fsEdit.active {

@@ -159,17 +159,77 @@ func (m model) openFSConfigStatusEdit() (tea.Model, tea.Cmd) {
 		fsPath:   fs.Path,
 		current:  fs.ConfigStatus,
 		selected: sel,
+		button:   buttonCancel,
+	}
+	return m, nil
+}
+
+func (m model) openFSConfigStatusEditAll() (tea.Model, tea.Cmd) {
+	fileSystems := m.visibleFileSystems()
+	if len(fileSystems) == 0 {
+		return m, nil
+	}
+
+	targets := make([]fileSystemTarget, 0, len(fileSystems))
+	for _, fs := range fileSystems {
+		targets = append(targets, fileSystemTarget{id: fs.ID, path: fs.Path})
+	}
+
+	m.fsEdit = fsConfigStatusEdit{
+		active:   true,
+		selected: 0,
+		applyAll: true,
+		targets:  targets,
+		button:   buttonCancel,
 	}
 	return m, nil
 }
 
 func (m model) renderFSConfigStatusEditPopup() string {
+	if m.fsEdit.applyAll && m.fsEdit.confirm {
+		cancelBtn := "[ Cancel ]"
+		confirmBtn := "[ Confirm ]"
+		if m.fsEdit.button == buttonCancel {
+			cancelBtn = m.styles.selected.Render(cancelBtn)
+		} else {
+			confirmBtn = m.styles.selected.Render(confirmBtn)
+		}
+
+		chosen := configStatusOptions[m.fsEdit.selected]
+		lines := []string{
+			m.styles.popupTitle.Render("Confirm bulk configstatus"),
+			fmt.Sprintf("This will run against %d filtered filesystems.", len(m.fsEdit.targets)),
+			"",
+			m.styles.value.Render(fmt.Sprintf("configstatus=%s", chosen)),
+			"",
+			lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+			"",
+			m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc cancel"),
+		}
+		return m.styles.panel.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("196")).
+			Padding(1, 2).
+			Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	}
+
 	lines := []string{
 		m.styles.popupTitle.Render("Set configstatus"),
-		fmt.Sprintf("Filesystem: %s (id %d)", m.fsEdit.fsPath, m.fsEdit.fsID),
-		fmt.Sprintf("Current:    %s", m.styles.value.Render(fallback(m.fsEdit.current, "-"))),
-		"",
 	}
+	if m.fsEdit.applyAll {
+		lines = append(lines,
+			fmt.Sprintf("Targets: %d filtered filesystems", len(m.fsEdit.targets)),
+			"Choose a value to apply to all visible filesystems.",
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("Filesystem: %s (id %d)", m.fsEdit.fsPath, m.fsEdit.fsID),
+			fmt.Sprintf("Current:    %s", m.styles.value.Render(fallback(m.fsEdit.current, "-"))),
+		)
+	}
+	lines = append(lines,
+		"",
+	)
 	for i, opt := range configStatusOptions {
 		if i == m.fsEdit.selected {
 			lines = append(lines, m.styles.selected.Render("▶ "+opt))
@@ -177,7 +237,11 @@ func (m model) renderFSConfigStatusEditPopup() string {
 			lines = append(lines, "  "+opt)
 		}
 	}
-	lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter apply  •  esc cancel"))
+	hint := "↑↓ select  •  g/G home/end  •  enter apply  •  esc cancel"
+	if m.fsEdit.applyAll {
+		hint = "↑↓ select  •  g/G home/end  •  enter continue  •  esc cancel"
+	}
+	lines = append(lines, "", m.styles.status.Render(hint))
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).

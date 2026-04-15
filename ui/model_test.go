@@ -3021,11 +3021,18 @@ func TestGroupStatusEditReturnsCommand(t *testing.T) {
 	m.activeView = viewGroups
 	m.groups = []eos.GroupRecord{{Name: "default.1", Status: "on", NoFS: 3}}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
+	if !m.groupDrain.active {
+		t.Fatalf("expected first enter to open the group status picker")
+	}
+	if cmd != nil {
+		t.Fatalf("did not expect a command when just opening the group status picker")
+	}
+
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
 
 	if m.groupDrain.active {

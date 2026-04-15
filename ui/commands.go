@@ -172,6 +172,13 @@ func runSpaceConfigCmd(client *eos.Client, space, key, value string) tea.Cmd {
 	}
 }
 
+func runGroupSetCmd(client *eos.Client, group, status string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SetGroupStatus(context.Background(), group, status)
+		return groupSetResultMsg{group: group, status: status, err: err}
+	}
+}
+
 func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.FsConfigStatus(context.Background(), fsID, value)

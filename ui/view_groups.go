@@ -3,7 +3,10 @@ package ui
 import (
 	"fmt"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/lobis/eos-tui/eos"
 )
 
 func (m model) renderGroupsView(height int) string {
@@ -107,4 +110,57 @@ func (m model) renderGroupDetails(width, height int) string {
 	}
 
 	return m.styles.panelDim.Width(width).Render(fitLines(lines, panelContentHeight(height)))
+}
+
+func (m model) selectedGroup() (eos.GroupRecord, bool) {
+	groups := m.visibleGroups()
+	if len(groups) == 0 || m.groupsSelected < 0 || m.groupsSelected >= len(groups) {
+		return eos.GroupRecord{}, false
+	}
+	return groups[m.groupsSelected], true
+}
+
+func (m model) startGroupDrainConfirm() (tea.Model, tea.Cmd) {
+	group, ok := m.selectedGroup()
+	if !ok {
+		return m, nil
+	}
+
+	m.groupDrain = groupDrainConfirm{
+		active:  true,
+		group:   group.Name,
+		command: fmt.Sprintf("eos group set %s drain", group.Name),
+		button:  buttonCancel,
+	}
+	return m, nil
+}
+
+func (m model) renderGroupDrainConfirmPopup() string {
+	cancelBtn := "[ Cancel ]"
+	confirmBtn := "[ Confirm ]"
+
+	if m.groupDrain.button == buttonCancel {
+		cancelBtn = m.styles.selected.Render(cancelBtn)
+	} else {
+		confirmBtn = m.styles.selected.Render(confirmBtn)
+	}
+
+	lines := []string{
+		m.styles.popupTitle.Render("Confirm Group Drain"),
+		fmt.Sprintf("Group: %s", m.styles.value.Render(m.groupDrain.group)),
+		"",
+		"The following command will be executed:",
+		"",
+		m.styles.value.Render(m.groupDrain.command),
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+		"",
+		m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc close"),
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

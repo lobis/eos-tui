@@ -278,8 +278,22 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	spaces := m.visibleSpaces()
 	half := max(1, m.height/6)
 	switch msg.String() {
+	case "/":
+		m.spaceFilter.column = m.spacesColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "S":
+		m.spaceSort = m.nextSpaceSortState()
+		m.spacesSelected = clampIndex(0, len(m.visibleSpaces()))
+		m.status = fmt.Sprintf("Space sort: %s", m.spaceSortStateLabel())
+	case "c":
+		delete(m.spaceFilter.filters, m.spacesColumnSelected)
+		m.spaceFilter.column = m.spacesColumnSelected
+		m.spacesSelected = clampIndex(0, len(m.visibleSpaces()))
+		m.status = fmt.Sprintf("Cleared space filter on %s", m.spaceSelectedColumnLabel())
 	case "enter":
 		return m.openSelectedSpaceStatus()
 	case "up", "k":
@@ -287,21 +301,23 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.spacesSelected--
 		}
 	case "down", "j":
-		if m.spacesSelected < len(m.spaces)-1 {
+		if m.spacesSelected < len(spaces)-1 {
 			m.spacesSelected++
 		}
 	case "ctrl+u":
 		m.spacesSelected = max(0, m.spacesSelected-half)
 	case "ctrl+d":
-		m.spacesSelected = min(len(m.spaces)-1, m.spacesSelected+half)
+		m.spacesSelected = min(len(spaces)-1, m.spacesSelected+half)
 	case "g":
 		m.spacesSelected = 0
 	case "G":
-		m.spacesSelected = max(0, len(m.spaces)-1)
+		m.spacesSelected = max(0, len(spaces)-1)
 	case "left":
 		m.spacesColumnSelected = max(0, m.spacesColumnSelected-1)
+		m.status = fmt.Sprintf("Selected space column: %s", m.spaceSelectedColumnLabel())
 	case "right":
-		m.spacesColumnSelected = min(6, m.spacesColumnSelected+1)
+		m.spacesColumnSelected = min(spaceColumnCount()-1, m.spacesColumnSelected+1)
+		m.status = fmt.Sprintf("Selected space column: %s", m.spaceSelectedColumnLabel())
 	}
 
 	return m, nil
@@ -386,6 +402,8 @@ func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	groups := m.visibleGroups()
 	switch msg.String() {
+	case "d":
+		return m.startGroupDrainConfirm()
 	case "up", "k":
 		m.groupsSelected = max(0, m.groupsSelected-1)
 	case "down", "j":
@@ -409,6 +427,38 @@ func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		m.openFilterPopup()
 	}
+	return m, nil
+}
+
+func (m model) updateGroupDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.groupDrain.active = false
+		return m, nil
+	case "g":
+		m.groupDrain.button = buttonCancel
+		return m, nil
+	case "G":
+		m.groupDrain.button = buttonContinue
+		return m, nil
+	case "left", "right", "tab", "shift+tab":
+		if m.groupDrain.button == buttonCancel {
+			m.groupDrain.button = buttonContinue
+		} else {
+			m.groupDrain.button = buttonCancel
+		}
+		return m, nil
+	case "enter":
+		if m.groupDrain.button == buttonCancel {
+			m.groupDrain.active = false
+			return m, nil
+		}
+		group := m.groupDrain.group
+		m.groupDrain.active = false
+		m.status = fmt.Sprintf("Setting group %s to drain...", group)
+		return m, runGroupSetCmd(m.client, group, "drain")
+	}
+
 	return m, nil
 }
 

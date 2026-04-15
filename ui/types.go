@@ -148,6 +148,12 @@ type spaceConfigResultMsg struct {
 	err   error
 }
 
+type groupSetResultMsg struct {
+	group  string
+	status string
+	err    error
+}
+
 type ioShapingLoadedMsg struct {
 	records []eos.IOShapingRecord
 	mode    eos.IOShapingMode
@@ -225,6 +231,13 @@ type apollonDrainConfirm struct {
 	instance string
 	command  string
 	button   buttonID
+}
+
+type groupDrainConfirm struct {
+	active  bool
+	group   string
+	command string
+	button  buttonID
 }
 
 var configStatusOptions = []string{"rw", "ro", "drain", "empty"}
@@ -362,6 +375,8 @@ type mgmFilterColumn int
 type qdbFilterColumn int
 type fsFilterColumn int
 type fsSortColumn int
+type spaceFilterColumn int
+type spaceSortColumn int
 type groupFilterColumn int
 type groupSortColumn int
 
@@ -425,6 +440,28 @@ const (
 )
 
 const groupSortNone groupSortColumn = -1
+
+const (
+	spaceFilterName spaceFilterColumn = iota
+	spaceFilterType
+	spaceFilterStatus
+	spaceFilterGroups
+	spaceFilterFiles
+	spaceFilterDirs
+	spaceFilterUsage
+)
+
+const spaceSortNone spaceSortColumn = -1
+
+const (
+	spaceSortName spaceSortColumn = iota
+	spaceSortType
+	spaceSortStatus
+	spaceSortGroups
+	spaceSortFiles
+	spaceSortDirs
+	spaceSortUsage
+)
 
 const (
 	groupFilterName groupFilterColumn = iota
@@ -529,6 +566,8 @@ type model struct {
 	spacesErr            error
 	spacesSelected       int
 	spacesColumnSelected int
+	spaceFilter          filterState
+	spaceSort            sortState
 	spaceStatusActive    bool
 
 	groups               []eos.GroupRecord
@@ -581,6 +620,7 @@ type model struct {
 	edit        spaceStatusEdit
 	fsEdit      fsConfigStatusEdit
 	apollon     apollonDrainConfirm
+	groupDrain  groupDrainConfirm
 	alert       errorAlert
 	log         logOverlay
 	commandLog  commandPanel

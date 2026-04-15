@@ -126,37 +126,101 @@ func (m model) startGroupDrainConfirm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	sel := 0
+	for i, opt := range groupStatusOptions {
+		if group.Status == opt {
+			sel = i
+			break
+		}
+	}
+
 	m.groupDrain = groupDrainConfirm{
-		active:  true,
-		group:   group.Name,
-		command: fmt.Sprintf("eos group set %s drain", group.Name),
-		button:  buttonCancel,
+		active:   true,
+		group:    group.Name,
+		current:  group.Status,
+		selected: sel,
+		button:   buttonCancel,
+	}
+	return m, nil
+}
+
+func (m model) startGroupStatusEditAll() (tea.Model, tea.Cmd) {
+	groups := m.visibleGroups()
+	if len(groups) == 0 {
+		return m, nil
+	}
+
+	targets := make([]string, 0, len(groups))
+	for _, group := range groups {
+		targets = append(targets, group.Name)
+	}
+
+	m.groupDrain = groupDrainConfirm{
+		active:   true,
+		selected: 0,
+		applyAll: true,
+		targets:  targets,
+		button:   buttonCancel,
 	}
 	return m, nil
 }
 
 func (m model) renderGroupDrainConfirmPopup() string {
-	cancelBtn := "[ Cancel ]"
-	confirmBtn := "[ Confirm ]"
+	if m.groupDrain.applyAll && m.groupDrain.confirm {
+		cancelBtn := "[ Cancel ]"
+		confirmBtn := "[ Confirm ]"
+		if m.groupDrain.button == buttonCancel {
+			cancelBtn = m.styles.selected.Render(cancelBtn)
+		} else {
+			confirmBtn = m.styles.selected.Render(confirmBtn)
+		}
 
-	if m.groupDrain.button == buttonCancel {
-		cancelBtn = m.styles.selected.Render(cancelBtn)
-	} else {
-		confirmBtn = m.styles.selected.Render(confirmBtn)
+		chosen := groupStatusOptions[m.groupDrain.selected]
+		lines := []string{
+			m.styles.popupTitle.Render("Confirm bulk group status"),
+			fmt.Sprintf("This will run against %d filtered groups.", len(m.groupDrain.targets)),
+			"",
+			m.styles.value.Render(fmt.Sprintf("status=%s", chosen)),
+			"",
+			lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+			"",
+			m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc cancel"),
+		}
+
+		return m.styles.panel.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("196")).
+			Padding(1, 2).
+			Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
 	lines := []string{
-		m.styles.popupTitle.Render("Confirm Group Drain"),
-		fmt.Sprintf("Group: %s", m.styles.value.Render(m.groupDrain.group)),
-		"",
-		"The following command will be executed:",
-		"",
-		m.styles.value.Render(m.groupDrain.command),
-		"",
-		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
-		"",
-		m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc close"),
+		m.styles.popupTitle.Render("Set group status"),
 	}
+	if m.groupDrain.applyAll {
+		lines = append(lines,
+			fmt.Sprintf("Targets: %d filtered groups", len(m.groupDrain.targets)),
+			"Choose a status to apply to all visible groups.",
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("Group: %s", m.styles.value.Render(m.groupDrain.group)),
+			fmt.Sprintf("Current: %s", m.styles.value.Render(fallback(m.groupDrain.current, "-"))),
+		)
+	}
+	lines = append(lines, "")
+	for i, opt := range groupStatusOptions {
+		if i == m.groupDrain.selected {
+			lines = append(lines, m.styles.selected.Render("▶ "+opt))
+		} else {
+			lines = append(lines, "  "+opt)
+		}
+	}
+	hint := "↑↓ select  •  g/G home/end  •  enter apply  •  esc cancel"
+	if m.groupDrain.applyAll {
+		hint = "↑↓ select  •  g/G home/end  •  enter continue  •  esc cancel"
+	}
+	lines = append(lines, "", m.styles.status.Render(hint))
 
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).

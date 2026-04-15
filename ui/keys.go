@@ -110,6 +110,8 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.openFSConfigStatusEdit()
+	case "A":
+		return m.openFSConfigStatusEditAll()
 	case "x":
 		return m.startApollonDrainConfirm()
 	case "left":
@@ -402,8 +404,10 @@ func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	groups := m.visibleGroups()
 	switch msg.String() {
-	case "d":
+	case "enter":
 		return m.startGroupDrainConfirm()
+	case "A":
+		return m.startGroupStatusEditAll()
 	case "up", "k":
 		m.groupsSelected = max(0, m.groupsSelected-1)
 	case "down", "j":
@@ -436,27 +440,55 @@ func (m model) updateGroupDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.groupDrain.active = false
 		return m, nil
 	case "g":
-		m.groupDrain.button = buttonCancel
-		return m, nil
+		if m.groupDrain.confirm {
+			m.groupDrain.button = buttonCancel
+		} else {
+			m.groupDrain.selected = 0
+		}
 	case "G":
-		m.groupDrain.button = buttonContinue
-		return m, nil
-	case "left", "right", "tab", "shift+tab":
-		if m.groupDrain.button == buttonCancel {
+		if m.groupDrain.confirm {
 			m.groupDrain.button = buttonContinue
 		} else {
-			m.groupDrain.button = buttonCancel
+			m.groupDrain.selected = len(groupStatusOptions) - 1
 		}
-		return m, nil
+	case "left", "right", "tab", "shift+tab":
+		if m.groupDrain.confirm {
+			if m.groupDrain.button == buttonCancel {
+				m.groupDrain.button = buttonContinue
+			} else {
+				m.groupDrain.button = buttonCancel
+			}
+		}
+	case "up", "k":
+		if !m.groupDrain.confirm && m.groupDrain.selected > 0 {
+			m.groupDrain.selected--
+		}
+	case "down", "j":
+		if !m.groupDrain.confirm && m.groupDrain.selected < len(groupStatusOptions)-1 {
+			m.groupDrain.selected++
+		}
 	case "enter":
-		if m.groupDrain.button == buttonCancel {
-			m.groupDrain.active = false
+		if m.groupDrain.applyAll {
+			if m.groupDrain.confirm {
+				if m.groupDrain.button == buttonCancel {
+					m.groupDrain.active = false
+					return m, nil
+				}
+				chosen := groupStatusOptions[m.groupDrain.selected]
+				targets := append([]string(nil), m.groupDrain.targets...)
+				m.groupDrain.active = false
+				m.status = fmt.Sprintf("Setting %d groups to %s...", len(targets), chosen)
+				return m, runBatchGroupSetCmd(m.client, targets, chosen)
+			}
+			m.groupDrain.confirm = true
+			m.groupDrain.button = buttonCancel
 			return m, nil
 		}
 		group := m.groupDrain.group
+		chosen := groupStatusOptions[m.groupDrain.selected]
 		m.groupDrain.active = false
-		m.status = fmt.Sprintf("Setting group %s to drain...", group)
-		return m, runGroupSetCmd(m.client, group, "drain")
+		m.status = fmt.Sprintf("Setting group %s to %s...", group, chosen)
+		return m, runGroupSetCmd(m.client, group, chosen)
 	}
 
 	return m, nil
@@ -539,19 +571,50 @@ func (m model) updateFSConfigStatusEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		m.fsEdit.active = false
 		return m, nil
 	case "g":
-		m.fsEdit.selected = 0
+		if m.fsEdit.confirm {
+			m.fsEdit.button = buttonCancel
+		} else {
+			m.fsEdit.selected = 0
+		}
 	case "G":
-		m.fsEdit.selected = len(configStatusOptions) - 1
+		if m.fsEdit.confirm {
+			m.fsEdit.button = buttonContinue
+		} else {
+			m.fsEdit.selected = len(configStatusOptions) - 1
+		}
+	case "left", "right", "tab", "shift+tab":
+		if m.fsEdit.confirm {
+			if m.fsEdit.button == buttonCancel {
+				m.fsEdit.button = buttonContinue
+			} else {
+				m.fsEdit.button = buttonCancel
+			}
+		}
 	case "up", "k":
-		if m.fsEdit.selected > 0 {
+		if !m.fsEdit.confirm && m.fsEdit.selected > 0 {
 			m.fsEdit.selected--
 		}
 	case "down", "j":
-		if m.fsEdit.selected < len(configStatusOptions)-1 {
+		if !m.fsEdit.confirm && m.fsEdit.selected < len(configStatusOptions)-1 {
 			m.fsEdit.selected++
 		}
 	case "enter":
 		chosen := configStatusOptions[m.fsEdit.selected]
+		if m.fsEdit.applyAll {
+			if m.fsEdit.confirm {
+				if m.fsEdit.button == buttonCancel {
+					m.fsEdit.active = false
+					return m, nil
+				}
+				targets := append([]fileSystemTarget(nil), m.fsEdit.targets...)
+				m.fsEdit.active = false
+				m.status = fmt.Sprintf("Setting %d filesystems to %s...", len(targets), chosen)
+				return m, runBatchFsConfigStatusCmd(m.client, targets, chosen)
+			}
+			m.fsEdit.confirm = true
+			m.fsEdit.button = buttonCancel
+			return m, nil
+		}
 		fsID := m.fsEdit.fsID
 		m.fsEdit.active = false
 		return m, runFsConfigStatusCmd(m.client, fsID, chosen)
@@ -596,14 +659,16 @@ func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.applyPopupSelection()
 		return m, nil
-	case "up", "down", "j", "k", "pgup", "pgdown", "home", "end", "b", "f", "u", "d", "g", "G":
+	case "up", "down", "pgup", "pgdown", "home", "end":
 		var cmd tea.Cmd
 		m.popup.table, cmd = m.popup.table.Update(msg)
+		m.popup.navigated = true
 		return m, cmd
 	}
 
 	var cmd tea.Cmd
 	m.popup.input, cmd = m.popup.input.Update(msg)
+	m.popup.navigated = false
 	m.updatePopupRows()
 	return m, cmd
 }

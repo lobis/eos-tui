@@ -193,6 +193,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.spacesSelected = clampIndex(m.spacesSelected, len(m.visibleSpaces()))
 					m.status = "Space filters cleared"
 				}
+			case viewGroups:
+				if len(m.groupFilter.filters) > 0 {
+					m.groupFilter.filters = map[int]string{}
+					m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
+					m.status = "Group filters cleared"
+				}
 			}
 			return m, nil
 		case "tab":
@@ -421,6 +427,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case groupSetResultMsg:
 		m.groupDrain.active = false
+		if msg.batch {
+			if len(msg.failed) > 0 {
+				m.alert = errorAlert{
+					active:  true,
+					message: fmt.Sprintf("group set partially failed (%d/%d failed)\n\n%s", len(msg.failed), msg.count, strings.Join(msg.failed, "\n")),
+				}
+				return m, loadGroupsCmd(m.client)
+			}
+			m.status = fmt.Sprintf("Set %d groups to %s", msg.count, msg.status)
+			return m, loadGroupsCmd(m.client)
+		}
 		if msg.err != nil {
 			m.alert = errorAlert{
 				active:  true,
@@ -441,6 +458,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Filesystem %d configstatus updated", m.fsEdit.fsID)
 			return m, loadFileSystemsCmd(m.client)
 		}
+	case fsConfigStatusBatchResultMsg:
+		m.fsEdit.active = false
+		if len(msg.failed) > 0 {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("filesystem configstatus partially failed (%d/%d failed)\n\n%s", len(msg.failed), msg.attempted, strings.Join(msg.failed, "\n")),
+			}
+			return m, loadFileSystemsCmd(m.client)
+		}
+		m.status = fmt.Sprintf("Updated configstatus=%s on %d filesystems", msg.value, msg.attempted)
+		return m, loadFileSystemsCmd(m.client)
 	case apollonDrainResultMsg:
 		if msg.err != nil {
 			detail := fmt.Sprintf("Apollon drain failed for filesystem %d on %s: %v", msg.fsID, msg.instance, msg.err)

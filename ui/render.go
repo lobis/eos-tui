@@ -93,9 +93,9 @@ func (m model) renderFooter() string {
 	case viewIOShaping:
 		keys = "tab/1-9  •  ↑↓/jk  •  a apps  •  u users  •  g groups  •  enter edit  •  d delete  •  r refresh  •  L commands  •  q quit"
 	case viewGroups:
-		keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  d drain  •  r refresh  •  L commands  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  ←→  •  S  •  /  •  enter status  •  A all status  •  r  •  L commands"
 	case viewFileSystems:
-		keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  enter cfg  •  x apollon  •  l logs  •  L commands  •  s shell  •  q quit"
+		keys = "tab/1-9  •  ↑↓/jk  •  ←→  •  S  •  /  •  enter cfg  •  A all cfg  •  x apollon  •  l logs  •  L commands  •  s shell"
 	default:
 		keys = "tab/1-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  L commands  •  q quit"
 		if hostViews {

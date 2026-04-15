@@ -326,6 +326,9 @@ func TestFilesystemFooterShowsApollonHotkey(t *testing.T) {
 	if !strings.Contains(footer, "x apollon") {
 		t.Fatalf("expected filesystem footer to advertise Apollon drain hotkey, got: %s", footer)
 	}
+	if !strings.Contains(footer, "A all cfg") {
+		t.Fatalf("expected filesystem footer to advertise bulk cfg hotkey, got: %s", footer)
+	}
 }
 
 func TestGroupsFooterShowsDrainHotkey(t *testing.T) {
@@ -333,8 +336,11 @@ func TestGroupsFooterShowsDrainHotkey(t *testing.T) {
 	m.activeView = viewGroups
 
 	footer := m.renderFooter()
-	if !strings.Contains(footer, "d drain") {
-		t.Fatalf("expected groups footer to advertise drain hotkey, got: %s", footer)
+	if !strings.Contains(footer, "enter status") {
+		t.Fatalf("expected groups footer to advertise enter status, got: %s", footer)
+	}
+	if !strings.Contains(footer, "A all status") {
+		t.Fatalf("expected groups footer to advertise bulk status hotkey, got: %s", footer)
 	}
 }
 
@@ -547,7 +553,7 @@ func TestFSTSortCyclesOnSelectedColumn(t *testing.T) {
 	}
 }
 
-func TestFSTEnumFilterCyclesOnSelectedColumn(t *testing.T) {
+func TestFSTFilterPopupAppliesTypedTextWithoutNavigating(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{
@@ -565,8 +571,8 @@ func TestFSTEnumFilterCyclesOnSelectedColumn(t *testing.T) {
 	m = updated.(model)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
-	if m.fstFilter.column != int(fstFilterStatus) || m.fstFilter.filters[int(fstFilterStatus)] != "offline" {
-		t.Fatalf("expected enum popup selection to apply offline filter, got %+v", m.fstFilter)
+	if m.fstFilter.column != int(fstFilterStatus) || m.fstFilter.filters[int(fstFilterStatus)] != "off" {
+		t.Fatalf("expected typed popup filter to apply raw text, got %+v", m.fstFilter)
 	}
 }
 
@@ -2893,68 +2899,131 @@ func TestApollonDrainHotkeyOpensConfirmation(t *testing.T) {
 	}
 }
 
-func TestGroupDrainHotkeyOpensConfirmation(t *testing.T) {
+func TestGroupStatusEditOpensOnEnter(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewGroups
 	m.groupsLoading = false
 	m.groups = []eos.GroupRecord{
-		{Name: "default.1", Status: "on", NoFS: 3},
+		{Name: "default.1", Status: "drain", NoFS: 3},
 	}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
 
 	if !m.groupDrain.active {
-		t.Fatalf("expected group drain confirmation popup to open")
+		t.Fatalf("expected group status popup to open")
 	}
 	if m.groupDrain.group != "default.1" {
 		t.Fatalf("expected selected group default.1, got %q", m.groupDrain.group)
 	}
-	if m.groupDrain.command != "eos group set default.1 drain" {
-		t.Fatalf("unexpected group drain command %q", m.groupDrain.command)
+	if m.groupDrain.current != "drain" {
+		t.Fatalf("expected current group status drain, got %q", m.groupDrain.current)
+	}
+	if m.groupDrain.selected != 1 {
+		t.Fatalf("expected selected=1 for current drain status, got %d", m.groupDrain.selected)
 	}
 }
 
-func TestGroupDrainConfirmSupportsGAndGNavigation(t *testing.T) {
+func TestGroupStatusEditNavigation(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewGroups
 	m.groups = []eos.GroupRecord{{Name: "default.1", Status: "on", NoFS: 3}}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
-	if m.groupDrain.button != buttonContinue {
-		t.Fatalf("expected G to jump to confirm button, got %d", m.groupDrain.button)
+	if m.groupDrain.selected != 1 {
+		t.Fatalf("expected selected=1 after down, got %d", m.groupDrain.selected)
 	}
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	m = updated.(model)
-	if m.groupDrain.button != buttonCancel {
-		t.Fatalf("expected g to jump to cancel button, got %d", m.groupDrain.button)
+	if m.groupDrain.selected != 0 {
+		t.Fatalf("expected g to jump to first option, got %d", m.groupDrain.selected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.groupDrain.selected != len(groupStatusOptions)-1 {
+		t.Fatalf("expected G to jump to last option, got %d", m.groupDrain.selected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.groupDrain.active {
+		t.Fatalf("expected group status popup to close on esc")
 	}
 }
 
-func TestGroupDrainConfirmReturnsCommand(t *testing.T) {
+func TestGroupStatusEditReturnsCommand(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewGroups
 	m.groups = []eos.GroupRecord{{Name: "default.1", Status: "on", NoFS: 3}}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(model)
 
 	if m.groupDrain.active {
-		t.Fatalf("expected group drain popup to close after confirming")
+		t.Fatalf("expected group status popup to close after confirming")
 	}
 	if cmd == nil {
-		t.Fatalf("expected group drain confirmation to return a command")
+		t.Fatalf("expected group status selection to return a command")
 	}
 	if !strings.Contains(m.status, "Setting group default.1 to drain") {
-		t.Fatalf("expected status update while starting group drain, got %q", m.status)
+		t.Fatalf("expected status update while starting group status change, got %q", m.status)
+	}
+}
+
+func TestGroupBulkStatusEditOpensOnA(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{
+		{Name: "default.1", Status: "on"},
+		{Name: "default.2", Status: "off"},
+	}
+	m.groupFilter.filters = map[int]string{int(groupFilterName): "default"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+
+	if !m.groupDrain.active || !m.groupDrain.applyAll {
+		t.Fatalf("expected bulk group status popup to open")
+	}
+	if len(m.groupDrain.targets) != 2 {
+		t.Fatalf("expected 2 bulk group targets, got %d", len(m.groupDrain.targets))
+	}
+}
+
+func TestGroupBulkStatusEditRequiresConfirmation(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewGroups
+	m.groups = []eos.GroupRecord{{Name: "default.1", Status: "on"}, {Name: "default.2", Status: "on"}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.groupDrain.confirm {
+		t.Fatalf("expected first enter in bulk mode to open confirmation")
+	}
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirming bulk group update")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected command after confirming bulk group update")
 	}
 }
 
@@ -2990,6 +3059,46 @@ func TestGroupSetResultMsgRefreshesGroupsOnSuccess(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected success to schedule a groups refresh")
+	}
+}
+
+func TestGroupSetBatchResultMsgRefreshesGroupsOnSuccess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(groupSetResultMsg{
+		status: "drain",
+		batch:  true,
+		count:  3,
+	})
+	m = updated.(model)
+
+	if !strings.Contains(m.status, "Set 3 groups to drain") {
+		t.Fatalf("unexpected batch success status: %q", m.status)
+	}
+	if cmd == nil {
+		t.Fatalf("expected batch success to schedule a groups refresh")
+	}
+}
+
+func TestGroupSetBatchResultMsgShowsAlertOnPartialFailure(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(groupSetResultMsg{
+		status: "drain",
+		batch:  true,
+		count:  2,
+		failed: []string{"default.2: permission denied"},
+	})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected batch failure to show alert")
+	}
+	if !strings.Contains(m.alert.message, "1/2 failed") {
+		t.Fatalf("unexpected batch failure message: %q", m.alert.message)
+	}
+	if cmd == nil {
+		t.Fatalf("expected batch partial failure to refresh groups")
 	}
 }
 
@@ -3286,6 +3395,94 @@ func TestFSConfigStatusResultMsgShowsAlertOnError(t *testing.T) {
 	}
 	if !strings.Contains(m.alert.message, "permission denied") {
 		t.Errorf("expected alert message to contain 'permission denied', got %q", m.alert.message)
+	}
+}
+
+func TestFSBulkConfigStatusEditOpensOnA(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 1, Path: "/a", Host: "h1"},
+		{ID: 2, Path: "/b", Host: "h2"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+
+	if !m.fsEdit.active || !m.fsEdit.applyAll {
+		t.Fatalf("expected bulk filesystem config popup to open")
+	}
+	if len(m.fsEdit.targets) != 2 {
+		t.Fatalf("expected 2 bulk filesystem targets, got %d", len(m.fsEdit.targets))
+	}
+}
+
+func TestFSBulkConfigStatusEditRequiresConfirmation(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFileSystems
+	m.fileSystems = []eos.FileSystemRecord{
+		{ID: 1, Path: "/a", Host: "h1"},
+		{ID: 2, Path: "/b", Host: "h2"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.fsEdit.confirm {
+		t.Fatalf("expected first enter in bulk fs mode to open confirmation")
+	}
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirming bulk fs update")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected command after confirming bulk fs update")
+	}
+}
+
+func TestFSConfigStatusBatchResultMsgRefreshesOnSuccess(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(fsConfigStatusBatchResultMsg{
+		value:     "drain",
+		attempted: 4,
+	})
+	m = updated.(model)
+
+	if !strings.Contains(m.status, "Updated configstatus=drain on 4 filesystems") {
+		t.Fatalf("unexpected batch fs success status: %q", m.status)
+	}
+	if cmd == nil {
+		t.Fatalf("expected batch fs success to refresh filesystems")
+	}
+}
+
+func TestFSConfigStatusBatchResultMsgShowsAlertOnPartialFailure(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(fsConfigStatusBatchResultMsg{
+		value:     "drain",
+		attempted: 3,
+		failed:    []string{"2 (/b): permission denied"},
+	})
+	m = updated.(model)
+
+	if !m.alert.active {
+		t.Fatalf("expected batch fs partial failure to show alert")
+	}
+	if !strings.Contains(m.alert.message, "1/3 failed") {
+		t.Fatalf("unexpected batch fs failure message: %q", m.alert.message)
+	}
+	if cmd == nil {
+		t.Fatalf("expected batch fs partial failure to refresh filesystems")
 	}
 }
 
@@ -4320,17 +4517,55 @@ func TestRenderGroupDrainConfirmPopup(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = updated.(model)
 	m.groupDrain = groupDrainConfirm{
-		active:  true,
-		group:   "default.1",
-		command: "eos group set default.1 drain",
-		button:  buttonCancel,
+		active:   true,
+		group:    "default.1",
+		current:  "on",
+		selected: 1,
 	}
 	out := m.renderGroupDrainConfirmPopup()
 	if !strings.Contains(out, "default.1") {
-		t.Fatalf("expected group drain popup to contain group name, got:\n%s", out)
+		t.Fatalf("expected group status popup to contain group name, got:\n%s", out)
 	}
-	if !strings.Contains(out, "eos group set default.1 drain") {
-		t.Fatalf("expected group drain popup to contain command, got:\n%s", out)
+	if !strings.Contains(out, "Current:") || !strings.Contains(out, "drain") {
+		t.Fatalf("expected group status popup to contain options/current state, got:\n%s", out)
+	}
+}
+
+func TestRenderGroupBulkStatusConfirmPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.groupDrain = groupDrainConfirm{
+		active:   true,
+		selected: 1,
+		applyAll: true,
+		confirm:  true,
+		button:   buttonCancel,
+		targets:  []string{"default.1", "default.2"},
+	}
+	out := m.renderGroupDrainConfirmPopup()
+	if !strings.Contains(out, "2 filtered groups") {
+		t.Fatalf("expected bulk group confirm popup to contain target count, got:\n%s", out)
+	}
+}
+
+func TestRenderFSBulkConfigConfirmPopup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.fsEdit = fsConfigStatusEdit{
+		active:   true,
+		selected: 2,
+		applyAll: true,
+		confirm:  true,
+		button:   buttonCancel,
+		targets:  []fileSystemTarget{{id: 1, path: "/a"}, {id: 2, path: "/b"}},
+	}
+	out := m.renderFSConfigStatusEditPopup()
+	if !strings.Contains(out, "2 filtered filesystems") {
+		t.Fatalf("expected bulk fs confirm popup to contain target count, got:\n%s", out)
 	}
 }
 
@@ -4978,6 +5213,112 @@ func TestPopupEnterAppliesSelection(t *testing.T) {
 	}
 }
 
+func TestEscClearsActiveFiltersAcrossViews(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(model) model
+		assert func(t *testing.T, m model)
+	}{
+		{
+			name: "fst",
+			setup: func(m model) model {
+				m.activeView = viewFST
+				m.fsts = []eos.FstRecord{
+					{Host: "alpha", Type: "fst", FileSystemCount: 1},
+					{Host: "beta", Type: "fst", FileSystemCount: 1},
+				}
+				m.fstFilter.filters = map[int]string{int(fstFilterHost): "alpha"}
+				m.fstSelected = 0
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.fstFilter.filters) != 0 {
+					t.Fatalf("expected fst filters to be cleared")
+				}
+				if m.status != "Node filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+		{
+			name: "filesystems",
+			setup: func(m model) model {
+				m.activeView = viewFileSystems
+				m.fileSystems = []eos.FileSystemRecord{
+					{Host: "alpha", ID: 1},
+					{Host: "beta", ID: 2},
+				}
+				m.fsFilter.filters = map[int]string{int(fsFilterHost): "alpha"}
+				m.fsSelected = 0
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.fsFilter.filters) != 0 {
+					t.Fatalf("expected filesystem filters to be cleared")
+				}
+				if m.status != "Filesystem filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+		{
+			name: "spaces",
+			setup: func(m model) model {
+				m.activeView = viewSpaces
+				m.spaces = []eos.SpaceRecord{
+					{Name: "default"},
+					{Name: "scratch"},
+				}
+				m.spaceFilter.filters = map[int]string{int(spaceFilterName): "default"}
+				m.spacesSelected = 1
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.spaceFilter.filters) != 0 {
+					t.Fatalf("expected space filters to be cleared")
+				}
+				if m.status != "Space filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+		{
+			name: "groups",
+			setup: func(m model) model {
+				m.activeView = viewGroups
+				m.groups = []eos.GroupRecord{
+					{Name: "default.0"},
+					{Name: "spare.0"},
+				}
+				m.groupFilter.filters = map[int]string{int(groupFilterName): "default"}
+				m.groupsSelected = 1
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.groupFilter.filters) != 0 {
+					t.Fatalf("expected group filters to be cleared")
+				}
+				if m.status != "Group filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newSizedTestModel(t)
+			m = tc.setup(m)
+			m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+			tc.assert(t, m)
+		})
+	}
+}
+
 func TestLogKeysEscCloses(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.log = logOverlay{
@@ -5347,9 +5688,6 @@ func TestPopupApplyToGroups(t *testing.T) {
 		{Name: "default"},
 		{Name: "spare"},
 	}
-	// popupValues for groups falls through to the default (fst) path, so we
-	// need fsts to populate the popup table with selectable values.
-	m.fsts = []eos.FstRecord{{Host: "hostA", Type: "fst"}}
 	m.groupsColumnSelected = 0
 
 	m = sendKey(m, runeKey('/'))
@@ -5368,10 +5706,11 @@ func TestPopupApplyToGroups(t *testing.T) {
 	}
 }
 
-func TestPopupApplyNoMatches(t *testing.T) {
+func TestPopupAppliesTypedFilterWhenNoSuggestionMatches(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewFST
 	m.fsts = []eos.FstRecord{{Host: "a", Type: "fst"}}
+	m.fstColumnSelected = int(fstFilterHost)
 
 	m = sendKey(m, runeKey('/'))
 	if !m.popup.active {
@@ -5385,10 +5724,38 @@ func TestPopupApplyNoMatches(t *testing.T) {
 
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.popup.active {
-		t.Fatalf("expected popup.active=false after enter on no matches")
+		t.Fatalf("expected popup.active=false after enter")
 	}
-	if !strings.Contains(m.status, "No matching") {
-		t.Errorf("expected status to mention 'No matching', got %q", m.status)
+	if got := m.fstFilter.filters[int(fstFilterHost)]; got != "zzzznonexistent" {
+		t.Fatalf("expected typed filter to be applied, got %q", got)
+	}
+}
+
+func TestPopupAppliesTypedGlobFilter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewFST
+	m.fsts = []eos.FstRecord{
+		{Host: "default-01", Type: "fst", FileSystemCount: 1},
+		{Host: "scratch-01", Type: "fst", FileSystemCount: 1},
+	}
+	m.fstColumnSelected = int(fstFilterHost)
+
+	m = sendKey(m, runeKey('/'))
+	for _, r := range "def*" {
+		m = sendKey(m, runeKey(r))
+	}
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+	if got := m.fstFilter.filters[int(fstFilterHost)]; got != "def*" {
+		t.Fatalf("expected glob filter to be stored, got %q", got)
+	}
+
+	visible := m.visibleFSTs()
+	if len(visible) != 1 || visible[0].Host != "default-01" {
+		t.Fatalf("expected glob filter to keep default-01 only, got %#v", visible)
 	}
 }
 
@@ -5826,14 +6193,14 @@ func TestViewWithGroupDrainConfirmPopup(t *testing.T) {
 	m.splash.active = false
 	m.groups = []eos.GroupRecord{{Name: "default.1", Status: "on", NoFS: 3}}
 	m.groupDrain = groupDrainConfirm{
-		active:  true,
-		group:   "default.1",
-		command: "eos group set default.1 drain",
-		button:  buttonCancel,
+		active:   true,
+		group:    "default.1",
+		current:  "on",
+		selected: 1,
 	}
 	view := m.View()
 	if view == "" {
-		t.Fatalf("expected non-empty view with group drain popup")
+		t.Fatalf("expected non-empty view with group status popup")
 	}
 }
 

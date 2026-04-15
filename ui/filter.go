@@ -3,6 +3,7 @@ package ui
 import (
 	"cmp"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -100,8 +101,7 @@ func (m model) matchesNodeFilters(node eos.FstRecord) bool {
 		if query == "" {
 			continue
 		}
-		value := strings.ToLower(m.fstFilterValueForColumn(node, column))
-		if !strings.Contains(value, strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fstFilterValueForColumn(node, column), query) {
 			return false
 		}
 	}
@@ -113,7 +113,7 @@ func (m model) matchesNodeFiltersExcept(node eos.FstRecord, excludeColumn int) b
 		if col == excludeColumn || query == "" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(m.fstFilterValueForColumn(node, col)), strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fstFilterValueForColumn(node, col), query) {
 			return false
 		}
 	}
@@ -125,8 +125,7 @@ func (m model) matchesFileSystemFilters(fs eos.FileSystemRecord) bool {
 		if query == "" {
 			continue
 		}
-		value := strings.ToLower(m.fsFilterValueForColumn(fs, column))
-		if !strings.Contains(value, strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fsFilterValueForColumn(fs, column), query) {
 			return false
 		}
 	}
@@ -138,7 +137,7 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 		if col == excludeColumn || query == "" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(m.fsFilterValueForColumn(fs, col)), strings.ToLower(query)) {
+		if !matchesFilterQuery(m.fsFilterValueForColumn(fs, col), query) {
 			return false
 		}
 	}
@@ -147,8 +146,22 @@ func (m model) matchesFileSystemFiltersExcept(fs eos.FileSystemRecord, excludeCo
 
 func (m model) matchesGroupFilters(g eos.GroupRecord) bool {
 	for col, filter := range m.groupFilter.filters {
-		val := strings.ToLower(m.groupFilterValueForColumn(g, col))
-		if !strings.Contains(val, strings.ToLower(filter)) {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.groupFilterValueForColumn(g, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesGroupFiltersExcept(g eos.GroupRecord, excludeColumn int) bool {
+	for col, filter := range m.groupFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.groupFilterValueForColumn(g, col), filter) {
 			return false
 		}
 	}
@@ -157,8 +170,10 @@ func (m model) matchesGroupFilters(g eos.GroupRecord) bool {
 
 func (m model) matchesSpaceFilters(s eos.SpaceRecord) bool {
 	for col, filter := range m.spaceFilter.filters {
-		val := strings.ToLower(m.spaceFilterValueForColumn(s, col))
-		if !strings.Contains(val, strings.ToLower(filter)) {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.spaceFilterValueForColumn(s, col), filter) {
 			return false
 		}
 	}
@@ -170,11 +185,47 @@ func (m model) matchesSpaceFiltersExcept(s eos.SpaceRecord, excludeColumn int) b
 		if col == excludeColumn || filter == "" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(m.spaceFilterValueForColumn(s, col)), strings.ToLower(filter)) {
+		if !matchesFilterQuery(m.spaceFilterValueForColumn(s, col), filter) {
 			return false
 		}
 	}
 	return true
+}
+
+func matchesFilterQuery(value, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+
+	value = strings.ToLower(value)
+	if !strings.ContainsAny(query, "*?") {
+		return strings.Contains(value, query)
+	}
+
+	return matchesGlobPattern(value, query)
+}
+
+func matchesGlobPattern(value, pattern string) bool {
+	var expr strings.Builder
+	expr.WriteString("^")
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			expr.WriteString(".*")
+		case '?':
+			expr.WriteString(".")
+		default:
+			expr.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	expr.WriteString("$")
+
+	re, err := regexp.Compile(expr.String())
+	if err != nil {
+		return false
+	}
+	return re.MatchString(value)
 }
 
 func (m model) fstFilterValue(node eos.FstRecord) string {
@@ -850,6 +901,7 @@ func (m model) activeFilterColumnLabel() string {
 func (m *model) openFilterPopup() {
 	m.popup.active = true
 	m.popup.view = m.activeView
+	m.popup.navigated = false
 	if m.activeView == viewFileSystems {
 		m.popup.column = m.fsColumnSelected
 		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
@@ -875,6 +927,7 @@ func (m *model) openFilterPopup() {
 
 func (m *model) closeFilterPopup(status string) {
 	m.popup.active = false
+	m.popup.navigated = false
 	m.popup.input.Blur()
 	m.popup.input.SetValue("")
 	m.popup.values = nil
@@ -883,13 +936,19 @@ func (m *model) closeFilterPopup(status string) {
 }
 
 func (m *model) applyPopupSelection() {
+	typedValue := strings.TrimSpace(m.popup.input.Value())
 	row := m.popup.table.SelectedRow()
-	if len(row) == 0 {
-		m.closeFilterPopup("No filter value selected")
-		return
+	value := typedValue
+	if m.popup.navigated || typedValue == "" {
+		if len(row) == 0 {
+			m.closeFilterPopup("No filter value selected")
+			return
+		}
+		value = row[0]
+		if value == "(no matches)" && typedValue != "" {
+			value = typedValue
+		}
 	}
-
-	value := row[0]
 	if value == "(no matches)" {
 		m.closeFilterPopup("No matching filter value")
 		return
@@ -939,7 +998,7 @@ func (m *model) applyPopupSelection() {
 }
 
 func (m *model) updatePopupRows() {
-	needle := strings.ToLower(strings.TrimSpace(m.popup.input.Value()))
+	needle := strings.TrimSpace(m.popup.input.Value())
 	values := m.popupValues()
 	rows := make([]table.Row, 0, len(values))
 	for _, value := range values {
@@ -947,7 +1006,7 @@ func (m *model) updatePopupRows() {
 		if label == "" {
 			label = "(no filter)"
 		}
-		if needle == "" || strings.Contains(strings.ToLower(label), needle) {
+		if needle == "" || matchesFilterQuery(label, needle) {
 			rows = append(rows, table.Row{label})
 		}
 	}
@@ -991,6 +1050,9 @@ func (m model) popupValues() []string {
 		}
 	case viewGroups:
 		for _, g := range m.groups {
+			if !m.matchesGroupFiltersExcept(g, m.popup.column) {
+				continue
+			}
 			value := m.groupFilterValueForColumn(g, m.popup.column)
 			if !seen[value] {
 				seen[value] = true

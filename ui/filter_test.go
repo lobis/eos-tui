@@ -6,6 +6,32 @@ import (
 	"github.com/lobis/eos-tui/eos"
 )
 
+func TestMatchesFilterQuery(t *testing.T) {
+	cases := []struct {
+		name   string
+		value  string
+		query  string
+		expect bool
+	}{
+		{name: "empty matches everything", value: "default.0", query: "", expect: true},
+		{name: "plain text uses contains", value: "default.0", query: "fault", expect: true},
+		{name: "plain text is case insensitive", value: "default.0", query: "FAULT", expect: true},
+		{name: "glob prefix", value: "default.0", query: "def*", expect: true},
+		{name: "glob suffix", value: "default.0", query: "*.0", expect: true},
+		{name: "glob infix", value: "default.0", query: "d*t.0", expect: true},
+		{name: "glob single char", value: "node01", query: "node0?", expect: true},
+		{name: "glob mismatch", value: "node01", query: "node1?", expect: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchesFilterQuery(tc.value, tc.query); got != tc.expect {
+				t.Fatalf("matchesFilterQuery(%q, %q) = %v, want %v", tc.value, tc.query, got, tc.expect)
+			}
+		})
+	}
+}
+
 func newTestModel(t *testing.T) model {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -242,6 +268,26 @@ func TestMatchesGroupFilters(t *testing.T) {
 	m.groupFilter.filters[int(groupFilterStatus)] = "off"
 	if m.matchesGroupFilters(g) {
 		t.Fatal("expected no match")
+	}
+}
+
+func TestMatchesGroupFiltersExcept(t *testing.T) {
+	m := newTestModel(t)
+	g := eos.GroupRecord{Name: "default.0", Status: "on", NoFS: 5}
+
+	m.groupFilter = filterState{filters: map[int]string{
+		int(groupFilterName):   "def*",
+		int(groupFilterStatus): "off",
+	}}
+
+	if m.matchesGroupFilters(g) {
+		t.Fatal("full match should fail")
+	}
+	if !m.matchesGroupFiltersExcept(g, int(groupFilterStatus)) {
+		t.Fatal("expected match when excluding status column")
+	}
+	if m.matchesGroupFiltersExcept(g, int(groupFilterName)) {
+		t.Fatal("expected mismatch when excluding only name")
 	}
 }
 

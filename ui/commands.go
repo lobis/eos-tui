@@ -179,10 +179,43 @@ func runGroupSetCmd(client *eos.Client, group, status string) tea.Cmd {
 	}
 }
 
+func runBatchGroupSetCmd(client *eos.Client, groups []string, status string) tea.Cmd {
+	return func() tea.Msg {
+		failed := make([]string, 0)
+		for _, group := range groups {
+			if err := client.SetGroupStatus(context.Background(), group, status); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", group, err))
+			}
+		}
+		return groupSetResultMsg{
+			status: status,
+			batch:  true,
+			count:  len(groups),
+			failed: failed,
+		}
+	}
+}
+
 func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd {
 	return func() tea.Msg {
 		err := client.FsConfigStatus(context.Background(), fsID, value)
 		return fsConfigStatusResultMsg{err: err}
+	}
+}
+
+func runBatchFsConfigStatusCmd(client *eos.Client, targets []fileSystemTarget, value string) tea.Cmd {
+	return func() tea.Msg {
+		failed := make([]string, 0)
+		for _, target := range targets {
+			if err := client.FsConfigStatus(context.Background(), target.id, value); err != nil {
+				failed = append(failed, fmt.Sprintf("%d (%s): %v", target.id, target.path, err))
+			}
+		}
+		return fsConfigStatusBatchResultMsg{
+			value:     value,
+			attempted: len(targets),
+			failed:    failed,
+		}
 	}
 }
 

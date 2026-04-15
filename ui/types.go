@@ -152,6 +152,9 @@ type groupSetResultMsg struct {
 	group  string
 	status string
 	err    error
+	batch  bool
+	count  int
+	failed []string
 }
 
 type ioShapingLoadedMsg struct {
@@ -199,6 +202,12 @@ type fsConfigStatusResultMsg struct {
 	err error
 }
 
+type fsConfigStatusBatchResultMsg struct {
+	value     string
+	attempted int
+	failed    []string
+}
+
 type apollonDrainResultMsg struct {
 	fsID     uint64
 	instance string
@@ -222,6 +231,10 @@ type fsConfigStatusEdit struct {
 	fsPath   string
 	current  string
 	selected int // index into configStatusOptions
+	applyAll bool
+	targets  []fileSystemTarget
+	confirm  bool
+	button   buttonID
 }
 
 type apollonDrainConfirm struct {
@@ -234,13 +247,18 @@ type apollonDrainConfirm struct {
 }
 
 type groupDrainConfirm struct {
-	active  bool
-	group   string
-	command string
-	button  buttonID
+	active   bool
+	group    string
+	current  string
+	selected int
+	applyAll bool
+	targets  []string
+	confirm  bool
+	button   buttonID
 }
 
 var configStatusOptions = []string{"rw", "ro", "drain", "empty"}
+var groupStatusOptions = []string{"on", "drain", "off"}
 
 type spaceStatusEditStage int
 
@@ -256,6 +274,11 @@ const (
 	buttonCancel buttonID = iota
 	buttonContinue
 )
+
+type fileSystemTarget struct {
+	id   uint64
+	path string
+}
 
 type spaceStatusEdit struct {
 	active     bool
@@ -320,12 +343,13 @@ type ioShapingPolicyEdit struct {
 }
 
 type filterPopup struct {
-	active bool
-	view   viewID
-	column int
-	input  textinput.Model
-	table  table.Model
-	values []string
+	active    bool
+	view      viewID
+	column    int
+	input     textinput.Model
+	table     table.Model
+	values    []string
+	navigated bool
 }
 
 type logOverlay struct {

@@ -230,7 +230,7 @@ jobs:
           find . -type f | sort | xargs sha256sum | sed 's|\./||' > SHA256SUMS.txt
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-artifacts/*
           generate_release_notes: true

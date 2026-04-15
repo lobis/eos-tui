@@ -344,6 +344,16 @@ func TestGroupsFooterShowsDrainHotkey(t *testing.T) {
 	}
 }
 
+func TestIOShapingFooterShowsNewHotkey(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewIOShaping
+
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "n new") {
+		t.Fatalf("expected IO shaping footer to advertise new-policy hotkey, got: %s", footer)
+	}
+}
+
 func TestVisibleFSTsFilterByStatus(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsts = []eos.FstRecord{
@@ -2074,6 +2084,56 @@ func TestIOShapingDeleteHotkeyWithoutPolicyShowsAlert(t *testing.T) {
 	}
 	if !strings.Contains(m.alert.message, "No IO shaping policy") {
 		t.Fatalf("expected delete hotkey alert to explain missing policy, got %q", m.alert.message)
+	}
+}
+
+func TestIOShapingNewHotkeyOpensTargetEntry(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(model)
+
+	if !m.ioShapingEdit.active {
+		t.Fatalf("expected new hotkey to open io shaping editor")
+	}
+	if m.ioShapingEdit.stage != ioShapingEditStageTarget {
+		t.Fatalf("expected new hotkey to open target entry stage, got %d", m.ioShapingEdit.stage)
+	}
+	if !m.ioShapingEdit.createMode {
+		t.Fatalf("expected target entry stage to be in create mode")
+	}
+}
+
+func TestIOShapingNewTargetEntryMovesToPolicyEditor(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewIOShaping
+	m.ioShapingMode = eos.IOShapingApps
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(model)
+	for _, r := range "new-app" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.ioShapingEdit.active {
+		t.Fatalf("expected io shaping editor to stay open after entering new target")
+	}
+	if m.ioShapingEdit.stage != ioShapingEditStageSelect {
+		t.Fatalf("expected target entry to advance to select stage, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.targetID != "new-app" {
+		t.Fatalf("expected targetID=new-app, got %q", m.ioShapingEdit.targetID)
+	}
+	if !m.ioShapingEdit.createMode {
+		t.Fatalf("expected createMode to stay enabled for new target")
+	}
+	if m.ioShapingEdit.hadPolicy {
+		t.Fatalf("expected new target to start without an existing policy")
 	}
 }
 
@@ -4134,6 +4194,46 @@ func TestSpacesNavigationGAndG(t *testing.T) {
 	}
 }
 
+func TestSpacesCtrlDOnEmptyFilteredListKeepsSelectionNonNegative(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(model)
+	m.activeView = viewSpaces
+	m.spaces = []eos.SpaceRecord{
+		{Name: "default"},
+		{Name: "scratch"},
+	}
+	m.spaceFilter.filters[int(spaceFilterName)] = "missing*"
+	m.spacesSelected = 0
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(model)
+	if m.spacesSelected < 0 {
+		t.Fatalf("expected spacesSelected to stay non-negative, got %d", m.spacesSelected)
+	}
+}
+
+func TestSpacesLoadedMsgClampsSelectionToVisibleRows(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	m.activeView = viewSpaces
+	m.spaceFilter.filters[int(spaceFilterName)] = "default*"
+	m.spacesSelected = 3
+
+	updated, _ := m.Update(spacesLoadedMsg{
+		spaces: []eos.SpaceRecord{
+			{Name: "default"},
+			{Name: "scratch"},
+		},
+	})
+	m = updated.(model)
+
+	if m.spacesSelected != 0 {
+		t.Fatalf("expected spacesSelected to clamp to visible rows, got %d", m.spacesSelected)
+	}
+}
+
 func TestSpacesNavigationLeftRight(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := NewModel(nil, "test", "/").(model)
@@ -5468,6 +5568,28 @@ func TestRenderIOShapingPolicyEditPopup(t *testing.T) {
 	}
 }
 
+func TestRenderIOShapingPolicyEditPopupTargetStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.Prompt = "app> "
+	input.SetValue("new-app")
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:     true,
+		stage:      ioShapingEditStageTarget,
+		mode:       eos.IOShapingApps,
+		createMode: true,
+		input:      input,
+	}
+
+	out := m.renderIOShapingPolicyEditPopup()
+	plain := ansi.Strip(out)
+	for _, want := range []string{"New IO Shaping Policy", "Enter application to configure", "app>", "enter continue"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("renderIOShapingPolicyEditPopup (target stage) missing %q", want)
+		}
+	}
+}
+
 func TestRenderIOShapingPolicyEditPopupInputStage(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.ioShapingEdit = ioShapingPolicyEdit{
@@ -5803,6 +5925,27 @@ func TestIOShapingEditorEscCloses(t *testing.T) {
 	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEsc})
 	if m.ioShapingEdit.active {
 		t.Fatalf("expected ioShapingEdit.active=false after esc")
+	}
+}
+
+func TestIOShapingEditorTargetStageEnterBlankShowsError(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.Prompt = "app> "
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:     true,
+		stage:      ioShapingEditStageTarget,
+		mode:       eos.IOShapingApps,
+		createMode: true,
+		input:      input,
+	}
+
+	m = sendIOShapingKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ioShapingEdit.stage != ioShapingEditStageTarget {
+		t.Fatalf("expected stage=target after blank enter, got %d", m.ioShapingEdit.stage)
+	}
+	if m.ioShapingEdit.err == "" {
+		t.Fatalf("expected validation error for blank target")
 	}
 }
 

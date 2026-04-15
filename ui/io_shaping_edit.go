@@ -21,33 +21,72 @@ func (m model) selectedIOShapingRow() (ioShapingMergedRow, bool) {
 	return rows[m.ioShapingSelected], true
 }
 
-func (m model) startIOShapingPolicyEdit() (tea.Model, tea.Cmd) {
-	row, ok := m.selectedIOShapingRow()
-	if !ok {
-		return m, nil
+func ioShapingTargetLabel(mode eos.IOShapingMode) string {
+	switch mode {
+	case eos.IOShapingUsers:
+		return "UID"
+	case eos.IOShapingGroups:
+		return "GID"
+	default:
+		return "Application"
+	}
+}
+
+func ioShapingTargetPrompt(mode eos.IOShapingMode) string {
+	switch mode {
+	case eos.IOShapingUsers:
+		return "uid> "
+	case eos.IOShapingGroups:
+		return "gid> "
+	default:
+		return "app> "
+	}
+}
+
+func (m model) ioShapingPolicyRecordForTarget(mode eos.IOShapingMode, targetID string) (eos.IOShapingPolicyRecord, bool) {
+	policyType := "app"
+	switch mode {
+	case eos.IOShapingUsers:
+		policyType = "uid"
+	case eos.IOShapingGroups:
+		policyType = "gid"
 	}
 
+	for _, policy := range m.ioShapingPolicies {
+		if strings.ToLower(policy.Type) == policyType && policy.ID == targetID {
+			return policy, true
+		}
+	}
+	return eos.IOShapingPolicyRecord{}, false
+}
+
+func newIOShapingEditInput(prompt string) textinput.Model {
 	input := textinput.New()
-	input.Prompt = "value> "
-	input.CharLimit = 32
+	input.Prompt = prompt
+	input.CharLimit = 64
 	input.Width = 24
+	return input
+}
 
+func (m model) ioShapingPolicyEditForTarget(targetID string, createMode bool) ioShapingPolicyEdit {
 	edit := ioShapingPolicyEdit{
-		active:    true,
-		stage:     ioShapingEditStageSelect,
-		mode:      m.ioShapingMode,
-		targetID:  row.id,
-		hadPolicy: row.policy != nil,
-		selected:  ioShapingEditFieldEnabled,
-		button:    buttonCancel,
-		input:     input,
+		active:     true,
+		stage:      ioShapingEditStageSelect,
+		mode:       m.ioShapingMode,
+		targetID:   targetID,
+		createMode: createMode,
+		selected:   ioShapingEditFieldEnabled,
+		button:     buttonCancel,
+		input:      newIOShapingEditInput("value> "),
 	}
-	if row.policy != nil {
-		edit.enabled = row.policy.Enabled
-		edit.limitRead = formatIOShapingPolicyRate(row.policy.LimitReadBytesPerSec)
-		edit.limitWrite = formatIOShapingPolicyRate(row.policy.LimitWriteBytesPerSec)
-		edit.reservationRead = formatIOShapingPolicyRate(row.policy.ReservationReadBytesPerSec)
-		edit.reservationWrite = formatIOShapingPolicyRate(row.policy.ReservationWriteBytesPerSec)
+
+	if policy, ok := m.ioShapingPolicyRecordForTarget(m.ioShapingMode, targetID); ok {
+		edit.hadPolicy = true
+		edit.enabled = policy.Enabled
+		edit.limitRead = formatIOShapingPolicyRate(policy.LimitReadBytesPerSec)
+		edit.limitWrite = formatIOShapingPolicyRate(policy.LimitWriteBytesPerSec)
+		edit.reservationRead = formatIOShapingPolicyRate(policy.ReservationReadBytesPerSec)
+		edit.reservationWrite = formatIOShapingPolicyRate(policy.ReservationWriteBytesPerSec)
 	} else {
 		edit.enabled = true
 		edit.limitRead = "0"
@@ -56,8 +95,30 @@ func (m model) startIOShapingPolicyEdit() (tea.Model, tea.Cmd) {
 		edit.reservationWrite = "0"
 	}
 
-	m.ioShapingEdit = edit
+	return edit
+}
+
+func (m model) startIOShapingPolicyEdit() (tea.Model, tea.Cmd) {
+	row, ok := m.selectedIOShapingRow()
+	if !ok {
+		return m, nil
+	}
+
+	m.ioShapingEdit = m.ioShapingPolicyEditForTarget(row.id, false)
 	return m, nil
+}
+
+func (m model) startIOShapingPolicyCreate() (tea.Model, tea.Cmd) {
+	input := newIOShapingEditInput(ioShapingTargetPrompt(m.ioShapingMode))
+	cmd := input.Focus()
+	m.ioShapingEdit = ioShapingPolicyEdit{
+		active:     true,
+		stage:      ioShapingEditStageTarget,
+		mode:       m.ioShapingMode,
+		createMode: true,
+		input:      input,
+	}
+	return m, cmd
 }
 
 func (m model) startIOShapingPolicyDeleteConfirm() (tea.Model, tea.Cmd) {
@@ -83,6 +144,27 @@ func (m model) startIOShapingPolicyDeleteConfirm() (tea.Model, tea.Cmd) {
 
 func (m model) updateIOShapingPolicyEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.ioShapingEdit.stage {
+	case ioShapingEditStageTarget:
+		switch msg.String() {
+		case "esc":
+			m.ioShapingEdit.active = false
+			m.ioShapingEdit.err = ""
+			m.ioShapingEdit.input.Blur()
+			return m, nil
+		case "enter":
+			targetID := strings.TrimSpace(m.ioShapingEdit.input.Value())
+			if targetID == "" {
+				m.ioShapingEdit.err = "A target name is required."
+				return m, nil
+			}
+			m.ioShapingEdit = m.ioShapingPolicyEditForTarget(targetID, true)
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.ioShapingEdit.input, cmd = m.ioShapingEdit.input.Update(msg)
+		m.ioShapingEdit.err = ""
+		return m, cmd
 	case ioShapingEditStageSelect:
 		switch msg.String() {
 		case "esc":
@@ -249,16 +331,34 @@ func (edit *ioShapingPolicyEdit) setValueForField(field ioShapingEditField, valu
 }
 
 func (m model) renderIOShapingPolicyEditPopup() string {
-	targetLabel := "Application"
-	switch m.ioShapingEdit.mode {
-	case eos.IOShapingUsers:
-		targetLabel = "UID"
-	case eos.IOShapingGroups:
-		targetLabel = "GID"
+	targetLabel := ioShapingTargetLabel(m.ioShapingEdit.mode)
+
+	if m.ioShapingEdit.stage == ioShapingEditStageTarget {
+		lines := []string{
+			m.styles.popupTitle.Render("New IO Shaping Policy"),
+			fmt.Sprintf("Enter %s to configure:", strings.ToLower(targetLabel)),
+			"",
+			m.ioShapingEdit.input.View(),
+			"",
+			m.styles.status.Render("enter continue  •  esc cancel"),
+		}
+		if m.ioShapingEdit.err != "" {
+			lines = append(lines, "", m.styles.error.Render(m.ioShapingEdit.err))
+		}
+		return m.styles.panel.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(1, 2).
+			Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	}
+
+	title := "Edit IO Shaping Policy"
+	if m.ioShapingEdit.createMode {
+		title = "New IO Shaping Policy"
 	}
 
 	lines := []string{
-		m.styles.popupTitle.Render("Edit IO Shaping Policy"),
+		m.styles.popupTitle.Render(title),
 		fmt.Sprintf("%s: %s", targetLabel, m.styles.value.Render(m.ioShapingEdit.targetID)),
 		fmt.Sprintf("Existing policy: %s", m.styles.value.Render(boolLabel(m.ioShapingEdit.hadPolicy))),
 		"",

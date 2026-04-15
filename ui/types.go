@@ -309,7 +309,8 @@ type namespaceAttrEdit struct {
 type ioShapingEditStage int
 
 const (
-	ioShapingEditStageSelect ioShapingEditStage = iota
+	ioShapingEditStageTarget ioShapingEditStage = iota
+	ioShapingEditStageSelect
 	ioShapingEditStageInput
 	ioShapingEditStageDeleteConfirm
 )
@@ -330,6 +331,7 @@ type ioShapingPolicyEdit struct {
 	stage            ioShapingEditStage
 	mode             eos.IOShapingMode
 	targetID         string
+	createMode       bool
 	hadPolicy        bool
 	enabled          bool
 	limitRead        string

@@ -170,6 +170,31 @@ func TestVisibleSpacesFiltersAndSorts(t *testing.T) {
 	}
 }
 
+func TestVisibleSpacesDefaultsPreserveInsertionOrder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	m.spaces = []eos.SpaceRecord{
+		{Name: "first"},
+		{Name: "second"},
+		{Name: "third"},
+	}
+
+	if len(m.spaceFilter.filters) != 0 {
+		t.Fatalf("expected default space filters to be empty, got %v", m.spaceFilter.filters)
+	}
+	if m.spaceSort.column != int(spaceSortNone) {
+		t.Fatalf("expected default space sort to be cleared, got %+v", m.spaceSort)
+	}
+
+	got := m.visibleSpaces()
+	if len(got) != 3 {
+		t.Fatalf("expected 3 visible spaces, got %d", len(got))
+	}
+	if got[0].Name != "first" || got[1].Name != "second" || got[2].Name != "third" {
+		t.Fatalf("expected insertion order [first second third], got [%s %s %s]", got[0].Name, got[1].Name, got[2].Name)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // matchesFileSystemFilters
 // ---------------------------------------------------------------------------

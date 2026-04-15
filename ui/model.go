@@ -345,7 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Spaces refresh failed: %v", msg.err)
 		} else {
 			m.spaces = msg.spaces
-			m.spacesSelected = clampIndex(m.spacesSelected, len(m.spaces))
+			m.spacesSelected = clampIndex(m.spacesSelected, len(m.visibleSpaces()))
 		}
 	case groupsLoadedMsg:
 		m.groupsLoading = false

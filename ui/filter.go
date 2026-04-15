@@ -6,11 +6,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/table"
 
 	"github.com/lobis/eos-tui/eos"
 )
+
+var globMatcherCache sync.Map
 
 func (m model) visibleFSTs() []eos.FstRecord {
 	fsts := make([]eos.FstRecord, 0, len(m.fsts))
@@ -207,6 +210,21 @@ func matchesFilterQuery(value, query string) bool {
 }
 
 func matchesGlobPattern(value, pattern string) bool {
+	re := globPatternRegexp(pattern)
+	if re == nil {
+		return false
+	}
+	return re.MatchString(value)
+}
+
+func globPatternRegexp(pattern string) *regexp.Regexp {
+	if cached, ok := globMatcherCache.Load(pattern); ok {
+		if re, ok := cached.(*regexp.Regexp); ok {
+			return re
+		}
+		return nil
+	}
+
 	var expr strings.Builder
 	expr.WriteString("^")
 	for _, r := range pattern {
@@ -223,9 +241,11 @@ func matchesGlobPattern(value, pattern string) bool {
 
 	re, err := regexp.Compile(expr.String())
 	if err != nil {
-		return false
+		globMatcherCache.Store(pattern, (*regexp.Regexp)(nil))
+		return nil
 	}
-	return re.MatchString(value)
+	globMatcherCache.Store(pattern, re)
+	return re
 }
 
 func (m model) fstFilterValue(node eos.FstRecord) string {

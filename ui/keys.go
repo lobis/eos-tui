@@ -309,7 +309,9 @@ func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.spacesSelected = max(0, m.spacesSelected-half)
 	case "ctrl+d":
-		m.spacesSelected = min(len(spaces)-1, m.spacesSelected+half)
+		if len(spaces) > 0 {
+			m.spacesSelected = min(len(spaces)-1, m.spacesSelected+half)
+		}
 	case "g":
 		m.spacesSelected = 0
 	case "G":
@@ -378,6 +380,8 @@ func (m model) updateIOShapingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ioShapingLoading = true
 			return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
 		}
+	case "n":
+		return m.startIOShapingPolicyCreate()
 	case "up", "k":
 		if m.ioShapingSelected > 0 {
 			m.ioShapingSelected--

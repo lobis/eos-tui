@@ -357,6 +357,10 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	}
 
 	current := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
+	recursiveValue := "No"
+	if m.nsAttrEdit.recursive {
+		recursiveValue = "Yes"
+	}
 	lines := []string{
 		m.styles.popupTitle.Render("Edit Attribute"),
 		truncate(m.nsAttrEdit.targetPath, 72),
@@ -364,7 +368,11 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	}
 
 	if m.nsAttrEdit.stage == attrEditStageSelect {
-		lines = append(lines, m.renderSectionTitle("Select Key", 72))
+		lines = append(lines,
+			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
+			"",
+			m.renderSectionTitle("Select Key", 72),
+		)
 		for i, attr := range m.nsAttrEdit.attrs {
 			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
 			if i == m.nsAttrEdit.selected {
@@ -373,15 +381,16 @@ func (m model) renderNamespaceAttrEditPopup() string {
 				lines = append(lines, "  "+line)
 			}
 		}
-		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  esc cancel"))
+		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
 	} else {
 		lines = append(lines,
 			fmt.Sprintf("Key:     %s", m.styles.value.Render(current.Key)),
 			fmt.Sprintf("Current: %s", m.styles.value.Render(current.Value)),
+			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
 			"",
 			m.nsAttrEdit.input.View(),
 			"",
-			m.styles.status.Render("enter apply  •  esc cancel"),
+			m.styles.status.Render("enter apply  •  r toggle recursive  •  esc cancel"),
 		)
 	}
 

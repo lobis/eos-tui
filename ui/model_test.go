@@ -5269,6 +5269,44 @@ func TestNamespaceAttrEditNavUpDown(t *testing.T) {
 	}
 }
 
+func TestNamespaceAttrEditToggleRecursiveInSelectStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "u:root:rwx"}},
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if !m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=true after toggling in select stage")
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=false after toggling again in select stage")
+	}
+}
+
+func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("value")
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageInput,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "u:root:rwx"}},
+		input:      input,
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if !m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=true after toggling in input stage")
+	}
+}
+
 func TestNamespaceAttrEditEscCloses(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.nsAttrEdit = namespaceAttrEdit{
@@ -5652,11 +5690,12 @@ func TestRenderNamespaceAttrEditPopup(t *testing.T) {
 		targetPath: "/eos/test",
 		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "z:i:r"}},
 		selected:   0,
+		recursive:  true,
 	}
 
 	out := m.renderNamespaceAttrEditPopup()
 	plain := ansi.Strip(out)
-	for _, want := range []string{"Edit Attribute", "sys.acl"} {
+	for _, want := range []string{"Edit Attribute", "sys.acl", "Recursive: Yes", "r toggle recursive"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("renderNamespaceAttrEditPopup missing %q", want)
 		}

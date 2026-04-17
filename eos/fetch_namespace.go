@@ -108,10 +108,16 @@ func (c *Client) ListAttrs(ctx context.Context, rawPath string) ([]NamespaceAttr
 	return parseNamespaceAttrs(output), nil
 }
 
-func (c *Client) SetAttr(ctx context.Context, rawPath, key, value string) error {
+func (c *Client) SetAttr(ctx context.Context, rawPath, key, value string, recursive bool) error {
 	_ = ctx
 
-	_, err := c.runCommand("eos", "attr", "set", fmt.Sprintf("%s=%s", key, value), rawPath)
+	args := []string{"eos", "attr"}
+	if recursive {
+		args = append(args, "-r")
+	}
+	args = append(args, "set", fmt.Sprintf("%s=%s", key, value), rawPath)
+
+	_, err := c.runCommand(args...)
 	if err != nil {
 		return fmt.Errorf("eos attr set: %w", err)
 	}

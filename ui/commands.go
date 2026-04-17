@@ -119,10 +119,10 @@ func loadNamespaceAttrsCmd(client *eos.Client, path string) tea.Cmd {
 	}
 }
 
-func runNamespaceAttrSetCmd(client *eos.Client, path, key, value string) tea.Cmd {
+func runNamespaceAttrSetCmd(client *eos.Client, path, key, value string, recursive bool) tea.Cmd {
 	return func() tea.Msg {
-		err := client.SetAttr(context.Background(), path, key, value)
-		return namespaceAttrSetResultMsg{path: path, err: err}
+		err := client.SetAttr(context.Background(), path, key, value, recursive)
+		return namespaceAttrSetResultMsg{path: path, recursive: recursive, err: err}
 	}
 }
 

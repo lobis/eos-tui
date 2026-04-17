@@ -229,6 +229,7 @@ func (m model) startNamespaceAttrEdit() (tea.Model, tea.Cmd) {
 		targetPath: targetPath,
 		attrs:      append([]eos.NamespaceAttr(nil), m.nsAttrs...),
 		selected:   0,
+		recursive:  false,
 		input:      input,
 	}
 	return m, nil
@@ -241,6 +242,8 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case "esc":
 			m.nsAttrEdit.active = false
 			return m, nil
+		case "r":
+			m.nsAttrEdit.recursive = !m.nsAttrEdit.recursive
 		case "g":
 			m.nsAttrEdit.selected = 0
 		case "G":
@@ -265,10 +268,13 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case "esc":
 			m.nsAttrEdit.active = false
 			return m, nil
+		case "r":
+			m.nsAttrEdit.recursive = !m.nsAttrEdit.recursive
+			return m, nil
 		case "enter":
 			attr := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
 			m.nsAttrEdit.active = false
-			return m, runNamespaceAttrSetCmd(m.client, m.nsAttrEdit.targetPath, attr.Key, m.nsAttrEdit.input.Value())
+			return m, runNamespaceAttrSetCmd(m.client, m.nsAttrEdit.targetPath, attr.Key, m.nsAttrEdit.input.Value(), m.nsAttrEdit.recursive)
 		}
 
 		var cmd tea.Cmd

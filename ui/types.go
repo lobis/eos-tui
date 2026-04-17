@@ -133,8 +133,9 @@ type namespaceAttrsLoadedMsg struct {
 }
 
 type namespaceAttrSetResultMsg struct {
-	path string
-	err  error
+	path      string
+	recursive bool
+	err       error
 }
 
 type spaceStatusLoadedMsg struct {
@@ -303,6 +304,7 @@ type namespaceAttrEdit struct {
 	targetPath string
 	attrs      []eos.NamespaceAttr
 	selected   int
+	recursive  bool
 	input      textinput.Model
 }
 

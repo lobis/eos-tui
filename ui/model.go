@@ -402,7 +402,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
+		if msg.recursive {
+			m.status = fmt.Sprintf("Updated attributes recursively on %s", msg.path)
+		} else {
+			m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
+		}
 		return m.startNamespaceAttrLoad(true)
 	case spaceStatusLoadedMsg:
 		if msg.space != m.spaceStatusTarget {

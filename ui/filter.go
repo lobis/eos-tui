@@ -99,6 +99,21 @@ func (m model) visibleSpaces() []eos.SpaceRecord {
 	return spaces
 }
 
+func (m model) visibleNamespaceEntries() []eos.Entry {
+	entries := append([]eos.Entry(nil), m.directory.Entries...)
+	if len(m.nsFilter.filters) == 0 {
+		return entries
+	}
+
+	filtered := make([]eos.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if m.matchesNamespaceFilters(entry) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
 func (m model) matchesNodeFilters(node eos.FstRecord) bool {
 	for column, query := range m.fstFilter.filters {
 		if query == "" {
@@ -189,6 +204,30 @@ func (m model) matchesSpaceFiltersExcept(s eos.SpaceRecord, excludeColumn int) b
 			continue
 		}
 		if !matchesFilterQuery(m.spaceFilterValueForColumn(s, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesNamespaceFilters(entry eos.Entry) bool {
+	for col, filter := range m.nsFilter.filters {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.namespaceFilterValueForColumn(entry, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesNamespaceFiltersExcept(entry eos.Entry, excludeColumn int) bool {
+	for col, filter := range m.nsFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.namespaceFilterValueForColumn(entry, col), filter) {
 			return false
 		}
 	}
@@ -337,6 +376,10 @@ func (m model) spaceFilterValueForColumn(s eos.SpaceRecord, column int) string {
 	default:
 		return s.Name
 	}
+}
+
+func (m model) namespaceFilterValueForColumn(entry eos.Entry, _ int) string {
+	return strings.TrimSpace(fmt.Sprintf("%s %s %s", entry.Name, entry.Path, entryTypeLabel(entry)))
 }
 
 func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
@@ -909,6 +952,8 @@ func (m model) activeFilterColumnLabel() string {
 	switch m.activeView {
 	case viewFileSystems:
 		return m.fsFilterColumnLabel()
+	case viewNamespace:
+		return "entry"
 	case viewSpaces:
 		return m.spaceFilterColumnLabel()
 	case viewGroups:
@@ -925,6 +970,9 @@ func (m *model) openFilterPopup() {
 	if m.activeView == viewFileSystems {
 		m.popup.column = m.fsColumnSelected
 		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else if m.activeView == viewNamespace {
+		m.popup.column = namespaceFilterQueryColumn
+		m.popup.input.SetValue(m.nsFilter.filters[namespaceFilterQueryColumn])
 	} else if m.activeView == viewSpaces {
 		m.popup.column = m.spacesColumnSelected
 		m.popup.input.SetValue(m.spaceFilter.filters[m.spacesColumnSelected])
@@ -987,6 +1035,15 @@ func (m *model) applyPopupSelection() {
 		}
 		m.fsSelected = clampIndex(0, len(m.visibleFileSystems()))
 		m.closeFilterPopup(fmt.Sprintf("Filesystem filters active: %d", len(m.fsFilter.filters)))
+	case viewNamespace:
+		m.nsFilter.column = m.popup.column
+		if value == "" {
+			delete(m.nsFilter.filters, m.popup.column)
+		} else {
+			m.nsFilter.filters[m.popup.column] = value
+		}
+		m.nsSelected = clampIndex(0, len(m.visibleNamespaceEntries()))
+		m.closeFilterPopup(fmt.Sprintf("Namespace filters active: %d", len(m.nsFilter.filters)))
 	case viewSpaces:
 		m.spaceFilter.column = m.popup.column
 		if value == "" {
@@ -1052,6 +1109,20 @@ func (m model) popupValues() []string {
 				continue
 			}
 			value := m.fsFilterValueForColumn(fs, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	case viewNamespace:
+		for _, entry := range m.directory.Entries {
+			if !m.matchesNamespaceFiltersExcept(entry, m.popup.column) {
+				continue
+			}
+			value := entry.Name
+			if value == "" {
+				value = entry.Path
+			}
 			if !seen[value] {
 				seen[value] = true
 				values = append(values, value)

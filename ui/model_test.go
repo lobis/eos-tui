@@ -3863,6 +3863,92 @@ func TestLongEndpointDoesNotClipMainViewRightBorders(t *testing.T) {
 	}
 }
 
+func TestNamespaceSlashOpensFilterPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/' in namespace view")
+	}
+	if m.popup.view != viewNamespace {
+		t.Fatalf("expected popup view to be namespace, got %v", m.popup.view)
+	}
+	if m.popup.column != namespaceFilterQueryColumn {
+		t.Fatalf("expected popup column=%d, got %d", namespaceFilterQueryColumn, m.popup.column)
+	}
+}
+
+func TestNamespaceFilterAppliesToVisibleEntries(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+			{Kind: eos.EntryKindFile, Name: "beta", Path: "/eos/test/beta"},
+		},
+	}
+
+	m = sendKey(m, runeKey('/'))
+	m.popup.input.SetValue("alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.nsFilter.filters[namespaceFilterQueryColumn]; got != "alpha" {
+		t.Fatalf("expected namespace filter to be applied, got %q", got)
+	}
+	entries := m.visibleNamespaceEntries()
+	if len(entries) != 1 || entries[0].Name != "alpha" {
+		t.Fatalf("expected only alpha to remain visible, got %+v", entries)
+	}
+}
+
+func TestNamespaceNavigationClearsFiltersWhenEnteringDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear when entering a directory")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected directory load when entering a directory")
+	}
+}
+
+func TestNamespaceNavigationClearsFiltersWhenLeavingDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test/sub",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "file", Path: "/eos/test/sub/file"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "file"}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear when leaving a directory")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected directory load when leaving a directory")
+	}
+}
+
 func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.commandLog.active = true
@@ -5426,6 +5512,31 @@ func TestEscClearsActiveFiltersAcrossViews(t *testing.T) {
 					t.Fatalf("expected space filters to be cleared")
 				}
 				if m.status != "Space filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+		{
+			name: "namespace",
+			setup: func(m model) model {
+				m.activeView = viewNamespace
+				m.directory = eos.Directory{
+					Path: "/eos/test",
+					Entries: []eos.Entry{
+						{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+						{Kind: eos.EntryKindFile, Name: "beta", Path: "/eos/test/beta"},
+					},
+				}
+				m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+				m.nsSelected = 0
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.nsFilter.filters) != 0 {
+					t.Fatalf("expected namespace filters to be cleared")
+				}
+				if m.status != "Namespace filters cleared" {
 					t.Fatalf("unexpected status %q", m.status)
 				}
 			},

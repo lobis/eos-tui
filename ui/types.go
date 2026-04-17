@@ -392,6 +392,8 @@ type filterState struct {
 	filters map[int]string
 }
 
+const namespaceFilterQueryColumn = 0
+
 type sortState struct {
 	column int
 	desc   bool
@@ -613,6 +615,7 @@ type model struct {
 	nsLoading  bool
 	nsErr      error
 	nsSelected int
+	nsFilter   filterState
 	nsAttrs    []eos.NamespaceAttr
 	nsAttrsErr error
 

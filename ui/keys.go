@@ -151,15 +151,19 @@ func (m model) updateFileSystemKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	half := max(1, m.height/6)
+	entries := m.visibleNamespaceEntries()
 	selectionChanged := false
 	switch msg.String() {
+	case "/":
+		m.openFilterPopup()
+		return m, nil
 	case "up", "k":
 		if m.nsSelected > 0 {
 			m.nsSelected--
 			selectionChanged = true
 		}
 	case "down", "j":
-		if m.nsSelected < len(m.directory.Entries)-1 {
+		if m.nsSelected < len(entries)-1 {
 			m.nsSelected++
 			selectionChanged = true
 		}
@@ -167,10 +171,10 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nsSelected = max(0, m.nsSelected-half)
 		selectionChanged = true
 	case "ctrl+d":
-		m.nsSelected = min(len(m.directory.Entries)-1, m.nsSelected+half)
+		m.nsSelected = min(len(entries)-1, m.nsSelected+half)
 		selectionChanged = true
 	case "G":
-		m.nsSelected = max(0, len(m.directory.Entries)-1)
+		m.nsSelected = max(0, len(entries)-1)
 		selectionChanged = true
 	case "g":
 		m.nsSelected = 0
@@ -178,6 +182,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace", "left":
 		parent := parentPath(m.directory.Path)
 		if parent != m.directory.Path {
+			m.nsFilter.filters = map[int]string{}
 			m.nsSelected = 0
 			m.nsLoading = true
 			m.status = fmt.Sprintf("Opening %s...", parent)
@@ -188,6 +193,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		entry, ok := m.selectedNamespaceEntry()
 		if ok && entry.Kind == eos.EntryKindContainer {
+			m.nsFilter.filters = map[int]string{}
 			m.nsSelected = 0
 			m.nsLoading = true
 			m.status = fmt.Sprintf("Opening %s...", entry.Path)

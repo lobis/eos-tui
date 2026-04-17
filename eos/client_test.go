@@ -787,6 +787,34 @@ func TestSetAttrCommand(t *testing.T) {
 	}
 }
 
+func TestAttrSetArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		recursive bool
+		want      []string
+	}{
+		{
+			name:      "non-recursive",
+			recursive: false,
+			want:      []string{"eos", "attr", "set", "user.comment=hello world", "/eos/dev/file"},
+		},
+		{
+			name:      "recursive",
+			recursive: true,
+			want:      []string{"eos", "attr", "-r", "set", "user.comment=hello world", "/eos/dev/file"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := attrSetArgs("/eos/dev/file", "user.comment", "hello world", tt.recursive)
+			if strings.Join(got, "\x00") != strings.Join(tt.want, "\x00") {
+				t.Fatalf("attrSetArgs() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeClusterInstance(t *testing.T) {
 	tests := []struct {
 		input string

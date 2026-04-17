@@ -1,13 +1,11 @@
 package eos
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestParseLabeledValues(t *testing.T) {
@@ -781,36 +779,12 @@ func TestSetAttrCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			argsFile := filepath.Join(tmpDir, "args")
-			eosPath := filepath.Join(tmpDir, "eos")
-			script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >" + testShellQuote(argsFile) + "\n"
-			if err := os.WriteFile(eosPath, []byte(script), 0755); err != nil {
-				t.Fatalf("WriteFile(fake eos): %v", err)
-			}
-			t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-			client := &Client{timeout: time.Second}
-
-			if err := client.SetAttr(context.Background(), "/eos/dev/file", "user.comment", "hello world", tt.recursive); err != nil {
-				t.Fatalf("SetAttr() error = %v", err)
-			}
-
-			rawArgs, err := os.ReadFile(argsFile)
-			if err != nil {
-				t.Fatalf("ReadFile(args): %v", err)
-			}
-			captured := strings.Split(strings.TrimSpace(string(rawArgs)), "\n")
-			got := shellDisplayJoin(append([]string{"eos"}, captured...))
+			got := shellDisplayJoin(attrSetArgs("/eos/dev/file", "user.comment", "hello world", tt.recursive))
 			if got != tt.want {
 				t.Fatalf("SetAttr command = %q, want %q", got, tt.want)
 			}
 		})
 	}
-}
-
-func testShellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func TestNormalizeClusterInstance(t *testing.T) {

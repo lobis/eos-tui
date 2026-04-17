@@ -11,9 +11,10 @@ import (
 
 func (m model) renderNamespaceView(height int) string {
 	width := m.panelWidth()
+	entries := m.visibleNamespaceEntries()
 
 	fixedListLines := 3 // Title, blank, header
-	naturalListContent := fixedListLines + len(m.directory.Entries)
+	naturalListContent := fixedListLines + len(entries)
 	if !m.nsLoaded && !m.nsLoading {
 		naturalListContent = 4 // Title, blank, header, "(empty)" or hint
 	}
@@ -84,6 +85,7 @@ func (m model) namespaceAttrsContentLines() int {
 
 func (m model) renderNamespaceList(width, height int) string {
 	contentWidth := panelContentWidth(width)
+	entries := m.visibleNamespaceEntries()
 	columns := allocateTableColumns(contentWidth, []tableColumn{
 		{title: "type", min: 4, weight: 1},
 		{title: "name", min: 24, weight: 6},
@@ -99,18 +101,21 @@ func (m model) renderNamespaceList(width, height int) string {
 		"",
 		m.renderNamespaceHeaderRow(columns),
 	}
+	if summary := m.renderFilterSummary(m.nsFilter.filters, func(int) string { return "entry" }); summary != "" {
+		lines = append(lines, summary)
+	}
 
 	if m.nsLoading {
 		lines = append(lines, "Loading directory listing...")
 	} else if m.nsErr != nil {
 		lines = append(lines, m.styles.error.Render(m.nsErr.Error()))
-	} else if len(m.directory.Entries) == 0 {
+	} else if len(entries) == 0 {
 		lines = append(lines, "(empty)")
 	} else {
-		start, end := visibleWindow(len(m.directory.Entries), m.nsSelected, max(1, panelContentHeight(height)-len(lines)))
-		lines[0] = title + renderScrollSummary(start, end, len(m.directory.Entries))
+		start, end := visibleWindow(len(entries), m.nsSelected, max(1, panelContentHeight(height)-len(lines)))
+		lines[0] = title + renderScrollSummary(start, end, len(entries))
 		for i := start; i < end; i++ {
-			entry := m.directory.Entries[i]
+			entry := entries[i]
 			line := formatTableRow(columns, []string{
 				entryTypeLabel(entry),
 				entry.Name,
@@ -357,6 +362,10 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	}
 
 	current := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
+	recursiveValue := "No"
+	if m.nsAttrEdit.recursive {
+		recursiveValue = "Yes"
+	}
 	lines := []string{
 		m.styles.popupTitle.Render("Edit Attribute"),
 		truncate(m.nsAttrEdit.targetPath, 72),
@@ -364,7 +373,11 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	}
 
 	if m.nsAttrEdit.stage == attrEditStageSelect {
-		lines = append(lines, m.renderSectionTitle("Select Key", 72))
+		lines = append(lines,
+			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
+			"",
+			m.renderSectionTitle("Select Key", 72),
+		)
 		for i, attr := range m.nsAttrEdit.attrs {
 			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
 			if i == m.nsAttrEdit.selected {
@@ -373,15 +386,16 @@ func (m model) renderNamespaceAttrEditPopup() string {
 				lines = append(lines, "  "+line)
 			}
 		}
-		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  esc cancel"))
+		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
 	} else {
 		lines = append(lines,
 			fmt.Sprintf("Key:     %s", m.styles.value.Render(current.Key)),
 			fmt.Sprintf("Current: %s", m.styles.value.Render(current.Value)),
+			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
 			"",
 			m.nsAttrEdit.input.View(),
 			"",
-			m.styles.status.Render("enter apply  •  esc cancel"),
+			m.styles.status.Render("enter apply  •  r toggle recursive  •  esc cancel"),
 		)
 	}
 
@@ -393,11 +407,12 @@ func (m model) renderNamespaceAttrEditPopup() string {
 }
 
 func (m model) selectedNamespaceEntry() (eos.Entry, bool) {
-	if len(m.directory.Entries) == 0 || m.nsSelected < 0 || m.nsSelected >= len(m.directory.Entries) {
+	entries := m.visibleNamespaceEntries()
+	if len(entries) == 0 || m.nsSelected < 0 || m.nsSelected >= len(entries) {
 		return eos.Entry{}, false
 	}
 
-	return m.directory.Entries[m.nsSelected], true
+	return entries[m.nsSelected], true
 }
 
 func (m model) renderNamespaceHeaderRow(columns []tableColumn) string {

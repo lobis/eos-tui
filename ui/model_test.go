@@ -3863,6 +3863,149 @@ func TestLongEndpointDoesNotClipMainViewRightBorders(t *testing.T) {
 	}
 }
 
+func TestNamespaceSlashOpensFilterPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/' in namespace view")
+	}
+	if m.popup.view != viewNamespace {
+		t.Fatalf("expected popup view to be namespace, got %v", m.popup.view)
+	}
+	if m.popup.column != namespaceFilterQueryColumn {
+		t.Fatalf("expected popup column=%d, got %d", namespaceFilterQueryColumn, m.popup.column)
+	}
+}
+
+func TestNamespaceFilterAppliesToVisibleEntries(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+			{Kind: eos.EntryKindFile, Name: "beta", Path: "/eos/test/beta"},
+		},
+	}
+
+	m = sendKey(m, runeKey('/'))
+	m.popup.input.SetValue("alpha")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.nsFilter.filters[namespaceFilterQueryColumn]; got != "alpha" {
+		t.Fatalf("expected namespace filter to be applied, got %q", got)
+	}
+	entries := m.visibleNamespaceEntries()
+	if len(entries) != 1 || entries[0].Name != "alpha" {
+		t.Fatalf("expected only alpha to remain visible, got %+v", entries)
+	}
+}
+
+func TestNamespaceFilterPopupPrefillsExistingValue(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+
+	m = sendKey(m, runeKey('/'))
+	if got := m.popup.input.Value(); got != "alpha" {
+		t.Fatalf("expected popup to prefill existing namespace filter, got %q", got)
+	}
+}
+
+func TestCurrentNamespaceAttrTargetPathUsesFilteredSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Self: eos.Entry{Name: "test", Path: "/eos/test", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "alpha", Path: "/eos/test/alpha"},
+			{Kind: eos.EntryKindFile, Name: "beta", Path: "/eos/test/beta"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "beta"}
+	m.nsSelected = 0
+
+	if got := m.currentNamespaceAttrTargetPath(); got != "/eos/test/beta" {
+		t.Fatalf("expected filtered selection target path /eos/test/beta, got %q", got)
+	}
+}
+
+func TestNamespaceNavigationClearsFiltersWhenEnteringDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRight})
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear when entering a directory")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected directory load when entering a directory")
+	}
+}
+
+func TestNamespaceNavigationClearsFiltersWhenLeavingDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test/sub",
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "file", Path: "/eos/test/sub/file"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "file"}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear when leaving a directory")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected directory load when leaving a directory")
+	}
+}
+
+func TestNamespaceViewRendersFilterSummary(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.splash.active = false
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Self: eos.Entry{Name: "test", Path: "/eos/test", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Kind: eos.EntryKindFile, Name: "alpha", Path: "/eos/test/alpha"},
+		},
+	}
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "entry=alpha") {
+		t.Fatalf("expected namespace view to render filter summary, got:\n%s", view)
+	}
+}
+
 func TestCommandLogTickDoesNotReenterLoadingAfterInitialData(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.commandLog.active = true
@@ -5269,6 +5412,70 @@ func TestNamespaceAttrEditNavUpDown(t *testing.T) {
 	}
 }
 
+func TestNamespaceAttrEditToggleRecursiveInSelectStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageSelect,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "u:root:rwx"}},
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if !m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=true after toggling in select stage")
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=false after toggling again in select stage")
+	}
+}
+
+func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
+	m := newSizedTestModel(t)
+	input := textinput.New()
+	input.SetValue("value")
+	m.nsAttrEdit = namespaceAttrEdit{
+		active:     true,
+		stage:      attrEditStageInput,
+		targetPath: "/eos/test",
+		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "u:root:rwx"}},
+		input:      input,
+	}
+
+	m = sendKey(m, runeKey('r'))
+	if !m.nsAttrEdit.recursive {
+		t.Fatalf("expected recursive=true after toggling in input stage")
+	}
+}
+
+func TestNamespaceAttrEditorStartsWithRecursiveDisabled(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.nsAttrEdit.recursive {
+		t.Fatalf("expected namespace attr editor to start with recursive disabled")
+	}
+}
+
 func TestNamespaceAttrEditEscCloses(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.nsAttrEdit = namespaceAttrEdit{
@@ -5282,6 +5489,43 @@ func TestNamespaceAttrEditEscCloses(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
 	if m.nsAttrEdit.active {
 		t.Fatalf("expected nsAttrEdit.active=false after esc")
+	}
+}
+
+func TestNamespaceAttrSetResultRecursiveStatus(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Self: eos.Entry{Name: "test", Path: "/eos/test", Kind: eos.EntryKindContainer},
+	}
+
+	updated, _ := m.Update(namespaceAttrSetResultMsg{
+		path:      "/eos/test",
+		recursive: true,
+	})
+	m = updated.(model)
+
+	if m.status != "Updated attributes recursively on /eos/test" {
+		t.Fatalf("unexpected recursive status %q", m.status)
+	}
+}
+
+func TestNamespaceAttrSetResultNonRecursiveStatus(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/test",
+		Self: eos.Entry{Name: "test", Path: "/eos/test", Kind: eos.EntryKindContainer},
+	}
+
+	updated, _ := m.Update(namespaceAttrSetResultMsg{
+		path: "/eos/test",
+	})
+	m = updated.(model)
+
+	if m.status != "Updated attributes on /eos/test" {
+		t.Fatalf("unexpected non-recursive status %q", m.status)
 	}
 }
 
@@ -5388,6 +5632,31 @@ func TestEscClearsActiveFiltersAcrossViews(t *testing.T) {
 					t.Fatalf("expected space filters to be cleared")
 				}
 				if m.status != "Space filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
+		{
+			name: "namespace",
+			setup: func(m model) model {
+				m.activeView = viewNamespace
+				m.directory = eos.Directory{
+					Path: "/eos/test",
+					Entries: []eos.Entry{
+						{Kind: eos.EntryKindContainer, Name: "alpha", Path: "/eos/test/alpha"},
+						{Kind: eos.EntryKindFile, Name: "beta", Path: "/eos/test/beta"},
+					},
+				}
+				m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "alpha"}
+				m.nsSelected = 0
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.nsFilter.filters) != 0 {
+					t.Fatalf("expected namespace filters to be cleared")
+				}
+				if m.status != "Namespace filters cleared" {
 					t.Fatalf("unexpected status %q", m.status)
 				}
 			},
@@ -5652,11 +5921,12 @@ func TestRenderNamespaceAttrEditPopup(t *testing.T) {
 		targetPath: "/eos/test",
 		attrs:      []eos.NamespaceAttr{{Key: "sys.acl", Value: "z:i:r"}},
 		selected:   0,
+		recursive:  true,
 	}
 
 	out := m.renderNamespaceAttrEditPopup()
 	plain := ansi.Strip(out)
-	for _, want := range []string{"Edit Attribute", "sys.acl"} {
+	for _, want := range []string{"Edit Attribute", "sys.acl", "Recursive: Yes", "r toggle recursive"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("renderNamespaceAttrEditPopup missing %q", want)
 		}

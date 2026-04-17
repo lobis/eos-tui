@@ -73,6 +73,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		groupSort:            sortState{column: int(groupSortNone)},
 		fstFilter:            filterState{filters: map[int]string{}},
 		fsFilter:             filterState{filters: map[int]string{}},
+		nsFilter:             filterState{filters: map[int]string{}},
 		spaceFilter:          filterState{filters: map[int]string{}},
 		groupFilter:          filterState{filters: map[int]string{}},
 		popup: filterPopup{
@@ -192,6 +193,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.spaceFilter.filters = map[int]string{}
 					m.spacesSelected = clampIndex(m.spacesSelected, len(m.visibleSpaces()))
 					m.status = "Space filters cleared"
+				}
+			case viewNamespace:
+				if len(m.nsFilter.filters) > 0 {
+					m.nsFilter.filters = map[int]string{}
+					m.nsSelected = clampIndex(m.nsSelected, len(m.visibleNamespaceEntries()))
+					m.status = "Namespace filters cleared"
 				}
 			case viewGroups:
 				if len(m.groupFilter.filters) > 0 {
@@ -402,7 +409,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
+		if msg.recursive {
+			m.status = fmt.Sprintf("Updated attributes recursively on %s", msg.path)
+		} else {
+			m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
+		}
 		return m.startNamespaceAttrLoad(true)
 	case spaceStatusLoadedMsg:
 		if msg.space != m.spaceStatusTarget {

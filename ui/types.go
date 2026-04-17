@@ -133,8 +133,9 @@ type namespaceAttrsLoadedMsg struct {
 }
 
 type namespaceAttrSetResultMsg struct {
-	path string
-	err  error
+	path      string
+	recursive bool
+	err       error
 }
 
 type spaceStatusLoadedMsg struct {
@@ -303,6 +304,7 @@ type namespaceAttrEdit struct {
 	targetPath string
 	attrs      []eos.NamespaceAttr
 	selected   int
+	recursive  bool
 	input      textinput.Model
 }
 
@@ -389,6 +391,8 @@ type filterState struct {
 	column  int
 	filters map[int]string
 }
+
+const namespaceFilterQueryColumn = 0
 
 type sortState struct {
 	column int
@@ -611,6 +615,7 @@ type model struct {
 	nsLoading  bool
 	nsErr      error
 	nsSelected int
+	nsFilter   filterState
 	nsAttrs    []eos.NamespaceAttr
 	nsAttrsErr error
 

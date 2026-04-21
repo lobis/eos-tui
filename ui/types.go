@@ -26,9 +26,10 @@ const (
 	viewSpaceStatus // deprecated: kept for persisted-state migration only
 	viewIOShaping
 	viewGroups
+	viewVID
 )
 
-const viewCount = 10
+const viewCount = 11
 
 type viewTab struct {
 	key   string
@@ -46,6 +47,7 @@ var orderedViewTabs = []viewTab{
 	{key: "7", label: "7 Groups", view: viewGroups},
 	{key: "8", label: "8 MGM", view: viewMGM},
 	{key: "9", label: "9 QDB", view: viewQDB},
+	{key: "0", label: "0 VID", view: viewVID},
 }
 
 func defaultActiveView() viewID {
@@ -114,6 +116,17 @@ type spacesLoadedMsg struct {
 type groupsLoadedMsg struct {
 	groups []eos.GroupRecord
 	err    error
+}
+
+type inspectorLoadedMsg struct {
+	stats eos.InspectorStats
+	err   error
+}
+
+type vidLoadedMsg struct {
+	mode    vidListMode
+	records []eos.VIDRecord
+	err     error
 }
 
 type namespaceStatsLoadedMsg struct {
@@ -387,12 +400,52 @@ type startupSplash struct {
 	frame  int
 }
 
+type vidListMode int
+
+const (
+	vidListDefault vidListMode = iota
+	vidListUsers
+	vidListGroups
+	vidListSudoers
+	vidListUserAliases
+	vidListGroupAliases
+	vidListAuth
+	vidListGeotags
+	vidListNumeric
+)
+
+type vidModeTab struct {
+	label string
+	flag  string
+	mode  vidListMode
+}
+
+var orderedVIDModes = []vidModeTab{
+	{label: "default", mode: vidListDefault},
+	{label: "users", flag: "-u", mode: vidListUsers},
+	{label: "groups", flag: "-g", mode: vidListGroups},
+	{label: "sudo", flag: "-s", mode: vidListSudoers},
+	{label: "user alias", flag: "-U", mode: vidListUserAliases},
+	{label: "group alias", flag: "-G", mode: vidListGroupAliases},
+	{label: "auth", flag: "-a", mode: vidListAuth},
+	{label: "geo", flag: "-l", mode: vidListGeotags},
+	{label: "numeric", flag: "-n", mode: vidListNumeric},
+}
+
 type filterState struct {
 	column  int
 	filters map[int]string
 }
 
 const namespaceFilterQueryColumn = 0
+const statsFilterQueryColumn = 0
+
+type statsPaneFocus int
+
+const (
+	statsFocusList statsPaneFocus = iota
+	statsFocusDetail
+)
 
 type sortState struct {
 	column int
@@ -606,9 +659,25 @@ type model struct {
 	groupsSelected       int
 	groupsColumnSelected int
 
-	namespaceStats eos.NamespaceStats
-	nsStatsLoading bool
-	nsStatsErr     error
+	vidMode     vidListMode
+	vidRecords  []eos.VIDRecord
+	vidLoading  bool
+	vidErr      error
+	vidSelected int
+
+	namespaceStats       eos.NamespaceStats
+	nsStatsLoading       bool
+	nsStatsErr           error
+	inspectorStats       eos.InspectorStats
+	inspectorLoading     bool
+	inspectorErr         error
+	statsSectionSelected int
+	statsPaneFocus       statsPaneFocus
+	statsDetailSelected  int
+	statsDetailColumnSelected int
+	statsDetailOffsetX   int
+	statsDetailOffsetY   int
+	statsFilter          filterState
 
 	directory  eos.Directory
 	nsLoaded   bool

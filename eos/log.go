@@ -85,7 +85,7 @@ func (c *Client) logCommand(args []string) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	var command string
 	if target := c.effectiveSSHTarget(); target != "" {
-		command = fmt.Sprintf("ssh -o BatchMode=yes %s %s", target, shellDisplayJoin(args))
+		command = fmt.Sprintf("ssh %s %s %s", shellDisplayJoin(c.SSHArgs(true)), target, shellDisplayJoin(args))
 	} else {
 		command = shellDisplayJoin(args)
 	}

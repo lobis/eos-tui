@@ -652,6 +652,14 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.nsLoaded = true
 	m.groups = []eos.GroupRecord{{Name: "default.0", Status: "online", NoFS: 3}}
 	m.groupsLoading = false
+	m.namespaceStats = eos.NamespaceStats{MasterHost: "mgm", TotalFiles: 1}
+	m.nsStatsLoading = false
+	m.inspectorStats = eos.InspectorStats{
+		TopUserCost: eos.InspectorCostRecord{Name: "eos", Cost: 1},
+	}
+	m.inspectorLoading = false
+	m.vidRecords = []eos.VIDRecord{{Key: "tokensudo", Value: "always"}}
+	m.vidLoading = false
 
 	// Detect style application by the escape prefix each style emits.
 	headerStyleMarker := openingANSISequence(m.styles.header.Render("X"))
@@ -671,8 +679,10 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		{"FST", viewFST},
 		{"FS", viewFileSystems},
 		{"Spaces", viewSpaces},
+		{"Stats", viewNamespaceStats},
 		{"IOTraffic", viewIOShaping},
 		{"Groups", viewGroups},
+		{"VID", viewVID},
 	}
 
 	for _, tc := range viewsToCheck {
@@ -1224,6 +1234,9 @@ func TestSwitchingToNsStatsTriggersLoad(t *testing.T) {
 	if !m.fstStatsLoading {
 		t.Fatalf("expected fstStatsLoading=true after switching to namespace stats view")
 	}
+	if !m.inspectorLoading {
+		t.Fatalf("expected inspectorLoading=true after switching to namespace stats view")
+	}
 	if cmd == nil {
 		t.Fatalf("expected a load command to be returned when switching to namespace stats view")
 	}
@@ -1273,6 +1286,29 @@ func TestNamespaceStatsLoadedMsgUpdatesModel(t *testing.T) {
 	}
 	if m.namespaceStats.TotalDirectories != 19 {
 		t.Errorf("expected TotalDirectories=19, got %d", m.namespaceStats.TotalDirectories)
+	}
+}
+
+func TestInspectorLoadedMsgUpdatesModel(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.inspectorLoading = true
+
+	updated, _ := m.Update(inspectorLoadedMsg{
+		stats: eos.InspectorStats{
+			HardlinkCount: 17,
+			TopLayout:     eos.InspectorLayoutSummary{Layout: "20140b42", Type: "raid6", VolumeBytes: 1234},
+		},
+	})
+	m = updated.(model)
+
+	if m.inspectorLoading {
+		t.Fatal("expected inspectorLoading=false after inspectorLoadedMsg")
+	}
+	if m.inspectorStats.HardlinkCount != 17 {
+		t.Fatalf("expected hardlink count 17, got %d", m.inspectorStats.HardlinkCount)
+	}
+	if m.inspectorStats.TopLayout.Layout != "20140b42" {
+		t.Fatalf("expected top layout 20140b42, got %+v", m.inspectorStats.TopLayout)
 	}
 }
 
@@ -1358,10 +1394,13 @@ func TestNestedSpaceStatusViewRendersSelectedSpaceName(t *testing.T) {
 func TestNamespaceStatsViewRendersWithData(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.width = 120
-	m.height = 30
+	m.height = 40
 	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
+	m.statsSectionSelected = 3
 	m.nsStatsLoading = false
 	m.fstStatsLoading = false
+	m.inspectorLoading = false
 	m.nodeStats = eos.NodeStats{
 		State:       "OK",
 		ThreadCount: 489,
@@ -1376,12 +1415,221 @@ func TestNamespaceStatsViewRendersWithData(t *testing.T) {
 		CurrentCID:       1234,
 		MasterHost:       "mgm01:1094",
 	}
+	m.inspectorStats = eos.InspectorStats{
+		AvgFileSize:    4096,
+		HardlinkCount:  3817,
+		HardlinkVolume: 1346800,
+		SymlinkCount:   7900,
+		LayoutCount:    2,
+		TopLayout:      eos.InspectorLayoutSummary{Layout: "20140b42", Type: "raid6", VolumeBytes: 459414145717156, PhysicalBytes: 551296974750284, Locations: 3315636},
+		TopUserCost:    eos.InspectorCostRecord{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+		TopGroupCost:   eos.InspectorCostRecord{Name: "c3", ID: 1028, Cost: 47343.68, TBYears: 2367.18},
+		Layouts: []eos.InspectorLayoutSummary{
+			{Layout: "20140b42", Type: "raid6", VolumeBytes: 459414145717156, PhysicalBytes: 551296974750284, Locations: 3315636},
+			{Layout: "00100012", Type: "replica", VolumeBytes: 53308906460832, PhysicalBytes: 53308906460832, Locations: 477406},
+		},
+		UserCosts: []eos.InspectorCostRecord{
+			{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+			{Name: "cmst0", ID: 103031, Cost: 5058.99, TBYears: 252.95},
+		},
+		GroupCosts: []eos.InspectorCostRecord{
+			{Name: "c3", ID: 1028, Cost: 47343.68, TBYears: 2367.18},
+			{Name: "zh", ID: 1399, Cost: 5447.73, TBYears: 272.39},
+		},
+		AccessFiles: []eos.InspectorBin{
+			{BinSeconds: 0, Value: 27845},
+			{BinSeconds: 86400, Value: 79092},
+		},
+		AccessVolume: []eos.InspectorBin{
+			{BinSeconds: 0, Value: 28263687812610},
+			{BinSeconds: 86400, Value: 2189563376205},
+		},
+	}
 
 	view := m.View()
-	for _, needle := range []string{"General Statistics", "Cluster Summary", "Namespace Statistics", "Master", "489", "78", "19"} {
+	for _, needle := range []string{"General Statistics", "Cluster Summary", "Namespace Overview", "Inspector Overview", "Cache & Contention", "3817", "eos 44647.46", "section", "summary"} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected namespace stats view to contain %q, got:\n%s", needle, view)
 		}
+	}
+}
+
+func TestNamespaceStatsViewNavigationMovesSelection(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewNamespaceStats
+	m.splash.active = false
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.statsSectionSelected != 1 {
+		t.Fatalf("expected statsSectionSelected=1 after j, got %d", m.statsSectionSelected)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	m = updated.(model)
+	if m.statsSectionSelected != len(m.statsSections())-1 {
+		t.Fatalf("expected statsSectionSelected at end after G, got %d", m.statsSectionSelected)
+	}
+}
+
+func TestNamespaceStatsViewCanFocusDetailAndPanHorizontally(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 100
+	m.height = 28
+	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
+	m.statsSectionSelected = 4
+	m.inspectorLoading = false
+	m.splash.active = false
+	m.inspectorStats = eos.InspectorStats{
+		TopLayout: eos.InspectorLayoutSummary{Layout: "00100112", Type: "replica", VolumeBytes: 779766274703421, PhysicalBytes: 1559532549406842, Locations: 22203412},
+		Layouts: []eos.InspectorLayoutSummary{
+			{Layout: "00100112", Type: "replica", VolumeBytes: 779766274703421, PhysicalBytes: 1559532549406842, Locations: 22203412},
+			{Layout: "20140b42", Type: "raid6", VolumeBytes: 459414145717156, PhysicalBytes: 551296974750284, Locations: 3315636},
+		},
+	}
+
+	if maxX := m.statsDetailMaxOffsetX(m.statsSections()); maxX == 0 {
+		t.Fatalf("expected layout section to require horizontal panning")
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if m.statsPaneFocus != statsFocusDetail {
+		t.Fatalf("expected right arrow to focus detail pane")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if m.statsDetailColumnSelected == 0 {
+		t.Fatalf("expected second right arrow to move to the next detail column")
+	}
+}
+
+func TestNamespaceStatsViewCanMoveWithinDetailPane(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
+	m.statsSectionSelected = 5
+	m.inspectorLoading = false
+	m.splash.active = false
+	m.inspectorStats = eos.InspectorStats{
+		TopUserCost: eos.InspectorCostRecord{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+		UserCosts: []eos.InspectorCostRecord{
+			{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+			{Name: "cmst0", ID: 103031, Cost: 5058.99, TBYears: 252.95},
+			{Name: "atlas001", ID: 10761, Cost: 4969.18, TBYears: 248.46},
+		},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+
+	if m.statsPaneFocus != statsFocusDetail {
+		t.Fatalf("expected detail pane to stay focused")
+	}
+	if m.statsDetailSelected == 0 {
+		t.Fatalf("expected down in detail pane to move selected detail row")
+	}
+}
+
+func TestNamespaceStatsViewShowsMoreInspectorUsersWhenHeightAllows(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 140
+	m.height = 32
+	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
+	m.statsSectionSelected = 5
+	m.inspectorLoading = false
+	m.splash.active = false
+	m.inspectorStats = eos.InspectorStats{
+		TopUserCost: eos.InspectorCostRecord{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+		UserCosts: []eos.InspectorCostRecord{
+			{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+			{Name: "cmst0", ID: 103031, Cost: 5058.99, TBYears: 252.95},
+			{Name: "atlas001", ID: 10761, Cost: 4969.18, TBYears: 248.46},
+			{Name: "esindril", ID: 58602, Cost: 2695.80, TBYears: 134.79},
+			{Name: "dteam001", ID: 18118, Cost: 817.79, TBYears: 40.89},
+			{Name: "apeters", ID: 100755, Cost: 778.97, TBYears: 38.95},
+			{Name: "99", ID: 99, Cost: 448.08, TBYears: 22.40},
+			{Name: "rucioeosc", ID: 187628, Cost: 385.21, TBYears: 19.26},
+			{Name: "lobisapa", ID: 133153, Cost: 352.06, TBYears: 17.60},
+			{Name: "alokhovi", ID: 14215, Cost: 321.55, TBYears: 16.08},
+		},
+	}
+
+	view := m.View()
+	for _, needle := range []string{"Inspector Users", "lobisapa", "133153"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected namespace stats user detail to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestNamespaceStatsViewFilterCanTargetInspectorUsers(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.width = 140
+	m.height = 32
+	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
+	m.statsSectionSelected = 5
+	m.inspectorLoading = false
+	m.splash.active = false
+	m.inspectorStats = eos.InspectorStats{
+		TopUserCost: eos.InspectorCostRecord{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+		UserCosts: []eos.InspectorCostRecord{
+			{Name: "eos", ID: 74693, Cost: 44647.46, TBYears: 2232.37},
+			{Name: "rucioeosc", ID: 187628, Cost: 385.21, TBYears: 19.26},
+			{Name: "lobisapa", ID: 133153, Cost: 352.06, TBYears: 17.60},
+		},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(model)
+	if !m.popup.active || m.popup.view != viewNamespaceStats {
+		t.Fatalf("expected stats filter popup to open")
+	}
+
+	m.popup.input.SetValue("lobisapa")
+	m.applyPopupSelection()
+
+	if got := m.statsFilter.filters[statsFilterQueryColumn]; got != "lobisapa" {
+		t.Fatalf("expected stats filter to be applied, got %q", got)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "lobisapa") {
+		t.Fatalf("expected filtered stats detail to show lobisapa, got:\n%s", view)
+	}
+	if strings.Contains(view, "rucioeosc") {
+		t.Fatalf("expected filtered stats detail to exclude rucioeosc, got:\n%s", view)
+	}
+}
+
+func TestNamespaceStatsPaneWidthsPreferDetailPane(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	sections := []statsSection{
+		{title: "Cluster Summary", summary: "WARN • 23491758 files • 381015 dirs"},
+		{title: "Inspector Layouts", summary: "00100112 replica 709.2 TiB", lines: []string{
+			"Top Layout 00100112 Type replica",
+			"Volume 709.2 TiB Physical 1.4 PiB",
+			"layout      type      volume      physical      locations",
+		}},
+	}
+	m.statsSectionSelected = 1
+
+	listWidth, detailWidth := m.statsPaneWidths(160, sections)
+	if !(listWidth < detailWidth) {
+		t.Fatalf("expected stats pane widths to leave more room for details, got list=%d detail=%d", listWidth, detailWidth)
+	}
+	if listWidth != m.statsListNaturalWidth(sections) {
+		t.Fatalf("expected list width to match natural list width %d, got %d", m.statsListNaturalWidth(sections), listWidth)
 	}
 }
 
@@ -1390,6 +1638,7 @@ func TestNamespaceStatsViewCanRenderNamespaceStatsBeforeClusterSummaryArrives(t 
 	m.width = 120
 	m.height = 30
 	m.activeView = viewNamespaceStats
+	m.commandLog.active = false
 	m.nsStatsLoading = false
 	m.fstStatsLoading = true
 	m.namespaceStats = eos.NamespaceStats{
@@ -1403,7 +1652,7 @@ func TestNamespaceStatsViewCanRenderNamespaceStatsBeforeClusterSummaryArrives(t 
 	if !strings.Contains(view, "Loading cluster summary...") {
 		t.Fatalf("expected general stats view to keep a cluster-summary loading section, got:\n%s", view)
 	}
-	for _, needle := range []string{"Namespace Statistics", "mgm01:1094", "78", "19"} {
+	for _, needle := range []string{"Namespace Overview", "mgm01:1094", "78"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected general stats view to still show namespace data %q, got:\n%s", needle, view)
 		}
@@ -1473,6 +1722,9 @@ func TestSpacesAndNsStatsAreInInitialLoadBatch(t *testing.T) {
 	}
 	if !m.nsStatsLoading {
 		t.Error("expected nsStatsLoading=true at startup (infra batch fetches ns stats)")
+	}
+	if !m.inspectorLoading {
+		t.Error("expected inspectorLoading=true at startup (infra batch fetches inspector)")
 	}
 }
 
@@ -2299,6 +2551,7 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		viewGroups,
 		viewMGM,
 		viewQDB,
+		viewVID,
 		viewNamespaceStats,
 	}
 
@@ -2845,7 +3098,7 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 }
 
 func TestLogHotkeyIsNoOpOnViewsWithoutHost(t *testing.T) {
-	noHostViews := []viewID{viewNamespace, viewNamespaceStats, viewSpaces, viewIOShaping, viewGroups}
+	noHostViews := []viewID{viewNamespace, viewNamespaceStats, viewSpaces, viewIOShaping, viewGroups, viewVID}
 	for _, v := range noHostViews {
 		m := NewModel(nil, "local eos cli", "/").(model)
 		m.activeView = v
@@ -2878,11 +3131,11 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	m.width = 120
 	m.height = 30
 
-	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups} {
+	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups, viewVID} {
 		m.activeView = v
 		footer := m.renderFooter()
-		if !strings.Contains(footer, "tab/1-9") {
-			t.Errorf("view %d: expected footer to show tab/1-9, got: %s", v, footer)
+		if !strings.Contains(footer, "tab/0-9") {
+			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
 		}
 		if strings.Contains(footer, "tab/1-0") {
 			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
@@ -2953,7 +3206,7 @@ func TestApollonDrainHotkeyOpensConfirmation(t *testing.T) {
 	if m.apollon.instance != "eospilot" {
 		t.Fatalf("expected instance to come from original ssh target, got %q", m.apollon.instance)
 	}
-	want := "ssh root@eosops.cern.ch /root/repair/apollon/apollon-cli drain --fsid 7 --instance eospilot"
+	want := "ssh -o LogLevel=ERROR root@eosops.cern.ch /root/repair/apollon/apollon-cli drain --fsid 7 --instance eospilot"
 	if m.apollon.command != want {
 		t.Fatalf("unexpected Apollon command: got %q want %q", m.apollon.command, want)
 	}
@@ -3781,7 +4034,7 @@ func TestLongEndpointDoesNotClipStatsRightBorder(t *testing.T) {
 	view := m.View()
 	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "General Statistics") || strings.Contains(line, "Cluster Summary") || strings.Contains(line, "Namespace Statistics") {
+		if strings.Contains(line, "General Statistics") || strings.Contains(line, "Cluster Summary") || strings.Contains(line, "Namespace Statistics") || strings.Contains(line, "Inspector") {
 			trimmed := strings.TrimRight(line, " ")
 			if !strings.HasSuffix(trimmed, "│") {
 				t.Fatalf("expected stats content line to keep right border, got %q\nfull view:\n%s", trimmed, view)

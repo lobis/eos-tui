@@ -46,6 +46,7 @@ func loadInfraCmd(c *eos.Client) tea.Cmd {
 		loadEOSVersionCmd(c),
 		loadSpacesCmd(c),
 		loadNamespaceStatsCmd(c),
+		loadInspectorCmd(c),
 	)
 }
 
@@ -98,10 +99,24 @@ func loadGroupsCmd(client *eos.Client) tea.Cmd {
 	}
 }
 
+func loadVIDCmd(client *eos.Client, mode vidListMode) tea.Cmd {
+	return func() tea.Msg {
+		records, err := client.VIDList(context.Background(), mode.flag())
+		return vidLoadedMsg{mode: mode, records: records, err: err}
+	}
+}
+
 func loadNamespaceStatsCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		stats, err := client.NamespaceStats(context.Background())
 		return namespaceStatsLoadedMsg{stats: stats, err: err}
+	}
+}
+
+func loadInspectorCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		stats, err := client.Inspector(context.Background())
+		return inspectorLoadedMsg{stats: stats, err: err}
 	}
 }
 

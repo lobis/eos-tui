@@ -16,6 +16,8 @@ REMOTE_BIN ?= $(REMOTE_DIR)/$(APP_NAME)
 REMOTE_TMP ?= $(REMOTE_BIN).new
 REMOTE_ARGS ?=
 EOSPILOT ?=
+SSH_OPTS ?= -o LogLevel=ERROR
+SCP_OPTS ?= -o LogLevel=ERROR
 
 .PHONY: build build-local test deploy-remote deploy-both deploy-remote-eospilot deploy-eospilot run-remote dev-remote smoke-remote clean help
 
@@ -44,30 +46,30 @@ fmt:
 	$(GO) fmt ./...
 
 deploy-remote: build
-	ssh $(REMOTE_HOST) 'mkdir -p $(REMOTE_DIR)'
-	scp $(LINUX_BIN) $(REMOTE_HOST):$(REMOTE_TMP)
-	ssh $(REMOTE_HOST) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
+	ssh $(SSH_OPTS) $(REMOTE_HOST) 'mkdir -p $(REMOTE_DIR)'
+	scp $(SCP_OPTS) $(LINUX_BIN) $(REMOTE_HOST):$(REMOTE_TMP)
+	ssh $(SSH_OPTS) $(REMOTE_HOST) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
 
 deploy-both: build
-	ssh $(REMOTE_HOST) 'mkdir -p $(REMOTE_DIR)'
-	scp $(LINUX_BIN) $(REMOTE_HOST):$(REMOTE_TMP)
-	ssh $(REMOTE_HOST) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
-	ssh $(REMOTE_HOST_SECONDARY) 'mkdir -p $(REMOTE_DIR)'
-	scp $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)
-	ssh $(REMOTE_HOST_SECONDARY) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
+	ssh $(SSH_OPTS) $(REMOTE_HOST) 'mkdir -p $(REMOTE_DIR)'
+	scp $(SCP_OPTS) $(LINUX_BIN) $(REMOTE_HOST):$(REMOTE_TMP)
+	ssh $(SSH_OPTS) $(REMOTE_HOST) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
+	ssh $(SSH_OPTS) $(REMOTE_HOST_SECONDARY) 'mkdir -p $(REMOTE_DIR)'
+	scp $(SCP_OPTS) $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)
+	ssh $(SSH_OPTS) $(REMOTE_HOST_SECONDARY) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
 
 deploy-eospilot: build
-	ssh $(REMOTE_HOST_SECONDARY) 'mkdir -p $(REMOTE_DIR)'
-	scp $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)
-	ssh $(REMOTE_HOST_SECONDARY) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
+	ssh $(SSH_OPTS) $(REMOTE_HOST_SECONDARY) 'mkdir -p $(REMOTE_DIR)'
+	scp $(SCP_OPTS) $(LINUX_BIN) $(REMOTE_HOST_SECONDARY):$(REMOTE_TMP)
+	ssh $(SSH_OPTS) $(REMOTE_HOST_SECONDARY) 'install -m 0755 $(REMOTE_TMP) $(REMOTE_BIN) && rm -f $(REMOTE_TMP)'
 
 run-remote:
-	ssh -tt $(REMOTE_HOST) 'TERM=$${TERM:-xterm-256color} $(REMOTE_BIN) $(REMOTE_ARGS)'
+	ssh $(SSH_OPTS) -tt $(REMOTE_HOST) 'TERM=$${TERM:-xterm-256color} $(REMOTE_BIN) $(REMOTE_ARGS)'
 
 dev-remote: deploy-remote run-remote
 
 smoke-remote: deploy-remote
-	ssh -tt $(REMOTE_HOST) 'TERM=$${TERM:-xterm-256color} timeout 3 $(REMOTE_BIN) $(REMOTE_ARGS)' || test $$? -eq 124
+	ssh $(SSH_OPTS) -tt $(REMOTE_HOST) 'TERM=$${TERM:-xterm-256color} timeout 3 $(REMOTE_BIN) $(REMOTE_ARGS)' || test $$? -eq 124
 
 clean:
 	rm -rf $(BIN_DIR)

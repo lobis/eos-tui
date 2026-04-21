@@ -56,10 +56,12 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		fileSystemsLoading: true,
 		spacesLoading:      true,
 		nsStatsLoading:     true,
+		inspectorLoading:   true,
 		nsLoading:          activeView == viewNamespace,
 		spaceStatusLoading: false,
 		groupsLoading:      activeView == viewGroups,
 		ioShapingLoading:   activeView == viewIOShaping,
+		vidLoading:         activeView == viewVID,
 		directory: eos.Directory{
 			Path: cleanPath(initialPath),
 		},
@@ -76,6 +78,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		nsFilter:             filterState{filters: map[int]string{}},
 		spaceFilter:          filterState{filters: map[int]string{}},
 		groupFilter:          filterState{filters: map[int]string{}},
+		statsFilter:          filterState{filters: map[int]string{}},
 		popup: filterPopup{
 			input: input,
 			table: popupTable,
@@ -100,6 +103,8 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, loadGroupsCmd(m.client))
 	case viewIOShaping:
 		cmds = append(cmds, loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client), ioShapingTickCmd(), ioShapingPolicyTickCmd())
+	case viewVID:
+		cmds = append(cmds, loadVIDCmd(m.client, m.vidMode))
 	}
 	if m.commandLog.active {
 		cmds = append(cmds, loadCommandHistoryCmd(m.client), commandLogTickCmd())
@@ -206,6 +211,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
 					m.status = "Group filters cleared"
 				}
+			case viewNamespaceStats:
+				if len(m.statsFilter.filters) > 0 {
+					m.statsFilter.filters = map[int]string{}
+					m.statsDetailSelected = 0
+					m.statsDetailOffsetX = 0
+					m.statsDetailOffsetY = 0
+					m.status = "Stats detail filter cleared"
+				} else if m.statsPaneFocus == statsFocusDetail || m.statsDetailOffsetX > 0 || m.statsDetailOffsetY > 0 {
+					m.statsPaneFocus = statsFocusList
+					m.statsDetailSelected = 0
+					m.statsDetailOffsetX = 0
+					m.statsDetailOffsetY = 0
+					m.status = "Returned to stats section list"
+				}
 			}
 			return m, nil
 		case "tab":
@@ -214,7 +233,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			m.activeView = nextOrderedView(m.activeView, -1)
 			return m.onViewChanged()
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			m.activeView, _ = viewForHotkey(msg.String())
 			return m.onViewChanged()
 		case "r":
@@ -247,7 +266,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateSpacesKeys(msg)
 		case viewNamespaceStats:
-			// read-only
+			return m.updateNamespaceStatsKeys(msg)
 		case viewSpaceStatus:
 			if msg.String() == "enter" {
 				return m.startSpaceStatusEdit()
@@ -257,6 +276,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateIOShapingKeys(msg)
 		case viewGroups:
 			return m.updateGroupKeys(msg)
+		case viewVID:
+			return m.updateVIDKeys(msg)
 		}
 	case mgmsLoadedMsg:
 		m.mgmsLoading = false
@@ -364,6 +385,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
+	case vidLoadedMsg:
+		if msg.mode != m.vidMode {
+			return m, nil
+		}
+		m.vidLoading = false
+		m.vidErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("VID refresh failed: %v", msg.err)
+		} else {
+			m.vidRecords = msg.records
+			m.vidSelected = clampIndex(m.vidSelected, len(m.vidRecords))
+			m.status = fmt.Sprintf("Loaded VID mappings via eos vid ls %s", strings.TrimSpace(msg.mode.flag()))
+		}
 	case namespaceStatsLoadedMsg:
 		m.nsStatsLoading = false
 		m.nsStatsErr = msg.err
@@ -371,6 +405,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Namespace stats refresh failed: %v", msg.err)
 		} else {
 			m.namespaceStats = msg.stats
+			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
+	case inspectorLoadedMsg:
+		m.inspectorLoading = false
+		m.inspectorErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Inspector refresh failed: %v", msg.err)
+		} else {
+			m.inspectorStats = msg.stats
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case directoryLoadedMsg:
@@ -670,6 +713,8 @@ func (m model) startupLoading() bool {
 		return len(m.ioShapingMergedRows()) == 0 && m.ioShapingLoading
 	case viewGroups:
 		return len(m.groups) == 0 && m.groupsLoading
+	case viewVID:
+		return len(m.vidRecords) == 0 && m.vidLoading
 	default:
 		return false
 	}
@@ -715,12 +760,24 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			return m, loadGroupsCmd(m.client)
 		}
 		return m, nil
+	case viewVID:
+		if !m.vidLoading && len(m.vidRecords) == 0 && m.vidErr == nil {
+			m.vidLoading = true
+			m.vidErr = nil
+			return m, loadVIDCmd(m.client, m.vidMode)
+		}
+		return m, nil
 	case viewNamespaceStats:
 		cmds := make([]tea.Cmd, 0, 2)
 		if !m.nsStatsLoading && m.namespaceStats == (eos.NamespaceStats{}) && m.nsStatsErr == nil {
 			m.nsStatsLoading = true
 			m.nsStatsErr = nil
 			cmds = append(cmds, loadNamespaceStatsCmd(m.client))
+		}
+		if !m.inspectorLoading && !hasInspectorStatsData(m.inspectorStats) && m.inspectorErr == nil {
+			m.inspectorLoading = true
+			m.inspectorErr = nil
+			cmds = append(cmds, loadInspectorCmd(m.client))
 		}
 		if !m.fstStatsLoading && m.nodeStats == (eos.NodeStats{}) && m.nodeStatsErr == nil {
 			m.fstStatsLoading = true
@@ -769,10 +826,12 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 	case viewNamespaceStats:
 		m.nsStatsLoading = true
 		m.fstStatsLoading = true
+		m.inspectorLoading = true
 		m.nsStatsErr = nil
 		m.nodeStatsErr = nil
+		m.inspectorErr = nil
 		m.status = "Refreshing general stats..."
-		return m, tea.Batch(loadNamespaceStatsCmd(m.client), loadNodeStatsCmd(m.client))
+		return m, tea.Batch(loadNamespaceStatsCmd(m.client), loadNodeStatsCmd(m.client), loadInspectorCmd(m.client))
 	case viewSpaceStatus:
 		m.spaceStatusLoading = true
 		m.spaceStatusErr = nil
@@ -783,6 +842,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.ioShapingErr = nil
 		m.status = "Refreshing IO shaping..."
 		return m, tea.Batch(loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client))
+	case viewVID:
+		m.vidLoading = true
+		m.vidErr = nil
+		m.status = fmt.Sprintf("Refreshing VID scope %s...", m.vidMode.label())
+		return m, loadVIDCmd(m.client, m.vidMode)
 	default:
 		m.fstStatsLoading = true
 		m.fstsLoading = true
@@ -799,6 +863,24 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.status = "Refreshing..."
 		return m, loadInfraCmd(m.client)
 	}
+}
+
+func hasInspectorStatsData(stats eos.InspectorStats) bool {
+	return stats.AvgFileSize > 0 ||
+		stats.HardlinkCount > 0 ||
+		stats.HardlinkVolume > 0 ||
+		stats.SymlinkCount > 0 ||
+		stats.LayoutCount > 0 ||
+		stats.TopLayout.Layout != "" ||
+		stats.TopUserCost.Name != "" ||
+		stats.TopGroupCost.Name != "" ||
+		len(stats.Layouts) > 0 ||
+		len(stats.UserCosts) > 0 ||
+		len(stats.GroupCosts) > 0 ||
+		len(stats.AccessFiles) > 0 ||
+		len(stats.AccessVolume) > 0 ||
+		len(stats.BirthFiles) > 0 ||
+		len(stats.BirthVolume) > 0
 }
 
 func (m model) maybeLoadNamespace() (tea.Model, tea.Cmd) {

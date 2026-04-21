@@ -165,6 +165,49 @@ type SpaceStatusRecord struct {
 	Value string
 }
 
+type VIDRecord struct {
+	Key   string
+	Value string
+}
+
+type InspectorLayoutSummary struct {
+	Layout        string
+	Type          string
+	VolumeBytes   uint64
+	PhysicalBytes uint64
+	Locations     uint64
+}
+
+type InspectorCostRecord struct {
+	Name    string
+	ID      uint64
+	Cost    float64
+	TBYears float64
+}
+
+type InspectorBin struct {
+	BinSeconds uint64
+	Value      uint64
+}
+
+type InspectorStats struct {
+	AvgFileSize    uint64
+	HardlinkCount  uint64
+	HardlinkVolume uint64
+	SymlinkCount   uint64
+	LayoutCount    uint64
+	TopLayout      InspectorLayoutSummary
+	TopUserCost    InspectorCostRecord
+	TopGroupCost   InspectorCostRecord
+	Layouts        []InspectorLayoutSummary
+	UserCosts      []InspectorCostRecord
+	GroupCosts     []InspectorCostRecord
+	AccessFiles    []InspectorBin
+	AccessVolume   []InspectorBin
+	BirthFiles     []InspectorBin
+	BirthVolume    []InspectorBin
+}
+
 type NamespaceStats struct {
 	MasterHost              string
 	TotalFiles              uint64

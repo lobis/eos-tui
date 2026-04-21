@@ -8,7 +8,7 @@ import (
 )
 
 func (c *Client) sshOptions(batchMode bool) []string {
-	options := []string{}
+	options := []string{"-o", "LogLevel=ERROR"}
 	if batchMode {
 		options = append(options, "-o", "BatchMode=yes")
 	} else {

@@ -815,6 +815,14 @@ func TestAttrSetArgs(t *testing.T) {
 	}
 }
 
+func TestRTLogCommand(t *testing.T) {
+	got := shellDisplayJoin([]string{"eos", "rtlog", "/eos/fst01.cern.ch:1095/fst", "600", "info"})
+	want := "eos rtlog /eos/fst01.cern.ch:1095/fst 600 info"
+	if got != want {
+		t.Fatalf("shellDisplayJoin() = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeClusterInstance(t *testing.T) {
 	tests := []struct {
 		input string

@@ -952,6 +952,8 @@ func (m model) activeFilterColumnLabel() string {
 	switch m.activeView {
 	case viewFileSystems:
 		return m.fsFilterColumnLabel()
+	case viewNamespaceStats:
+		return m.statsFilterColumnLabel(m.statsDetailColumnSelected)
 	case viewNamespace:
 		return "entry"
 	case viewSpaces:
@@ -970,6 +972,9 @@ func (m *model) openFilterPopup() {
 	if m.activeView == viewFileSystems {
 		m.popup.column = m.fsColumnSelected
 		m.popup.input.SetValue(m.fsFilter.filters[m.fsColumnSelected])
+	} else if m.activeView == viewNamespaceStats {
+		m.popup.column = m.statsDetailColumnSelected
+		m.popup.input.SetValue(m.statsFilter.filters[m.statsDetailColumnSelected])
 	} else if m.activeView == viewNamespace {
 		m.popup.column = namespaceFilterQueryColumn
 		m.popup.input.SetValue(m.nsFilter.filters[namespaceFilterQueryColumn])
@@ -1062,6 +1067,17 @@ func (m *model) applyPopupSelection() {
 		}
 		m.groupsSelected = clampIndex(0, len(m.visibleGroups()))
 		m.closeFilterPopup(fmt.Sprintf("Group filters active: %d", len(m.groupFilter.filters)))
+	case viewNamespaceStats:
+		m.statsFilter.column = m.popup.column
+		if value == "" {
+			delete(m.statsFilter.filters, m.popup.column)
+		} else {
+			m.statsFilter.filters[m.popup.column] = value
+		}
+		m.statsPaneFocus = statsFocusDetail
+		m.statsDetailSelected = 0
+		m.statsDetailOffsetX = 0
+		m.closeFilterPopup(fmt.Sprintf("Stats detail filters active: %d", len(m.statsFilter.filters)))
 	default:
 		m.fstFilter.column = m.popup.column
 		if value == "" {
@@ -1145,6 +1161,13 @@ func (m model) popupValues() []string {
 				continue
 			}
 			value := m.groupFilterValueForColumn(g, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	case viewNamespaceStats:
+		for _, value := range m.statsPopupValues() {
 			if !seen[value] {
 				seen[value] = true
 				values = append(values, value)

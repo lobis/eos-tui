@@ -209,6 +209,112 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateNamespaceStatsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	sections := m.statsSections()
+	half := max(1, m.height/6)
+	prevSelected := m.statsSectionSelected
+	hasTable := m.statsCurrentSectionHasTable(sections)
+	maxDetailSelected := max(0, m.statsDetailLineCount(sections)-1)
+	switch msg.String() {
+	case "/":
+		if m.statsPaneFocus == statsFocusDetail && hasTable {
+			m.openFilterPopup()
+			return m, nil
+		}
+		m.status = "No table column selected for filtering"
+	case "c":
+		if m.statsPaneFocus == statsFocusDetail && hasTable {
+			delete(m.statsFilter.filters, m.statsDetailColumnSelected)
+			m.statsFilter.column = m.statsDetailColumnSelected
+			m.statsDetailSelected = 0
+			m.statsDetailOffsetX = 0
+			m.status = fmt.Sprintf("Cleared stats filter on %s", m.statsFilterColumnLabel(m.statsDetailColumnSelected))
+		} else if len(m.statsFilter.filters) > 0 {
+			m.statsFilter.filters = map[int]string{}
+			m.statsDetailSelected = 0
+			m.statsDetailOffsetX = 0
+			m.status = "Stats detail filters cleared"
+		}
+	case "left", "h":
+		if m.statsPaneFocus == statsFocusDetail && hasTable {
+			if m.statsDetailColumnSelected > 0 {
+				m.statsDetailColumnSelected--
+				m.status = fmt.Sprintf("Selected stats column: %s", m.statsFilterColumnLabel(m.statsDetailColumnSelected))
+			} else {
+				m.statsPaneFocus = statsFocusList
+				m.status = "Focused stats section list"
+			}
+		}
+	case "right", "l":
+		if m.statsPaneFocus == statsFocusList {
+			if hasTable {
+				m.statsPaneFocus = statsFocusDetail
+				m.statsDetailSelected = min(m.statsDetailSelected, maxDetailSelected)
+				m.statsDetailColumnSelected = min(m.statsDetailColumnSelected, len(sections[m.statsSectionSelected].table.columns)-1)
+				m.status = fmt.Sprintf("Focused stats details (%s)", m.statsFilterColumnLabel(m.statsDetailColumnSelected))
+			}
+		} else if hasTable && m.statsDetailColumnSelected < len(sections[m.statsSectionSelected].table.columns)-1 {
+			m.statsDetailColumnSelected++
+			m.status = fmt.Sprintf("Selected stats column: %s", m.statsFilterColumnLabel(m.statsDetailColumnSelected))
+		}
+	case "up", "k":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = max(0, m.statsDetailSelected-1)
+		} else {
+			m.statsSectionSelected = max(0, m.statsSectionSelected-1)
+		}
+	case "down", "j":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = min(maxDetailSelected, m.statsDetailSelected+1)
+		} else {
+			m.statsSectionSelected = min(len(sections)-1, m.statsSectionSelected+1)
+		}
+	case "ctrl+u":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = max(0, m.statsDetailSelected-half)
+		} else {
+			m.statsSectionSelected = max(0, m.statsSectionSelected-half)
+		}
+	case "ctrl+d":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = min(maxDetailSelected, m.statsDetailSelected+half)
+		} else {
+			m.statsSectionSelected = min(len(sections)-1, m.statsSectionSelected+half)
+		}
+	case "g":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = 0
+		} else {
+			m.statsSectionSelected = 0
+		}
+	case "G":
+		if m.statsPaneFocus == statsFocusDetail {
+			m.statsDetailSelected = maxDetailSelected
+		} else {
+			m.statsSectionSelected = max(0, len(sections)-1)
+		}
+	}
+	m.statsSectionSelected = clampIndex(m.statsSectionSelected, len(sections))
+	if m.statsSectionSelected != prevSelected {
+		m.statsPaneFocus = statsFocusList
+		m.statsDetailSelected = 0
+		m.statsDetailColumnSelected = 0
+		m.statsDetailOffsetX = 0
+		m.statsFilter.filters = map[int]string{}
+	}
+	if hasTable && len(sections) > 0 && sections[m.statsSectionSelected].table != nil {
+		m.statsDetailColumnSelected = min(max(0, m.statsDetailColumnSelected), len(sections[m.statsSectionSelected].table.columns)-1)
+	} else {
+		m.statsPaneFocus = statsFocusList
+		m.statsDetailColumnSelected = 0
+	}
+	m.statsDetailSelected = min(max(0, m.statsDetailSelected), max(0, m.statsDetailLineCount(sections)-1))
+	if len(sections) > 0 {
+		m.statsDetailOffsetX = m.statsAdjustedOffsetX(sections[m.statsSectionSelected], m.currentStatsDetailContentWidth(sections))
+	}
+	return m, nil
+}
+
 func (m model) startNamespaceAttrEdit() (tea.Model, tea.Cmd) {
 	targetPath := m.currentNamespaceAttrTargetPath()
 	if m.nsAttrsLoading && m.nsAttrsTargetPath == targetPath {
@@ -447,6 +553,45 @@ func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		m.openFilterPopup()
 	}
+	return m, nil
+}
+
+func (m model) updateVIDKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	records := m.vidRecords
+	half := max(1, m.height/6)
+	switch msg.String() {
+	case "left", "h":
+		m.vidMode = m.vidMode.next(-1)
+		m.vidSelected = 0
+		m.vidLoading = true
+		m.vidErr = nil
+		m.status = fmt.Sprintf("Loading VID scope %s...", m.vidMode.label())
+		return m, loadVIDCmd(m.client, m.vidMode)
+	case "right":
+		m.vidMode = m.vidMode.next(1)
+		m.vidSelected = 0
+		m.vidLoading = true
+		m.vidErr = nil
+		m.status = fmt.Sprintf("Loading VID scope %s...", m.vidMode.label())
+		return m, loadVIDCmd(m.client, m.vidMode)
+	case "up", "k":
+		if m.vidSelected > 0 {
+			m.vidSelected--
+		}
+	case "down", "j":
+		if m.vidSelected < len(records)-1 {
+			m.vidSelected++
+		}
+	case "ctrl+u":
+		m.vidSelected = max(0, m.vidSelected-half)
+	case "ctrl+d":
+		m.vidSelected = min(len(records)-1, m.vidSelected+half)
+	case "g":
+		m.vidSelected = 0
+	case "G":
+		m.vidSelected = max(0, len(records)-1)
+	}
+
 	return m, nil
 }
 

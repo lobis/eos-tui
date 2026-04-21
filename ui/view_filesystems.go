@@ -262,13 +262,15 @@ func apollonDrainRemoteArgs(fsID uint64, instance string) []string {
 
 func apollonDrainSSHArgs(fsID uint64, instance string) []string {
 	return []string{
+		"-o",
+		"LogLevel=ERROR",
 		apollonSSHTarget,
 		eos.ShellJoin(apollonDrainRemoteArgs(fsID, instance)),
 	}
 }
 
 func apollonDrainDisplayCommand(fsID uint64, instance string) string {
-	return "ssh " + apollonSSHTarget + " " + eos.ShellDisplayJoin(apollonDrainRemoteArgs(fsID, instance))
+	return "ssh -o LogLevel=ERROR " + apollonSSHTarget + " " + eos.ShellDisplayJoin(apollonDrainRemoteArgs(fsID, instance))
 }
 
 func apollonInstanceCandidatesFromEndpoint(endpoint string) []string {

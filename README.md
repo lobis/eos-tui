@@ -84,6 +84,7 @@ eos-tui
 - **Namespace browser** — browse the EOS namespace, inspect file metadata and layouts
 - **Space & group monitoring** — capacity, usage, quotas, health
 - **Real-time IO traffic** — live IO shaping by app, user, or group
+- **VID inspector** — browse live `eos vid ls` mappings and keep the mutation syntax handy
 - **Log viewer** — tail and grep logs from any node, with live updates
 - **Integrated shell** — open an interactive SSH shell to any selected node
 - **Apollon drain** — trigger drain workflows directly from the filesystem view

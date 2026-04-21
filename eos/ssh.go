@@ -49,6 +49,28 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 	return out, err
 }
 
+// RTLog queries EOS real-time logs through the CLI instead of tailing a
+// specific logfile path. The queue identifies either the MGM (".") or an FST
+// queue such as /eos/host:port/fst.
+func (c *Client) RTLog(ctx context.Context, queue string, seconds int, tag string) ([]byte, error) {
+	if queue == "" {
+		queue = "."
+	}
+	if seconds <= 0 {
+		seconds = 600
+	}
+	if tag == "" {
+		tag = "info"
+	}
+
+	args := []string{"eos", "rtlog", queue, fmt.Sprintf("%d", seconds), tag}
+	out, err := c.runCommand(args...)
+	if err != nil {
+		return nil, fmt.Errorf("eos rtlog %s %d %s: %w (output: %.300s)", queue, seconds, tag, err, out)
+	}
+	return out, nil
+}
+
 // TailLog returns the last n lines of a log file on the effective SSH target
 // (or locally when no SSH target is configured).
 func (c *Client) TailLog(ctx context.Context, filePath string, n int) ([]byte, error) {

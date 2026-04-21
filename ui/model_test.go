@@ -6701,48 +6701,77 @@ func TestLogKeysTTogglesAutoTailing(t *testing.T) {
 	}
 }
 
-func TestLogFileForViewQDB(t *testing.T) {
+func TestLogTargetForViewQDB(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewQDB
-	fp, title := m.logFileForView()
-	if fp != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
-		t.Fatalf("expected quarkdb log path, got %q", fp)
+	m.mgms = []eos.MgmRecord{{QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected qdb view to resolve a log target")
 	}
-	if title != "QDB Log" {
-		t.Fatalf("expected QDB Log title, got %q", title)
+	if target.filePath != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
+		t.Fatalf("expected quarkdb log path, got %q", target.filePath)
+	}
+	if target.source != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
+		t.Fatalf("expected qdb source label to stay on the logfile path, got %q", target.source)
+	}
+	if target.title != "QDB Log" {
+		t.Fatalf("expected QDB Log title, got %q", target.title)
 	}
 }
 
-func TestLogFileForViewFST(t *testing.T) {
+func TestLogTargetForViewFST(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewFST
-	fp, title := m.logFileForView()
-	if fp != "/var/log/eos/fst/xrdlog.fst" {
-		t.Fatalf("expected fst log path, got %q", fp)
+	m.fsts = []eos.FstRecord{{Host: "fst01.cern.ch", Port: 1095, Type: "fst", FileSystemCount: 1}}
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected fst view to resolve a log target")
 	}
-	if title != "FST Log" {
-		t.Fatalf("expected FST Log title, got %q", title)
+	if target.rtlogQueue != "/eos/fst01.cern.ch:1095/fst" {
+		t.Fatalf("unexpected fst rtlog queue %q", target.rtlogQueue)
+	}
+	if target.source != "eos rtlog /eos/fst01.cern.ch:1095/fst 600 info" {
+		t.Fatalf("unexpected fst source label %q", target.source)
+	}
+	if target.title != "FST Log" {
+		t.Fatalf("expected FST Log title, got %q", target.title)
 	}
 }
 
-func TestLogFileForViewFileSystems(t *testing.T) {
+func TestLogTargetForViewFileSystems(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewFileSystems
-	fp, _ := m.logFileForView()
-	if fp != "/var/log/eos/fst/xrdlog.fst" {
-		t.Fatalf("expected fst log path for FS view, got %q", fp)
+	m.fileSystems = []eos.FileSystemRecord{{Host: "fst02.cern.ch", Port: 1096}}
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected filesystem view to resolve a log target")
+	}
+	if target.rtlogQueue != "/eos/fst02.cern.ch:1096/fst" {
+		t.Fatalf("unexpected filesystem rtlog queue %q", target.rtlogQueue)
 	}
 }
 
-func TestLogFileForViewMGM(t *testing.T) {
+func TestLogTargetForViewMGM(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewMGM
-	fp, title := m.logFileForView()
-	if fp != "/var/log/eos/mgm/xrdlog.mgm" {
-		t.Fatalf("expected mgm log path, got %q", fp)
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094}}
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected mgm view to resolve a log target")
 	}
-	if title != "MGM Log" {
-		t.Fatalf("expected MGM Log title, got %q", title)
+	if target.rtlogQueue != "." {
+		t.Fatalf("expected mgm rtlog queue '.', got %q", target.rtlogQueue)
+	}
+	if target.source != "eos rtlog . 600 info" {
+		t.Fatalf("unexpected mgm source label %q", target.source)
+	}
+	if target.title != "MGM Log" {
+		t.Fatalf("expected MGM Log title, got %q", target.title)
 	}
 }
 

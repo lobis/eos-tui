@@ -611,7 +611,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case logTickMsg:
 		if m.log.active && m.log.tailing {
-			return m, tea.Batch(loadLogCmd(m.client, m.log.host, m.log.filePath), logTickCmd())
+			return m, tea.Batch(loadLogCmd(m.client, logTarget{
+				title:      m.log.title,
+				source:     m.log.source,
+				host:       m.log.host,
+				filePath:   m.log.filePath,
+				rtlogQueue: m.log.rtlogQueue,
+				rtlogTag:   m.log.rtlogTag,
+				rtlogSecs:  m.log.rtlogSecs,
+			}), logTickCmd())
 		}
 	case commandHistoryLoadedMsg:
 		m.commandLog.loading = false

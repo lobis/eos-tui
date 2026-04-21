@@ -260,15 +260,23 @@ func ioShapingPolicyTickCmd() tea.Cmd {
 	})
 }
 
-func loadLogCmd(client *eos.Client, host, filePath string) tea.Cmd {
+func loadLogCmd(client *eos.Client, target logTarget) tea.Cmd {
 	return func() tea.Msg {
-		out, err := client.TailLogOnHost(context.Background(), host, filePath, 2000)
+		var (
+			out []byte
+			err error
+		)
+		if target.rtlogQueue != "" {
+			out, err = client.RTLog(context.Background(), target.rtlogQueue, target.rtlogSecs, target.rtlogTag)
+		} else {
+			out, err = client.TailLogOnHost(context.Background(), target.host, target.filePath, 2000)
+		}
 		if err != nil {
-			return logLoadedMsg{filePath: filePath, err: err}
+			return logLoadedMsg{filePath: target.source, err: err}
 		}
 		raw := strings.TrimRight(string(out), "\n")
 		lines := strings.Split(raw, "\n")
-		return logLoadedMsg{filePath: filePath, lines: lines}
+		return logLoadedMsg{filePath: target.source, lines: lines}
 	}
 }
 

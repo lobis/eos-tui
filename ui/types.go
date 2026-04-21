@@ -357,21 +357,25 @@ type filterPopup struct {
 }
 
 type logOverlay struct {
-	active    bool
-	plain     bool
-	tailing   bool
-	wrap      bool
-	host      string // specific host to read from (empty = effective target)
-	filePath  string
-	title     string
-	allLines  []string // raw lines from tail
-	filtered  []string // lines matching current filter
-	filter    string   // current grep string
-	filtering bool     // filter input is active
-	vp        viewport.Model
-	input     textinput.Model
-	err       error
-	loading   bool
+	active     bool
+	plain      bool
+	tailing    bool
+	wrap       bool
+	host       string // specific host to read from (empty = effective target)
+	filePath   string
+	source     string
+	rtlogQueue string
+	rtlogTag   string
+	rtlogSecs  int
+	title      string
+	allLines   []string // raw lines from tail
+	filtered   []string // lines matching current filter
+	filter     string   // current grep string
+	filtering  bool     // filter input is active
+	vp         viewport.Model
+	input      textinput.Model
+	err        error
+	loading    bool
 }
 
 type commandPanel struct {
@@ -385,6 +389,16 @@ type commandPanel struct {
 type startupSplash struct {
 	active bool
 	frame  int
+}
+
+type logTarget struct {
+	title      string
+	source     string
+	host       string
+	filePath   string
+	rtlogQueue string
+	rtlogTag   string
+	rtlogSecs  int
 }
 
 type filterState struct {

@@ -37,16 +37,73 @@ func (m model) selectedHostForView() string {
 	return ""
 }
 
-// logFileForView returns the log file path and a human-readable title for the
-// currently active view.
-func (m model) logFileForView() (filePath, title string) {
+func fstRTLogQueue(host string, port int) string {
+	return fmt.Sprintf("/eos/%s:%d/fst", host, port)
+}
+
+func rtlogSourceLabel(queue string, seconds int, tag string) string {
+	return fmt.Sprintf("eos rtlog %s %d %s", queue, seconds, tag)
+}
+
+func (m model) logTargetForView() (logTarget, bool) {
+	const rtlogSeconds = 600
+	const rtlogTag = "info"
+
 	switch m.activeView {
 	case viewQDB:
-		return "/var/log/eos/quarkdb/xrdlog.quarkdb", "QDB Log"
+		host := m.selectedHostForView()
+		if host == "" {
+			return logTarget{}, false
+		}
+		return logTarget{
+			title:    "QDB Log",
+			source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
+			host:     host,
+			filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+		}, true
 	case viewFST, viewFileSystems:
-		return "/var/log/eos/fst/xrdlog.fst", "FST Log"
+		host := m.selectedHostForView()
+		if host == "" {
+			return logTarget{}, false
+		}
+		port := 0
+		if m.activeView == viewFST {
+			fsts := m.visibleFSTs()
+			if m.fstSelected < 0 || m.fstSelected >= len(fsts) {
+				return logTarget{}, false
+			}
+			port = fsts[m.fstSelected].Port
+		} else {
+			fss := m.visibleFileSystems()
+			if m.fsSelected < 0 || m.fsSelected >= len(fss) {
+				return logTarget{}, false
+			}
+			port = int(fss[m.fsSelected].Port)
+		}
+		queue := fstRTLogQueue(host, port)
+		return logTarget{
+			title:      "FST Log",
+			source:     rtlogSourceLabel(queue, rtlogSeconds, rtlogTag),
+			host:       host,
+			rtlogQueue: queue,
+			rtlogTag:   rtlogTag,
+			rtlogSecs:  rtlogSeconds,
+		}, true
+	case viewMGM:
+		host := m.selectedHostForView()
+		if host == "" {
+			return logTarget{}, false
+		}
+		return logTarget{
+			title:      "MGM Log",
+			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
+			host:       host,
+			rtlogQueue: ".",
+			rtlogTag:   rtlogTag,
+			rtlogSecs:  rtlogSeconds,
+		}, true
 	default:
-		return "/var/log/eos/mgm/xrdlog.mgm", "MGM Log"
+		return logTarget{}, false
 	}
 }
 
@@ -54,13 +111,11 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	if m.client == nil {
 		return m, nil
 	}
-	host := m.selectedHostForView()
-	if host == "" {
-		// Views without an associated host (namespace, spaces, stats, …) do not
-		// support log tailing — 'l' is a no-op there.
+	target, ok := m.logTargetForView()
+	if !ok {
+		// Views without a supported log target do not open the log overlay.
 		return m, nil
 	}
-	filePath, title := m.logFileForView()
 
 	logInput := textinput.New()
 	logInput.Prompt = "grep> "
@@ -69,22 +124,26 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	vp := viewport.New(m.contentWidth()-4, max(4, m.height-10))
 	vp.SetContent("Loading...")
 
-	titleWithHost := title
-	if host != "" {
-		titleWithHost = fmt.Sprintf("%s  [%s]", title, host)
+	titleWithHost := target.title
+	if target.host != "" {
+		titleWithHost = fmt.Sprintf("%s  [%s]", target.title, target.host)
 	}
 
 	m.log = logOverlay{
-		active:   true,
-		host:     host,
-		filePath: filePath,
-		title:    titleWithHost,
-		tailing:  true,
-		loading:  true,
-		vp:       vp,
-		input:    logInput,
+		active:     true,
+		host:       target.host,
+		filePath:   target.filePath,
+		source:     target.source,
+		rtlogQueue: target.rtlogQueue,
+		rtlogTag:   target.rtlogTag,
+		rtlogSecs:  target.rtlogSecs,
+		title:      titleWithHost,
+		tailing:    true,
+		loading:    true,
+		vp:         vp,
+		input:      logInput,
 	}
-	return m, tea.Batch(loadLogCmd(m.client, host, filePath), logTickCmd())
+	return m, tea.Batch(loadLogCmd(m.client, target), logTickCmd())
 }
 
 func (m model) logViewportWidth() int {
@@ -181,7 +240,7 @@ func (m model) renderLogOverlay(height int) string {
 		}
 	}
 	titleLine := m.styles.popupTitle.Render(m.log.title) +
-		m.styles.label.Render("  "+m.log.filePath) +
+		m.styles.label.Render("  "+fallback(m.log.source, m.log.filePath)) +
 		m.styles.value.Render(totalInfo+filterInfo)
 	// Ensure the title line never overflows the inner panel width — if it does,
 	// lipgloss v1 silently expands the panel box, shifting the right border off screen.

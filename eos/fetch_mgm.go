@@ -11,6 +11,71 @@ import (
 func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	_ = ctx
 
+	// Prefer the cached server-side namespace snapshot when it exposes the MGM/QDB
+	// topology we need. Fall back to redis-cli for older EOS deployments.
+	if output, err := c.runCommand("eos", "ns", "snapshot"); err == nil {
+		if mgms, ok := mgmsFromNSSnapshot(output); ok {
+			return mgms, nil
+		}
+	}
+
+	return c.mgmsFromRaftInfo()
+}
+
+// mgmPortFromNsStat fetches the MGM service port by reading master_id from
+// `eos ns stat`.  master_id is of the form "hostname:port" (e.g.
+// "eospilot-ns-02.cern.ch:1094"). Falls back to "1094" on any error.
+func mgmPortFromNsStat(c *Client) string {
+	const fallback = "1094"
+
+	out, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
+	if err != nil {
+		return fallback
+	}
+
+	var payload struct {
+		Result []struct {
+			Master string `json:"master_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stripEOSPreamble(out), &payload); err != nil || len(payload.Result) == 0 {
+		return fallback
+	}
+
+	masterID := payload.Result[0].Master // e.g. "eospilot-ns-02.cern.ch:1094"
+	if idx := strings.LastIndex(masterID, ":"); idx != -1 {
+		if port := masterID[idx+1:]; port != "" {
+			return port
+		}
+	}
+	return fallback
+}
+
+// mgmsFromSSHTarget constructs a minimal single-entry MGM list from the
+// current effective SSH target.  It is used as a fallback when redis-cli
+// raft-info is unavailable (e.g. QDB requires authentication).  The caller
+// is assumed to already be connected to an MGM node, so that node is treated
+// as the cluster leader.
+func (c *Client) mgmsFromSSHTarget() ([]MgmRecord, error) {
+	target := c.effectiveSSHTarget()
+	if target == "" {
+		return nil, fmt.Errorf("redis-cli raft-info requires authentication and no SSH target is configured")
+	}
+	// Strip optional "root@" prefix so splitHostPort works with a plain host[:port].
+	host := strings.TrimPrefix(target, "root@")
+	h, p := splitHostPort(host)
+	if p == 0 {
+		p = 1094
+	}
+	return []MgmRecord{{
+		Host:   h,
+		Port:   p,
+		Role:   "leader",
+		Status: "online",
+	}}, nil
+}
+
+func (c *Client) mgmsFromRaftInfo() ([]MgmRecord, error) {
 	// Run redis-cli raft-info directly via runCommand.
 	// The SSH target (if set) is always the MGM or an MGM leader node,
 	// so we do not need a separate SSH hop.
@@ -28,7 +93,6 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	}
 
 	info := parseRaftInfo(output)
-
 	if info.Leader == "" && len(info.Nodes) == 0 && info.Myself == "" {
 		return nil, fmt.Errorf("no MGM cluster info from raft-info")
 	}
@@ -97,7 +161,11 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 		})
 	}
 
-	// Sort: leader first, then alphabetically.
+	sortMGMRecords(mgms)
+	return mgms, nil
+}
+
+func sortMGMRecords(mgms []MgmRecord) {
 	sort.Slice(mgms, func(i, j int) bool {
 		if mgms[i].Role != mgms[j].Role {
 			return mgms[i].Role == "leader"
@@ -107,61 +175,67 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 		}
 		return mgms[i].Port < mgms[j].Port
 	})
-
-	return mgms, nil
 }
 
-// mgmPortFromNsStat fetches the MGM service port by reading master_id from
-// `eos ns stat`.  master_id is of the form "hostname:port" (e.g.
-// "eospilot-ns-02.cern.ch:1094"). Falls back to "1094" on any error.
-func mgmPortFromNsStat(c *Client) string {
-	const fallback = "1094"
-
-	out, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
-	if err != nil {
-		return fallback
+func mgmsFromNSSnapshot(output []byte) ([]MgmRecord, bool) {
+	values := parseMonitoringAssignments(output)
+	mgmLeader := values["ns.mgm.leader"]
+	qdbLeader := values["ns.qdb.leader"]
+	if mgmLeader == "" || qdbLeader == "" {
+		return nil, false
 	}
 
-	var payload struct {
-		Result []struct {
-			Master string `json:"master_id"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(stripEOSPreamble(out), &payload); err != nil || len(payload.Result) == 0 {
-		return fallback
-	}
+	mgmNodes := append([]string{mgmLeader}, splitCSVList(values["ns.mgm.followers"])...)
+	qdbNodes := append([]string{qdbLeader}, splitCSVList(values["ns.qdb.followers"])...)
 
-	masterID := payload.Result[0].Master // e.g. "eospilot-ns-02.cern.ch:1094"
-	if idx := strings.LastIndex(masterID, ":"); idx != -1 {
-		if port := masterID[idx+1:]; port != "" {
-			return port
+	qdbMap := make(map[string]string, len(qdbNodes))
+	for _, node := range qdbNodes {
+		if node == "" {
+			continue
 		}
+		qdbMap[hostOnly(node)] = node
 	}
-	return fallback
-}
 
-// mgmsFromSSHTarget constructs a minimal single-entry MGM list from the
-// current effective SSH target.  It is used as a fallback when redis-cli
-// raft-info is unavailable (e.g. QDB requires authentication).  The caller
-// is assumed to already be connected to an MGM node, so that node is treated
-// as the cluster leader.
-func (c *Client) mgmsFromSSHTarget() ([]MgmRecord, error) {
-	target := c.effectiveSSHTarget()
-	if target == "" {
-		return nil, fmt.Errorf("redis-cli raft-info requires authentication and no SSH target is configured")
+	seen := make(map[string]bool, len(mgmNodes))
+	mgms := make([]MgmRecord, 0, len(mgmNodes))
+	for _, node := range mgmNodes {
+		if node == "" {
+			continue
+		}
+		host := hostOnly(node)
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+
+		mgmHost, mgmPort := splitHostPort(node)
+		qdbNode, ok := qdbMap[host]
+		if !ok {
+			qdbNode = host + ":7777"
+		}
+		qdbHost, qdbPort := splitHostPort(qdbNode)
+
+		role := "follower"
+		if host == hostOnly(mgmLeader) {
+			role = "leader"
+		}
+
+		mgms = append(mgms, MgmRecord{
+			Host:    mgmHost,
+			Port:    mgmPort,
+			QDBHost: qdbHost,
+			QDBPort: qdbPort,
+			Role:    role,
+			Status:  "online",
+		})
 	}
-	// Strip optional "root@" prefix so splitHostPort works with a plain host[:port].
-	host := strings.TrimPrefix(target, "root@")
-	h, p := splitHostPort(host)
-	if p == 0 {
-		p = 1094
+
+	if len(mgms) == 0 {
+		return nil, false
 	}
-	return []MgmRecord{{
-		Host:   h,
-		Port:   p,
-		Role:   "leader",
-		Status: "online",
-	}}, nil
+
+	sortMGMRecords(mgms)
+	return mgms, true
 }
 
 // parseRaftInfo parses the output of `redis-cli -p 7777 raft-info`.

@@ -130,6 +130,43 @@ func parseLabeledValues(output string) map[string]string {
 	return values
 }
 
+func parseMonitoringAssignments(output []byte) map[string]string {
+	values := make(map[string]string)
+	for _, rawLine := range strings.Split(string(output), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "*") {
+			continue
+		}
+
+		for _, field := range strings.Fields(line) {
+			if !strings.Contains(field, "=") {
+				continue
+			}
+			parts := strings.SplitN(field, "=", 2)
+			if len(parts) != 2 || parts[0] == "" {
+				continue
+			}
+			values[parts[0]] = parts[1]
+		}
+	}
+	return values
+}
+
+func splitCSVList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func parseUint(raw string) uint64 {
 	fields := strings.Fields(raw)
 	if len(fields) == 0 {

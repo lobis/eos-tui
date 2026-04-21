@@ -669,6 +669,76 @@ func TestSessionCommandsKeepsLastNEntries(t *testing.T) {
 	}
 }
 
+func TestParseMonitoringAssignments(t *testing.T) {
+	input := []byte(`uid=all gid=all ns.mgm.local=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.role=leader
+uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-ip700.cern.ch:1094,eospilot-ns-01.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-02.cern.ch:7777
+uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777
+`)
+
+	values := parseMonitoringAssignments(input)
+	if got := values["ns.mgm.leader"]; got != "eospilot-ns-02.cern.ch:1094" {
+		t.Fatalf("ns.mgm.leader = %q, want %q", got, "eospilot-ns-02.cern.ch:1094")
+	}
+	if got := values["ns.qdb.followers"]; got != "eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777" {
+		t.Fatalf("ns.qdb.followers = %q", got)
+	}
+}
+
+func TestMGMsFromNSSnapshot(t *testing.T) {
+	input := []byte(`uid=all gid=all ns.mgm.local=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.role=leader
+uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-ip700.cern.ch:1094,eospilot-ns-01.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-02.cern.ch:7777
+uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777
+`)
+
+	mgms, ok := mgmsFromNSSnapshot(input)
+	if !ok {
+		t.Fatal("expected snapshot topology to be accepted")
+	}
+	if len(mgms) != 3 {
+		t.Fatalf("expected 3 MGM records, got %d", len(mgms))
+	}
+
+	if mgms[0].Host != "eospilot-ns-02.cern.ch" || mgms[0].Role != "leader" || mgms[0].Port != 1094 {
+		t.Fatalf("unexpected leader record: %+v", mgms[0])
+	}
+
+	wantFollowers := map[string]string{
+		"eospilot-ns-01.cern.ch":    "follower",
+		"eospilot-ns-ip700.cern.ch": "follower",
+	}
+	for _, mgm := range mgms[1:] {
+		role, ok := wantFollowers[mgm.Host]
+		if !ok {
+			t.Fatalf("unexpected follower host %q", mgm.Host)
+		}
+		if mgm.Role != role {
+			t.Fatalf("%s role = %q, want %q", mgm.Host, mgm.Role, role)
+		}
+		if mgm.Status != "online" {
+			t.Fatalf("%s status = %q, want online", mgm.Host, mgm.Status)
+		}
+		if mgm.QDBHost != mgm.Host || mgm.QDBPort != 7777 {
+			t.Fatalf("%s qdb mapping = %s:%d, want same host on 7777", mgm.Host, mgm.QDBHost, mgm.QDBPort)
+		}
+	}
+}
+
+func TestMGMsFromNSSnapshotRequiresQDBTopology(t *testing.T) {
+	input := []byte(`uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-01.cern.ch:1094
+`)
+
+	if mgms, ok := mgmsFromNSSnapshot(input); ok || len(mgms) != 0 {
+		t.Fatalf("expected incomplete snapshot topology to be rejected, got ok=%v records=%v", ok, mgms)
+	}
+}
+
 func TestNamespaceStatsParseWithPreamble(t *testing.T) {
 	raw := "* msg: ns booted\n" + `{
   "errormsg": "",

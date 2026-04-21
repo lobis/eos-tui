@@ -93,12 +93,23 @@ func ensureRootPrefix(target string) string {
 	return "root@" + target
 }
 
-// DiscoverMGMMaster runs `redis-cli raft-info` on the current SSH target,
-// identifies the QDB/MGM leader, and updates the client so that all subsequent
-// commands are routed directly to the leader host.
+// DiscoverMGMMaster prefers the cached `eos ns snapshot` topology on the
+// current SSH target and falls back to `redis-cli raft-info` when the newer
+// namespace output is not available yet. It identifies the MGM leader and
+// updates the client so that all subsequent commands are routed directly to it.
 // Returns the resolved hostname (e.g. "eospilot-ns-02.cern.ch").
 func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
 	_ = ctx
+
+	if output, err := c.runCommand("eos", "ns", "snapshot"); err == nil {
+		values := parseMonitoringAssignments(output)
+		if leader := values["ns.mgm.leader"]; leader != "" {
+			resolved := ensureRootPrefix(hostOnly(leader))
+			c.resolvedSSHTarget = resolved
+			return resolved, nil
+		}
+	}
+
 	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
 	if err != nil {
 		return "", fmt.Errorf("raft-info for master discovery: %w", err)

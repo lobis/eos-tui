@@ -678,19 +678,19 @@ type model struct {
 	vidErr      error
 	vidSelected int
 
-	namespaceStats       eos.NamespaceStats
-	nsStatsLoading       bool
-	nsStatsErr           error
-	inspectorStats       eos.InspectorStats
-	inspectorLoading     bool
-	inspectorErr         error
-	statsSectionSelected int
-	statsPaneFocus       statsPaneFocus
-	statsDetailSelected  int
+	namespaceStats            eos.NamespaceStats
+	nsStatsLoading            bool
+	nsStatsErr                error
+	inspectorStats            eos.InspectorStats
+	inspectorLoading          bool
+	inspectorErr              error
+	statsSectionSelected      int
+	statsPaneFocus            statsPaneFocus
+	statsDetailSelected       int
 	statsDetailColumnSelected int
-	statsDetailOffsetX   int
-	statsDetailOffsetY   int
-	statsFilter          filterState
+	statsDetailOffsetX        int
+	statsDetailOffsetY        int
+	statsFilter               filterState
 
 	directory  eos.Directory
 	nsLoaded   bool

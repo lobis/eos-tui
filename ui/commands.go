@@ -98,6 +98,13 @@ func loadGroupsCmd(client *eos.Client) tea.Cmd {
 	}
 }
 
+func loadVIDCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		records, err := client.VIDEntries(context.Background())
+		return vidLoadedMsg{records: records, err: err}
+	}
+}
+
 func loadNamespaceStatsCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		stats, err := client.NamespaceStats(context.Background())

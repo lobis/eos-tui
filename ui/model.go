@@ -60,6 +60,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		spaceStatusLoading: false,
 		groupsLoading:      activeView == viewGroups,
 		ioShapingLoading:   activeView == viewIOShaping,
+		vidLoading:         activeView == viewVID,
 		directory: eos.Directory{
 			Path: cleanPath(initialPath),
 		},
@@ -67,6 +68,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		fstColumnSelected:    int(fstFilterHost),
 		fsColumnSelected:     int(fsFilterHost),
 		groupsColumnSelected: int(groupFilterName),
+		vidColumnSelected:    int(vidFilterAuth),
 		fstSort:              sortState{column: int(fstSortNone)},
 		fsSort:               sortState{column: int(fsSortNone)},
 		spaceSort:            sortState{column: int(spaceSortNone)},
@@ -76,6 +78,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		nsFilter:             filterState{filters: map[int]string{}},
 		spaceFilter:          filterState{filters: map[int]string{}},
 		groupFilter:          filterState{filters: map[int]string{}},
+		vidFilter:            filterState{filters: map[int]string{}},
 		popup: filterPopup{
 			input: input,
 			table: popupTable,
@@ -100,6 +103,8 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, loadGroupsCmd(m.client))
 	case viewIOShaping:
 		cmds = append(cmds, loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client), ioShapingTickCmd(), ioShapingPolicyTickCmd())
+	case viewVID:
+		cmds = append(cmds, loadVIDCmd(m.client))
 	}
 	if m.commandLog.active {
 		cmds = append(cmds, loadCommandHistoryCmd(m.client), commandLogTickCmd())
@@ -206,6 +211,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
 					m.status = "Group filters cleared"
 				}
+			case viewVID:
+				if len(m.vidFilter.filters) > 0 {
+					m.vidFilter.filters = map[int]string{}
+					m.vidSelected = clampIndex(m.vidSelected, len(m.visibleVID()))
+					m.status = "VID filters cleared"
+				}
 			}
 			return m, nil
 		case "tab":
@@ -214,7 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			m.activeView = nextOrderedView(m.activeView, -1)
 			return m.onViewChanged()
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9", "0":
 			m.activeView, _ = viewForHotkey(msg.String())
 			return m.onViewChanged()
 		case "r":
@@ -257,6 +268,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateIOShapingKeys(msg)
 		case viewGroups:
 			return m.updateGroupKeys(msg)
+		case viewVID:
+			return m.updateVIDKeys(msg)
 		}
 	case mgmsLoadedMsg:
 		m.mgmsLoading = false
@@ -362,6 +375,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.groups = msg.groups
 			m.groupsSelected = clampIndex(m.groupsSelected, len(m.visibleGroups()))
+			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
+		}
+	case vidLoadedMsg:
+		m.vidLoading = false
+		m.vidErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("VID refresh failed: %v", msg.err)
+		} else {
+			m.vid = msg.records
+			m.vidSelected = clampIndex(m.vidSelected, len(m.visibleVID()))
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case namespaceStatsLoadedMsg:
@@ -678,6 +701,8 @@ func (m model) startupLoading() bool {
 		return len(m.ioShapingMergedRows()) == 0 && m.ioShapingLoading
 	case viewGroups:
 		return len(m.groups) == 0 && m.groupsLoading
+	case viewVID:
+		return len(m.vid) == 0 && m.vidLoading
 	default:
 		return false
 	}
@@ -721,6 +746,13 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			m.groupsLoading = true
 			m.groupsErr = nil
 			return m, loadGroupsCmd(m.client)
+		}
+		return m, nil
+	case viewVID:
+		if !m.vidLoading && len(m.vid) == 0 && m.vidErr == nil {
+			m.vidLoading = true
+			m.vidErr = nil
+			return m, loadVIDCmd(m.client)
 		}
 		return m, nil
 	case viewNamespaceStats:
@@ -774,6 +806,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.groupsErr = nil
 		m.status = "Refreshing groups..."
 		return m, loadGroupsCmd(m.client)
+	case viewVID:
+		m.vidLoading = true
+		m.vidErr = nil
+		m.status = "Refreshing VID mappings..."
+		return m, loadVIDCmd(m.client)
 	case viewNamespaceStats:
 		m.nsStatsLoading = true
 		m.fstStatsLoading = true

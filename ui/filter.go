@@ -958,6 +958,8 @@ func (m model) activeFilterColumnLabel() string {
 		return m.spaceFilterColumnLabel()
 	case viewGroups:
 		return m.groupFilterColumnLabel()
+	case viewVID:
+		return m.vidFilterColumnLabel()
 	default:
 		return m.fstFilterColumnLabel()
 	}
@@ -979,6 +981,9 @@ func (m *model) openFilterPopup() {
 	} else if m.activeView == viewGroups {
 		m.popup.column = m.groupsColumnSelected
 		m.popup.input.SetValue(m.groupFilter.filters[m.groupsColumnSelected])
+	} else if m.activeView == viewVID {
+		m.popup.column = m.vidColumnSelected
+		m.popup.input.SetValue(m.vidFilter.filters[m.vidColumnSelected])
 	} else {
 		m.popup.column = m.fstColumnSelected
 		m.popup.input.SetValue(m.fstFilter.filters[m.fstColumnSelected])
@@ -1062,6 +1067,15 @@ func (m *model) applyPopupSelection() {
 		}
 		m.groupsSelected = clampIndex(0, len(m.visibleGroups()))
 		m.closeFilterPopup(fmt.Sprintf("Group filters active: %d", len(m.groupFilter.filters)))
+	case viewVID:
+		m.vidFilter.column = m.popup.column
+		if value == "" {
+			delete(m.vidFilter.filters, m.popup.column)
+		} else {
+			m.vidFilter.filters[m.popup.column] = value
+		}
+		m.vidSelected = clampIndex(0, len(m.visibleVID()))
+		m.closeFilterPopup(fmt.Sprintf("VID filters active: %d", len(m.vidFilter.filters)))
 	default:
 		m.fstFilter.column = m.popup.column
 		if value == "" {
@@ -1150,6 +1164,17 @@ func (m model) popupValues() []string {
 				values = append(values, value)
 			}
 		}
+	case viewVID:
+		for _, v := range m.vid {
+			if !m.matchesVIDFiltersExcept(v, m.popup.column) {
+				continue
+			}
+			value := m.vidFilterValueForColumn(v, m.popup.column)
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
 	default:
 		for _, node := range m.fsts {
 			if !m.matchesNodeFiltersExcept(node, m.popup.column) {
@@ -1171,4 +1196,76 @@ func sortDirectionLabel(desc bool) string {
 		return "desc"
 	}
 	return "asc"
+}
+
+func (m model) visibleVID() []eos.VIDRecord {
+	entries := append([]eos.VIDRecord(nil), m.vid...)
+	if len(m.vidFilter.filters) == 0 {
+		return entries
+	}
+	filtered := make([]eos.VIDRecord, 0, len(entries))
+	for _, v := range entries {
+		if m.matchesVIDFilters(v) {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
+}
+
+func (m model) matchesVIDFilters(v eos.VIDRecord) bool {
+	for col, filter := range m.vidFilter.filters {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.vidFilterValueForColumn(v, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesVIDFiltersExcept(v eos.VIDRecord, excludeColumn int) bool {
+	for col, filter := range m.vidFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.vidFilterValueForColumn(v, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) vidFilterValueForColumn(v eos.VIDRecord, column int) string {
+	switch vidFilterColumn(column) {
+	case vidFilterAuth:
+		return v.Auth
+	case vidFilterMatch:
+		return v.Match
+	case vidFilterUID:
+		return v.UID
+	case vidFilterGID:
+		return v.GID
+	default:
+		return v.Auth
+	}
+}
+
+func (m model) vidFilterColumnLabel() string {
+	switch vidFilterColumn(m.vidFilter.column) {
+	case vidFilterAuth:
+		return "auth"
+	case vidFilterMatch:
+		return "match"
+	case vidFilterUID:
+		return "uid"
+	case vidFilterGID:
+		return "gid"
+	default:
+		return "auth"
+	}
+}
+
+func vidColumnCount() int {
+	return 4
 }

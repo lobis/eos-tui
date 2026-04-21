@@ -223,6 +223,13 @@ type IOShapingPolicyUpdate struct {
 	ReservationWriteBytesPerSec uint64
 }
 
+type VIDRecord struct {
+	Auth  string // tident, host, krb5, gsi, voms, oauth2, ztn, https
+	Match string // the pattern being matched
+	UID   string // virtual uid
+	GID   string // virtual gid
+}
+
 // raftReplica holds the parsed status of a single replica node from raft-info.
 type raftReplica struct {
 	Host    string

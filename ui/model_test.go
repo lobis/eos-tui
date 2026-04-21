@@ -652,6 +652,8 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.nsLoaded = true
 	m.groups = []eos.GroupRecord{{Name: "default.0", Status: "online", NoFS: 3}}
 	m.groupsLoading = false
+	m.vid = []eos.VIDRecord{{Auth: "tident", Match: "user@[127.0.0.1]:*", UID: "0", GID: "0"}}
+	m.vidLoading = false
 
 	// Detect style application by the escape prefix each style emits.
 	headerStyleMarker := openingANSISequence(m.styles.header.Render("X"))
@@ -673,6 +675,7 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		{"Spaces", viewSpaces},
 		{"IOTraffic", viewIOShaping},
 		{"Groups", viewGroups},
+		{"VID", viewVID},
 	}
 
 	for _, tc := range viewsToCheck {
@@ -2299,6 +2302,7 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		viewGroups,
 		viewMGM,
 		viewQDB,
+		viewVID,
 		viewNamespaceStats,
 	}
 
@@ -2308,6 +2312,64 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		if m.activeView != want {
 			t.Fatalf("expected tab cycle to reach view %d, got %d", want, m.activeView)
 		}
+	}
+}
+
+func TestVIDViewRendersWithData(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 28
+	m.activeView = viewVID
+	m.vidLoading = false
+	m.vid = []eos.VIDRecord{
+		{Auth: "tident", Match: "alice@[10.0.0.1]:<0>", UID: "0", GID: "0"},
+		{Auth: "host", Match: "mgm01.cern.ch", UID: "0", GID: "0"},
+		{Auth: "krb5", Match: "alice@CERN.CH", UID: "1001", GID: "1001"},
+	}
+	m.splash.active = false
+
+	view := m.View()
+
+	for _, needle := range []string{
+		"EOS VID Mappings",
+		"tident", "alice@[10.0.0.1]:<0>",
+		"host", "mgm01.cern.ch",
+		"krb5", "alice@CERN.CH",
+		"auth", "match", "uid", "gid",
+	} {
+		if !strings.Contains(view, needle) {
+			t.Errorf("expected VID view to contain %q, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestVIDViewRendersEmptyState(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 28
+	m.activeView = viewVID
+	m.vidLoading = false
+	m.vid = nil
+	m.splash.active = false
+
+	view := m.View()
+	if !strings.Contains(view, "EOS VID Mappings") {
+		t.Errorf("expected VID view title in empty state, got:\n%s", view)
+	}
+	if !strings.Contains(view, "no VID mappings") {
+		t.Errorf("expected empty-state message, got:\n%s", view)
+	}
+}
+
+func TestVIDHotkey0SwitchesToVIDView(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.activeView = viewNamespaceStats
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	m = updated.(model)
+
+	if m.activeView != viewVID {
+		t.Fatalf("expected key '0' to switch to viewVID, got %d", m.activeView)
 	}
 }
 
@@ -2881,11 +2943,8 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups} {
 		m.activeView = v
 		footer := m.renderFooter()
-		if !strings.Contains(footer, "tab/1-9") {
-			t.Errorf("view %d: expected footer to show tab/1-9, got: %s", v, footer)
-		}
-		if strings.Contains(footer, "tab/1-0") {
-			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
+		if !strings.Contains(footer, "tab/0-9") {
+			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
 		}
 		if strings.Contains(footer, "ctrl+d/u") {
 			t.Errorf("view %d: footer should not show ctrl+d/u, got: %s", v, footer)

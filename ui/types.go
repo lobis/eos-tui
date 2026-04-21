@@ -26,9 +26,10 @@ const (
 	viewSpaceStatus // deprecated: kept for persisted-state migration only
 	viewIOShaping
 	viewGroups
+	viewVID
 )
 
-const viewCount = 10
+const viewCount = 11
 
 type viewTab struct {
 	key   string
@@ -46,6 +47,7 @@ var orderedViewTabs = []viewTab{
 	{key: "7", label: "7 Groups", view: viewGroups},
 	{key: "8", label: "8 MGM", view: viewMGM},
 	{key: "9", label: "9 QDB", view: viewQDB},
+	{key: "0", label: "0 VID", view: viewVID},
 }
 
 func defaultActiveView() viewID {
@@ -196,6 +198,11 @@ type ioShapingPolicyTickMsg struct{}
 type commandLogTickMsg struct{}
 type logTickMsg struct{}
 type splashTickMsg struct{}
+
+type vidLoadedMsg struct {
+	records []eos.VIDRecord
+	err     error
+}
 
 type tickMsg time.Time
 
@@ -423,6 +430,7 @@ type spaceFilterColumn int
 type spaceSortColumn int
 type groupFilterColumn int
 type groupSortColumn int
+type vidFilterColumn int
 
 const (
 	fstFilterHost           fstFilterColumn = iota // 0 — visible column 0
@@ -525,6 +533,13 @@ const (
 	groupSortUsed
 	groupSortFree
 	groupSortFiles
+)
+
+const (
+	vidFilterAuth  vidFilterColumn = iota // 0 — auth method
+	vidFilterMatch                        // 1 — match pattern
+	vidFilterUID                          // 2 — virtual uid
+	vidFilterGID                          // 3 — virtual gid
 )
 
 const fsSortNone fsSortColumn = -1
@@ -652,6 +667,13 @@ type model struct {
 	ioShapingErr      error
 	ioShapingSelected int
 	ioShapingEdit     ioShapingPolicyEdit
+
+	vid               []eos.VIDRecord
+	vidLoading        bool
+	vidErr            error
+	vidSelected       int
+	vidColumnSelected int
+	vidFilter         filterState
 
 	status string
 

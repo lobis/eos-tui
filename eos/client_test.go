@@ -1447,3 +1447,94 @@ func TestClientClose(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
+
+// --- parseVIDText ---
+
+func TestParseVIDText(t *testing.T) {
+	input := `
+# Identity-Map Configuration
+# Physical Identity  =>  Virtual Identity
+  tident: user@[127.0.0.1]:<0>  =>  uid=0 gid=0
+  host:   localhost.localdomain  =>  uid=99 gid=99
+  krb5:   alice@CERN.CH          =>  uid=1000 gid=1000
+  gsi:    /DC=org/DC=example     =>  uid=2000 gid=2000
+`
+
+	records := parseVIDText([]byte(input))
+
+	if len(records) != 4 {
+		t.Fatalf("expected 4 records, got %d: %+v", len(records), records)
+	}
+
+	if records[0].Auth != "tident" || records[0].Match != "user@[127.0.0.1]:<0>" {
+		t.Errorf("unexpected record[0]: %+v", records[0])
+	}
+	if records[0].UID != "0" || records[0].GID != "0" {
+		t.Errorf("unexpected uid/gid for record[0]: uid=%q gid=%q", records[0].UID, records[0].GID)
+	}
+
+	if records[1].Auth != "host" || records[1].UID != "99" || records[1].GID != "99" {
+		t.Errorf("unexpected record[1]: %+v", records[1])
+	}
+
+	if records[2].Auth != "krb5" || records[2].UID != "1000" || records[2].GID != "1000" {
+		t.Errorf("unexpected record[2]: %+v", records[2])
+	}
+
+	if records[3].Auth != "gsi" || records[3].UID != "2000" || records[3].GID != "2000" {
+		t.Errorf("unexpected record[3]: %+v", records[3])
+	}
+}
+
+func TestParseVIDTextSkipsCommentsAndBlanks(t *testing.T) {
+	input := `
+# comment line
+  # another comment
+
+  tident: alice@[10.0.0.1]:<0>  =>  uid=500 gid=500
+`
+
+	records := parseVIDText([]byte(input))
+
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d: %+v", len(records), records)
+	}
+	if records[0].Auth != "tident" || records[0].UID != "500" {
+		t.Errorf("unexpected record: %+v", records[0])
+	}
+}
+
+func TestParseVIDJSON(t *testing.T) {
+	input := `{
+  "result": [
+    {"auth": "tident", "match": "user@[127.0.0.1]:*", "uid": "0", "gid": "0"},
+    {"auth": "host",   "match": "localhost",            "uid": "99", "gid": "99"}
+  ]
+}`
+
+	records, err := parseVIDJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if records[0].Auth != "tident" || records[0].UID != "0" {
+		t.Errorf("unexpected record[0]: %+v", records[0])
+	}
+	if records[1].Auth != "host" || records[1].UID != "99" {
+		t.Errorf("unexpected record[1]: %+v", records[1])
+	}
+}
+
+func TestParseVIDJSONEmptyResult(t *testing.T) {
+	input := `{"result": []}`
+
+	records, err := parseVIDJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
+	}
+}

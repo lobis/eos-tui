@@ -450,6 +450,31 @@ func (m model) updateGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateVIDKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	entries := m.visibleVID()
+	switch msg.String() {
+	case "up", "k":
+		m.vidSelected = max(0, m.vidSelected-1)
+	case "down", "j":
+		m.vidSelected = min(len(entries)-1, m.vidSelected+1)
+	case "ctrl+d", "pgdown":
+		m.vidSelected = min(len(entries)-1, m.vidSelected+10)
+	case "ctrl+u", "pgup":
+		m.vidSelected = max(0, m.vidSelected-10)
+	case "g":
+		m.vidSelected = 0
+	case "G":
+		m.vidSelected = max(0, len(entries)-1)
+	case "left", "h":
+		m.vidColumnSelected = max(0, m.vidColumnSelected-1)
+	case "right", "l":
+		m.vidColumnSelected = min(vidColumnCount()-1, m.vidColumnSelected+1)
+	case "/":
+		m.openFilterPopup()
+	}
+	return m, nil
+}
+
 func (m model) updateGroupDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":

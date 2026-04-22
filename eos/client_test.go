@@ -739,6 +739,23 @@ uid=all gid=all ns.mgm.followers=eospilot-ns-01.cern.ch:1094
 	}
 }
 
+func TestHasNSSnapshotTopology(t *testing.T) {
+	input := []byte(`uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-02.cern.ch:7777
+`)
+	if !hasNSSnapshotTopology(input) {
+		t.Fatal("expected snapshot topology to be detected")
+	}
+}
+
+func TestHasNSSnapshotTopologyRequiresBothLeaderKeys(t *testing.T) {
+	input := []byte(`uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+`)
+	if hasNSSnapshotTopology(input) {
+		t.Fatal("expected incomplete snapshot topology to be rejected")
+	}
+}
+
 func TestNamespaceStatsParseWithPreamble(t *testing.T) {
 	raw := "* msg: ns booted\n" + `{
   "errormsg": "",

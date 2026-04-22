@@ -21,6 +21,7 @@ func New(_ context.Context, cfg Config) (*Client, error) {
 		acceptNewHostKeys: cfg.AcceptNewHostKeys,
 	}
 	c.sessionLogPath = initSessionLog()
+	c.supportsNSSnapshotTopology()
 	return c, nil
 }
 
@@ -93,6 +94,18 @@ func ensureRootPrefix(target string) string {
 	return "root@" + target
 }
 
+func (c *Client) supportsNSSnapshotTopology() bool {
+	c.nsSnapshotSupport.once.Do(func() {
+		output, err := c.runCommand("eos", "ns", "snapshot")
+		if err != nil {
+			c.nsSnapshotSupport.supported = false
+			return
+		}
+		c.nsSnapshotSupport.supported = hasNSSnapshotTopology(output)
+	})
+	return c.nsSnapshotSupport.supported
+}
+
 // DiscoverMGMMaster prefers the cached `eos ns snapshot` topology on the
 // current SSH target and falls back to `redis-cli raft-info` when the newer
 // namespace output is not available yet. It identifies the MGM leader and
@@ -101,12 +114,15 @@ func ensureRootPrefix(target string) string {
 func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
 	_ = ctx
 
-	if output, err := c.runCommand("eos", "ns", "snapshot"); err == nil {
-		values := parseMonitoringAssignments(output)
-		if leader := values["ns.mgm.leader"]; leader != "" {
-			resolved := ensureRootPrefix(hostOnly(leader))
-			c.resolvedSSHTarget = resolved
-			return resolved, nil
+	if c.supportsNSSnapshotTopology() {
+		output, err := c.runCommand("eos", "ns", "snapshot")
+		if err == nil {
+			values := parseMonitoringAssignments(output)
+			if leader := values["ns.mgm.leader"]; leader != "" {
+				resolved := ensureRootPrefix(hostOnly(leader))
+				c.resolvedSSHTarget = resolved
+				return resolved, nil
+			}
 		}
 	}
 

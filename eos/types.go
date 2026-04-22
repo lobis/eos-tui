@@ -1,6 +1,9 @@
 package eos
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Config struct {
 	SSHTarget         string
@@ -20,6 +23,12 @@ type Client struct {
 	// sessionLogPath is the log file for this specific session, set once at
 	// construction time.  Empty means logging is disabled (e.g. home dir error).
 	sessionLogPath string
+	// nsSnapshotSupport is probed once per client session so older EOS hosts
+	// can fall back to redis-cli without retrying the new command every refresh.
+	nsSnapshotSupport struct {
+		once      sync.Once
+		supported bool
+	}
 }
 
 type EntryKind string

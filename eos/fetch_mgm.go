@@ -13,9 +13,12 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 
 	// Prefer the cached server-side namespace snapshot when it exposes the MGM/QDB
 	// topology we need. Fall back to redis-cli for older EOS deployments.
-	if output, err := c.runCommand("eos", "ns", "snapshot"); err == nil {
-		if mgms, ok := mgmsFromNSSnapshot(output); ok {
-			return mgms, nil
+	if c.supportsNSSnapshotTopology() {
+		output, err := c.runCommand("eos", "ns", "snapshot")
+		if err == nil {
+			if mgms, ok := mgmsFromNSSnapshot(output); ok {
+				return mgms, nil
+			}
 		}
 	}
 
@@ -236,6 +239,11 @@ func mgmsFromNSSnapshot(output []byte) ([]MgmRecord, bool) {
 
 	sortMGMRecords(mgms)
 	return mgms, true
+}
+
+func hasNSSnapshotTopology(output []byte) bool {
+	values := parseMonitoringAssignments(output)
+	return values["ns.mgm.leader"] != "" && values["ns.qdb.leader"] != ""
 }
 
 // parseRaftInfo parses the output of `redis-cli -p 7777 raft-info`.

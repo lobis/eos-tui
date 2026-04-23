@@ -932,6 +932,44 @@ func TestBoxedLogOverlayShrinksToShortContent(t *testing.T) {
 	}
 }
 
+func TestShortBoxedLogOverlayUsesFullWidthPaddingRows(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		err:      fmt.Errorf("reload failed"),
+	}
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 18 {
+		t.Fatalf("expected 18 rendered lines, got %d", len(lines))
+	}
+
+	firstBorder := -1
+	for i, line := range lines {
+		if strings.Contains(line, "┌") {
+			firstBorder = i
+			break
+		}
+	}
+	if firstBorder <= 0 {
+		t.Fatalf("expected leading padding rows before the boxed log, got:\n%s", rendered)
+	}
+
+	for i := 0; i < firstBorder; i++ {
+		if got := lipgloss.Width(lines[i]); got != m.contentWidth() {
+			t.Fatalf("expected padding row %d to use full width %d, got %d", i, m.contentWidth(), got)
+		}
+		if strings.TrimSpace(lines[i]) != "" {
+			t.Fatalf("expected padding row %d to be blank, got %q", i, lines[i])
+		}
+	}
+}
+
 // TestLogOverlayNeverExceedsContentWidth verifies that renderLogOverlay never
 // produces a line wider than m.contentWidth(), for a range of terminal widths
 // and with potentially overflow-triggering content.  The right panel border

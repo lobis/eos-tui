@@ -274,7 +274,11 @@ func (m model) renderLogOverlay(height int) string {
 	if panelHeight >= height {
 		return panel
 	}
-	return strings.Repeat("\n", height-panelHeight) + panel
+	padding := make([]string, 0, height-panelHeight)
+	for i := 0; i < height-panelHeight; i++ {
+		padding = append(padding, strings.Repeat(" ", width))
+	}
+	return strings.Join(append(padding, strings.Split(panel, "\n")...), "\n")
 }
 
 func (m model) renderLogViewport() string {

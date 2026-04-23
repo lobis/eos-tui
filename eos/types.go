@@ -1,11 +1,19 @@
 package eos
 
-import "time"
+import (
+	"context"
+	"sync"
+	"time"
+)
 
 type Config struct {
 	SSHTarget         string
 	Timeout           time.Duration
 	AcceptNewHostKeys bool
+}
+
+type commandRunner interface {
+	CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 type Client struct {
@@ -19,7 +27,11 @@ type Client struct {
 	acceptNewHostKeys bool
 	// sessionLogPath is the log file for this specific session, set once at
 	// construction time.  Empty means logging is disabled (e.g. home dir error).
-	sessionLogPath string
+	sessionLogPath       string
+	sessionCommandMu     sync.Mutex
+	sessionCommandOffset int64
+	sessionCommandCache  []string
+	runner               commandRunner
 }
 
 type EntryKind string

@@ -8,25 +8,23 @@ import (
 )
 
 func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
-	_ = ctx
-
-	if output, err := c.runCommand("eos", "-b", "ns", "stat", "-m"); err == nil {
+	if output, err := c.runCommandContext(ctx, "eos", "-b", "ns", "stat", "-m"); err == nil {
 		values := parseMonitoringKeyValues(output)
 		if mgms, ok := parseMGMsFromMonitoringValues(values); ok {
 			return mgms, nil
 		}
-		return c.mgmsFromRaftInfo(mgmPortFromMonitoringValues(values))
+		return c.mgmsFromRaftInfo(ctx, mgmPortFromMonitoringValues(values))
 	}
 
-	return c.mgmsFromRaftInfo("")
+	return c.mgmsFromRaftInfo(ctx, "")
 }
 
-func (c *Client) mgmsFromRaftInfo(mgmPort string) ([]MgmRecord, error) {
+func (c *Client) mgmsFromRaftInfo(ctx context.Context, mgmPort string) ([]MgmRecord, error) {
 
 	// Run redis-cli raft-info directly via runCommand.
 	// The SSH target (if set) is always the MGM or an MGM leader node,
 	// so we do not need a separate SSH hop.
-	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
+	output, err := c.runCommandContext(ctx, "redis-cli", "-p", "7777", "raft-info")
 	if err != nil {
 		return nil, fmt.Errorf("redis-cli raft-info: %w\n%s", err, strings.TrimSpace(string(output)))
 	}

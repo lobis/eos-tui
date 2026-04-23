@@ -16,7 +16,7 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 	case IOShapingGroups:
 		flag = "--groups"
 	}
-	output, err := c.runCommand("eos", "io", "shaping", "ls", flag, "--json", "--window", "5")
+	output, err := c.runCommandContext(ctx, "eos", "io", "shaping", "ls", flag, "--json", "--window", "5")
 	if err != nil {
 		return nil, fmt.Errorf("io shaping ls: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -50,8 +50,7 @@ func (c *Client) IOShaping(ctx context.Context, mode IOShapingMode) ([]IOShaping
 }
 
 func (c *Client) IOShapingPolicies(ctx context.Context) ([]IOShapingPolicyRecord, error) {
-	_ = ctx
-	output, err := c.runCommand("eos", "io", "shaping", "policy", "ls", "--json")
+	output, err := c.runCommandContext(ctx, "eos", "io", "shaping", "policy", "ls", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("io shaping policy ls: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -85,27 +84,23 @@ func (c *Client) IOShapingPolicies(ctx context.Context) ([]IOShapingPolicyRecord
 }
 
 func (c *Client) SetIOShapingPolicy(ctx context.Context, update IOShapingPolicyUpdate) error {
-	_ = ctx
-
 	args, err := ioShapingPolicySetArgs(update)
 	if err != nil {
 		return err
 	}
 
-	if _, err := c.runCommand(args...); err != nil {
+	if _, err := c.runCommandContext(ctx, args...); err != nil {
 		return fmt.Errorf("eos io shaping policy set %s: %w", update.ID, err)
 	}
 	return nil
 }
 
 func (c *Client) RemoveIOShapingPolicy(ctx context.Context, mode IOShapingMode, id string) error {
-	_ = ctx
-
 	args, err := ioShapingPolicyRemoveArgs(mode, id)
 	if err != nil {
 		return err
 	}
-	if _, err := c.runCommand(args...); err != nil {
+	if _, err := c.runCommandContext(ctx, args...); err != nil {
 		return fmt.Errorf("eos io shaping policy rm %s: %w", id, err)
 	}
 	return nil

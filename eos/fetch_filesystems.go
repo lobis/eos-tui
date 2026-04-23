@@ -9,9 +9,7 @@ import (
 )
 
 func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "-j", "-b", "fs", "ls")
+	output, err := c.runCommandContext(ctx, "eos", "-j", "-b", "fs", "ls")
 	if err != nil {
 		return nil, fmt.Errorf("eos fs ls: %w", err)
 	}
@@ -91,8 +89,7 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 // FsConfigStatus sets the configstatus of a filesystem by its ID.
 // Valid values are "rw", "ro", and "" (empty to clear).
 func (c *Client) FsConfigStatus(ctx context.Context, fsID uint64, value string) error {
-	_ = ctx
-	_, err := c.runCommand("eos", "-b", "fs", "config", fmt.Sprintf("%d", fsID), fmt.Sprintf("configstatus=%s", value))
+	_, err := c.runCommandContext(ctx, "eos", "-b", "fs", "config", fmt.Sprintf("%d", fsID), fmt.Sprintf("configstatus=%s", value))
 	if err != nil {
 		return fmt.Errorf("eos fs config %d configstatus=%s: %w", fsID, value, err)
 	}

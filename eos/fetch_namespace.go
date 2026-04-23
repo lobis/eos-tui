@@ -10,9 +10,7 @@ import (
 )
 
 func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
+	output, err := c.runCommandContext(ctx, "eos", "-j", "-b", "ns", "stat")
 	if err != nil {
 		return NamespaceStats{}, fmt.Errorf("eos ns stat: %w", err)
 	}
@@ -88,19 +86,15 @@ func (c *Client) NamespaceStats(ctx context.Context) (NamespaceStats, error) {
 }
 
 func (c *Client) ListPath(ctx context.Context, rawPath string) (Directory, error) {
-	_ = ctx
-	return c.listPathViaCLI(rawPath)
+	return c.listPathViaCLI(ctx, rawPath)
 }
 
 func (c *Client) StatPath(ctx context.Context, rawPath string) (Entry, error) {
-	_ = ctx
-	return c.statPathViaCLI(rawPath)
+	return c.statPathViaCLI(ctx, rawPath)
 }
 
 func (c *Client) ListAttrs(ctx context.Context, rawPath string) ([]NamespaceAttr, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "attr", "ls", rawPath)
+	output, err := c.runCommandContext(ctx, "eos", "attr", "ls", rawPath)
 	if err != nil {
 		return nil, fmt.Errorf("eos attr ls: %w", err)
 	}
@@ -109,10 +103,8 @@ func (c *Client) ListAttrs(ctx context.Context, rawPath string) ([]NamespaceAttr
 }
 
 func (c *Client) SetAttr(ctx context.Context, rawPath, key, value string, recursive bool) error {
-	_ = ctx
-
 	args := attrSetArgs(rawPath, key, value, recursive)
-	_, err := c.runCommand(args...)
+	_, err := c.runCommandContext(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("eos attr set: %w", err)
 	}
@@ -127,8 +119,8 @@ func attrSetArgs(rawPath, key, value string, recursive bool) []string {
 	return append(args, "set", fmt.Sprintf("%s=%s", key, value), rawPath)
 }
 
-func (c *Client) statPathViaCLI(rawPath string) (Entry, error) {
-	info, err := c.fetchCLIFileInfo(rawPath)
+func (c *Client) statPathViaCLI(ctx context.Context, rawPath string) (Entry, error) {
+	info, err := c.fetchCLIFileInfo(ctx, rawPath)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -136,8 +128,8 @@ func (c *Client) statPathViaCLI(rawPath string) (Entry, error) {
 	return entryFromCLI(info), nil
 }
 
-func (c *Client) listPathViaCLI(rawPath string) (Directory, error) {
-	info, err := c.fetchCLIFileInfo(rawPath)
+func (c *Client) listPathViaCLI(ctx context.Context, rawPath string) (Directory, error) {
+	info, err := c.fetchCLIFileInfo(ctx, rawPath)
 	if err != nil {
 		return Directory{}, err
 	}
@@ -166,8 +158,8 @@ func (c *Client) listPathViaCLI(rawPath string) (Directory, error) {
 	}, nil
 }
 
-func (c *Client) fetchCLIFileInfo(rawPath string) (cliFileInfo, error) {
-	output, err := c.runCommand("eos", "-j", "-b", "fileinfo", rawPath)
+func (c *Client) fetchCLIFileInfo(ctx context.Context, rawPath string) (cliFileInfo, error) {
+	output, err := c.runCommandContext(ctx, "eos", "-j", "-b", "fileinfo", rawPath)
 	if err != nil {
 		return cliFileInfo{}, fmt.Errorf("eos fileinfo: %w", err)
 	}

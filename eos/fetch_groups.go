@@ -9,9 +9,7 @@ import (
 )
 
 func (c *Client) Groups(ctx context.Context) ([]GroupRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "-j", "-b", "group", "ls")
+	output, err := c.runCommandContext(ctx, "eos", "-j", "-b", "group", "ls")
 	if err != nil {
 		return nil, fmt.Errorf("eos group ls: %w", err)
 	}
@@ -61,14 +59,12 @@ func (c *Client) Groups(ctx context.Context) ([]GroupRecord, error) {
 }
 
 func (c *Client) SetGroupStatus(ctx context.Context, group, status string) error {
-	_ = ctx
-
 	args, err := groupSetArgs(group, status)
 	if err != nil {
 		return err
 	}
 
-	_, err = c.runCommand(args...)
+	_, err = c.runCommandContext(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("eos group set %s %s: %w", group, status, err)
 	}

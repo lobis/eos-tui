@@ -10,6 +10,12 @@ import (
 
 var hostnameFunc = os.Hostname
 
+type execCommandRunner struct{}
+
+func (execCommandRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
 func (c *Client) sshOptions(batchMode bool) []string {
 	options := []string{"-o", "LogLevel=ERROR"}
 	if batchMode {
@@ -30,20 +36,31 @@ func (c *Client) SSHArgs(batchMode bool, extraArgs ...string) []string {
 }
 
 func (c *Client) runCommand(args ...string) ([]byte, error) {
+	return c.runCommandContext(context.Background(), args...)
+}
+
+func (c *Client) runCommandContext(ctx context.Context, args ...string) ([]byte, error) {
 	c.logCommand(args)
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+	runner := c.runner
+	if runner == nil {
+		runner = execCommandRunner{}
+	}
 
 	target := c.effectiveSSHTarget()
 	var out []byte
 	var err error
 	if target == "" {
-		out, err = exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
+		out, err = runner.CombinedOutput(ctx, args[0], args[1:]...)
 	} else {
 		remoteCommand := shellJoin(args)
 		sshArgs := append(c.SSHArgs(true), target, remoteCommand)
-		out, err = exec.CommandContext(ctx, "ssh", sshArgs...).CombinedOutput()
+		out, err = runner.CombinedOutput(ctx, "ssh", sshArgs...)
 	}
 
 	if err != nil {
@@ -55,7 +72,7 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...string) ([]byte, error) {
 	host = strings.TrimSpace(host)
 	if host == "" || isCurrentExecutionHost(host, c.effectiveSSHTarget()) {
-		return c.runCommand(args...)
+		return c.runCommandContext(ctx, args...)
 	}
 
 	target := ensureRootPrefix(host)
@@ -73,7 +90,11 @@ func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...stri
 		sshArgs = append(c.SSHArgs(true), "-J", effective, target, remoteCommand)
 	}
 
-	out, err := exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
+	runner := c.runner
+	if runner == nil {
+		runner = execCommandRunner{}
+	}
+	out, err := runner.CombinedOutput(ctxTimeout, "ssh", sshArgs...)
 	if err != nil {
 		c.logResponse(args, out, err)
 	}
@@ -95,7 +116,7 @@ func (c *Client) RTLog(ctx context.Context, queue string, seconds int, tag strin
 	}
 
 	args := []string{"eos", "rtlog", queue, fmt.Sprintf("%d", seconds), tag}
-	out, err := c.runCommand(args...)
+	out, err := c.runCommandContext(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("eos rtlog %s %d %s: %w (output: %.300s)", queue, seconds, tag, err, out)
 	}
@@ -119,7 +140,7 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 
 	// Direct case: no specific host, or the host IS the current target.
 	if host == "" || isCurrentExecutionHost(host, effective) {
-		out, err := c.runCommand(tailArgs...)
+		out, err := c.runCommandContext(ctx, tailArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("tail %s: %w (output: %.300s)", filePath, err, out)
 		}
@@ -137,12 +158,16 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 
 	var out []byte
 	var err error
+	runner := c.runner
+	if runner == nil {
+		runner = execCommandRunner{}
+	}
 	if effective == "" {
 		sshArgs := append(c.SSHArgs(true), target, tailCmd)
-		out, err = exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
+		out, err = runner.CombinedOutput(ctxTimeout, "ssh", sshArgs...)
 	} else {
 		sshArgs := append(c.SSHArgs(true), "-J", effective, target, tailCmd)
-		out, err = exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
+		out, err = runner.CombinedOutput(ctxTimeout, "ssh", sshArgs...)
 	}
 	if err != nil {
 		c.logResponse(tailArgs, out, err)

@@ -4116,6 +4116,20 @@ func TestEOSCheckResultMsgOKDoesNotAlert(t *testing.T) {
 	}
 }
 
+func TestShellExitedMsgUpdatesStatus(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+
+	updated, cmd := m.Update(shellExitedMsg{err: errors.New("exit status 255")})
+	m = updated.(model)
+
+	if !strings.Contains(m.status, "exit status 255") {
+		t.Fatalf("expected shell exit status, got %q", m.status)
+	}
+	if cmd == nil {
+		t.Fatalf("expected clear-screen command")
+	}
+}
+
 func TestFSConfigStatusResultMsgShowsAlertOnError(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.fsEdit = fsConfigStatusEdit{active: true, fsID: 5}

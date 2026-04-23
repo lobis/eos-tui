@@ -3,8 +3,9 @@ package eos
 // Integration tests that run real commands against a live EOS instance.
 //
 // By default the tests run against "lobis-eos-dev" via SSH.
+// Set EOS_TEST_INTEGRATION=1 to enable the integration tests.
 // Set EOS_TEST_SSH_TARGET to override the SSH target.
-// Set EOS_TEST_SKIP=1 to skip all integration tests.
+// Set EOS_TEST_SKIP=1 to force-skip all integration tests.
 
 import (
 	"context"
@@ -18,6 +19,9 @@ func integrationClient(t *testing.T) *Client {
 
 	if os.Getenv("EOS_TEST_SKIP") == "1" {
 		t.Skip("EOS_TEST_SKIP=1: skipping integration tests")
+	}
+	if os.Getenv("EOS_TEST_INTEGRATION") != "1" {
+		t.Skip("EOS_TEST_INTEGRATION is not set: skipping integration tests")
 	}
 
 	target := os.Getenv("EOS_TEST_SSH_TARGET")

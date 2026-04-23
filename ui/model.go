@@ -694,6 +694,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.commandLog.active {
 			return m, tea.Batch(loadCommandHistoryCmd(m.client), commandLogTickCmd())
 		}
+	case shellExitedMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("shell exited: %v", msg.err)
+		} else {
+			m.status = "Shell closed"
+		}
+		return m, tea.ClearScreen
 	case splashTickMsg:
 		if m.splash.active {
 			if !m.startupLoading() {

@@ -110,8 +110,10 @@ type MgmRecord struct {
 	QDBHost    string
 	QDBPort    int
 	Role       string
+	QDBRole    string
 	Geotag     string
 	Status     string
+	QDBStatus  string
 	Heartbeat  string
 	EOSVersion string
 	QDBVersion string

@@ -295,9 +295,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case mgmsLoadedMsg:
 		m.mgmsLoading = false
-		m.mgms = msg.mgms
+		m.mgms = mergeMGMVersionData(msg.mgms, m.mgms)
 		m.mgmsErr = msg.err
 		m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
+		if msg.err == nil && len(m.mgms) > 0 && !m.mgmVersionsLoaded && !m.mgmVersionsLoading {
+			m.mgmVersionsLoading = true
+			return m, loadMGMVersionsCmd(m.client, m.mgms)
+		}
+		return m, nil
+
+	case mgmVersionsLoadedMsg:
+		m.mgmVersionsLoading = false
+		m.mgmVersionsLoaded = true
+		m.mgmVersionsErr = msg.err
+		m.mgms = applyMGMVersions(m.mgms, msg.mgmVersions, msg.qdbVersions)
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Loaded MGM/QDB topology with partial versions: %v", msg.err)
+		} else if len(msg.mgmVersions) > 0 || len(msg.qdbVersions) > 0 {
+			m.status = "Loaded MGM/QDB versions"
+		}
 		return m, nil
 
 	case infraLoadedMsg:
@@ -913,6 +929,17 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.accessErr = nil
 		m.status = "Refreshing access rules..."
 		return m, loadAccessCmd(m.client)
+	case viewMGM, viewQDB:
+		if m.mgmsLoading || m.mgmVersionsLoading {
+			m.status = "MGM/QDB refresh already in progress..."
+			return m, nil
+		}
+		m.mgmsLoading = true
+		m.mgmsErr = nil
+		m.mgmVersionsLoading = true
+		m.mgmVersionsErr = nil
+		m.status = "Refreshing MGM/QDB topology and versions..."
+		return m, tea.Batch(loadMGMsCmd(m.client), reloadMGMVersionsCmd(m.client))
 	default:
 		m.fstStatsLoading = true
 		m.fstsLoading = true
@@ -929,6 +956,49 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.status = "Refreshing..."
 		return m, loadInfraCmd(m.client)
 	}
+}
+
+func mergeMGMVersionData(next, current []eos.MgmRecord) []eos.MgmRecord {
+	if len(next) == 0 || len(current) == 0 {
+		return next
+	}
+	return applyMGMVersions(next, existingMGMVersions(current), existingQDBVersions(current))
+}
+
+func existingMGMVersions(records []eos.MgmRecord) map[string]string {
+	versions := make(map[string]string, len(records))
+	for _, record := range records {
+		if record.Host != "" && record.EOSVersion != "" {
+			versions[record.Host] = record.EOSVersion
+		}
+	}
+	return versions
+}
+
+func existingQDBVersions(records []eos.MgmRecord) map[string]string {
+	versions := make(map[string]string, len(records))
+	for _, record := range records {
+		if record.QDBHost != "" && record.QDBVersion != "" {
+			versions[record.QDBHost] = record.QDBVersion
+		}
+	}
+	return versions
+}
+
+func applyMGMVersions(records []eos.MgmRecord, mgmVersions, qdbVersions map[string]string) []eos.MgmRecord {
+	if len(records) == 0 {
+		return records
+	}
+	out := append([]eos.MgmRecord(nil), records...)
+	for i := range out {
+		if version := mgmVersions[out[i].Host]; version != "" {
+			out[i].EOSVersion = version
+		}
+		if version := qdbVersions[out[i].QDBHost]; version != "" {
+			out[i].QDBVersion = version
+		}
+	}
+	return out
 }
 
 func hasInspectorStatsData(stats eos.InspectorStats) bool {

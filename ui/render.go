@@ -105,7 +105,7 @@ func (m model) renderFooter() string {
 	default:
 		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  L commands  •  q quit"
 		if hostViews {
-			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  l logs  •  L commands  •  s shell  •  q quit"
+			keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  S sort  •  / filter  •  r refresh  •  l logs  •  L commands  •  s shell  •  q quit"
 		}
 	}
 

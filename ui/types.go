@@ -109,6 +109,12 @@ type mgmsLoadedMsg struct {
 	err  error
 }
 
+type mgmVersionsLoadedMsg struct {
+	mgmVersions map[string]string
+	qdbVersions map[string]string
+	err         error
+}
+
 type spacesLoadedMsg struct {
 	spaces []eos.SpaceRecord
 	err    error
@@ -690,9 +696,12 @@ type model struct {
 	nodeStats          eos.NodeStats
 	fsts               []eos.FstRecord
 
-	mgmsLoading bool
-	mgmsErr     error
-	mgms        []eos.MgmRecord
+	mgmsLoading        bool
+	mgmsErr            error
+	mgms               []eos.MgmRecord
+	mgmVersionsLoading bool
+	mgmVersionsLoaded  bool
+	mgmVersionsErr     error
 
 	eosVersion string
 

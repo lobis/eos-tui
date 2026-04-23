@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -60,19 +61,16 @@ func (m model) topologyMGMRows() []topologyHostRow {
 		if node.Host == "" {
 			continue
 		}
-		version := node.EOSVersion
-		if version == "" {
-			version = m.eosVersion
-		}
 		rows = append(rows, topologyHostRow{
 			kind:    topologyHostMGM,
 			host:    node.Host,
 			port:    node.Port,
 			role:    strings.ToLower(node.Role),
 			status:  strings.ToLower(node.Status),
-			version: version,
+			version: fallback(node.EOSVersion, "-"),
 		})
 	}
+	sortTopologyRows(rows)
 	return rows
 }
 
@@ -82,20 +80,29 @@ func (m model) topologyQDBRows() []topologyHostRow {
 		if node.QDBHost == "" {
 			continue
 		}
-		version := node.QDBVersion
-		if version == "" {
-			version = node.EOSVersion
-		}
 		rows = append(rows, topologyHostRow{
 			kind:    topologyHostQDB,
 			host:    node.QDBHost,
 			port:    node.QDBPort,
-			role:    strings.ToLower(node.Role),
-			status:  strings.ToLower(node.Status),
-			version: version,
+			role:    strings.ToLower(fallback(node.QDBRole, node.Role)),
+			status:  strings.ToLower(fallback(node.QDBStatus, node.Status)),
+			version: fallback(node.QDBVersion, "-"),
 		})
 	}
+	sortTopologyRows(rows)
 	return rows
+}
+
+func sortTopologyRows(rows []topologyHostRow) {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].role != rows[j].role {
+			return rows[i].role == "leader"
+		}
+		if rows[i].host != rows[j].host {
+			return rows[i].host < rows[j].host
+		}
+		return rows[i].port < rows[j].port
+	})
 }
 
 func (m model) topologySelectableRows() []topologyHostRow {

@@ -71,6 +71,24 @@ func loadMGMsCmd(client *eos.Client) tea.Cmd {
 	}
 }
 
+func loadMGMVersionsCmd(client *eos.Client, mgms []eos.MgmRecord) tea.Cmd {
+	return func() tea.Msg {
+		mgmVersions, qdbVersions, err := client.MGMVersions(context.Background(), mgms)
+		return mgmVersionsLoadedMsg{mgmVersions: mgmVersions, qdbVersions: qdbVersions, err: err}
+	}
+}
+
+func reloadMGMVersionsCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		mgms, err := client.MGMs(context.Background())
+		if err != nil {
+			return mgmVersionsLoadedMsg{err: err}
+		}
+		mgmVersions, qdbVersions, err := client.MGMVersions(context.Background(), mgms)
+		return mgmVersionsLoadedMsg{mgmVersions: mgmVersions, qdbVersions: qdbVersions, err: err}
+	}
+}
+
 func loadEOSVersionCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		version, _ := client.EOSVersion(context.Background())

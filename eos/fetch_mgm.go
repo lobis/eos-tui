@@ -11,6 +11,17 @@ import (
 func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	_ = ctx
 
+	if output, err := c.runCommand("eos", "-b", "ns", "stat", "-m"); err == nil {
+		if mgms, ok := parseMGMsFromNSStatMonitoring(output); ok {
+			return mgms, nil
+		}
+	}
+
+	return c.mgmsFromRaftInfo()
+}
+
+func (c *Client) mgmsFromRaftInfo() ([]MgmRecord, error) {
+
 	// Run redis-cli raft-info directly via runCommand.
 	// The SSH target (if set) is always the MGM or an MGM leader node,
 	// so we do not need a separate SSH hop.
@@ -92,7 +103,9 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 			QDBHost:    qh,
 			QDBPort:    qp,
 			Role:       role,
+			QDBRole:    role,
 			Status:     status,
+			QDBStatus:  status,
 			EOSVersion: version,
 			QDBVersion: version,
 		})
@@ -110,6 +123,94 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	})
 
 	return mgms, nil
+}
+
+func parseMGMsFromNSStatMonitoring(output []byte) ([]MgmRecord, bool) {
+	values := parseMonitoringKeyValues(output)
+	mgmLeader := strings.TrimSpace(values["ns.mgm.leader"])
+	qdbLeader := strings.TrimSpace(values["ns.qdb.leader"])
+	if mgmLeader == "" || qdbLeader == "" {
+		return nil, false
+	}
+
+	mgmNodes := append([]string{mgmLeader}, splitMonitoringList(values["ns.mgm.followers"])...)
+	qdbNodes := append([]string{qdbLeader}, splitMonitoringList(values["ns.qdb.followers"])...)
+	mgmNodes = uniqueEndpoints(mgmNodes)
+	qdbNodes = uniqueEndpoints(qdbNodes)
+
+	count := len(mgmNodes)
+	if len(qdbNodes) > count {
+		count = len(qdbNodes)
+	}
+	mgms := make([]MgmRecord, 0, count)
+	for i := 0; i < count; i++ {
+		var record MgmRecord
+		if i < len(mgmNodes) {
+			record.Host, record.Port = splitHostPort(mgmNodes[i])
+			record.Role = "follower"
+			if mgmNodes[i] == mgmLeader {
+				record.Role = "leader"
+			}
+			record.Status = "online"
+		}
+		if i < len(qdbNodes) {
+			record.QDBHost, record.QDBPort = splitHostPort(qdbNodes[i])
+			record.QDBRole = "follower"
+			if qdbNodes[i] == qdbLeader {
+				record.QDBRole = "leader"
+			}
+			record.QDBStatus = "online"
+		}
+		mgms = append(mgms, record)
+	}
+	return mgms, true
+}
+
+func parseMonitoringKeyValues(output []byte) map[string]string {
+	values := make(map[string]string)
+	for _, raw := range strings.Split(string(output), "\n") {
+		for _, field := range strings.Fields(strings.TrimSpace(raw)) {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok || key == "" {
+				continue
+			}
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func splitMonitoringList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "none" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" && part != "none" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func uniqueEndpoints(nodes []string) []string {
+	seen := make(map[string]struct{}, len(nodes))
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" {
+			continue
+		}
+		if _, ok := seen[node]; ok {
+			continue
+		}
+		seen[node] = struct{}{}
+		out = append(out, node)
+	}
+	return out
 }
 
 // mgmPortFromNsStat fetches the MGM service port by reading master_id from

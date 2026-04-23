@@ -2,7 +2,6 @@ package eos
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,15 +11,17 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 	_ = ctx
 
 	if output, err := c.runCommand("eos", "-b", "ns", "stat", "-m"); err == nil {
-		if mgms, ok := parseMGMsFromNSStatMonitoring(output); ok {
+		values := parseMonitoringKeyValues(output)
+		if mgms, ok := parseMGMsFromMonitoringValues(values); ok {
 			return mgms, nil
 		}
+		return c.mgmsFromRaftInfo(mgmPortFromMonitoringValues(values))
 	}
 
-	return c.mgmsFromRaftInfo()
+	return c.mgmsFromRaftInfo("")
 }
 
-func (c *Client) mgmsFromRaftInfo() ([]MgmRecord, error) {
+func (c *Client) mgmsFromRaftInfo(mgmPort string) ([]MgmRecord, error) {
 
 	// Run redis-cli raft-info directly via runCommand.
 	// The SSH target (if set) is always the MGM or an MGM leader node,
@@ -44,10 +45,11 @@ func (c *Client) mgmsFromRaftInfo() ([]MgmRecord, error) {
 		return nil, fmt.Errorf("no MGM cluster info from raft-info")
 	}
 
-	// Fetch the MGM service port from `eos ns stat` via master_id
-	// (e.g. "eospilot-ns-02.cern.ch:1094"). The raft nodes use the QDB port
-	// (7777); the actual MGM port must be read from the namespace.
-	mgmPort := mgmPortFromNsStat(c)
+	// The raft nodes use the QDB port (7777); the actual MGM port is read from
+	// the namespace monitoring payload when available.
+	if mgmPort == "" {
+		mgmPort = "1094"
+	}
 
 	// Determine leader hostname (strip raft port :7777)
 	leaderHost := hostOnly(info.Leader)
@@ -126,7 +128,10 @@ func (c *Client) mgmsFromRaftInfo() ([]MgmRecord, error) {
 }
 
 func parseMGMsFromNSStatMonitoring(output []byte) ([]MgmRecord, bool) {
-	values := parseMonitoringKeyValues(output)
+	return parseMGMsFromMonitoringValues(parseMonitoringKeyValues(output))
+}
+
+func parseMGMsFromMonitoringValues(values map[string]string) ([]MgmRecord, bool) {
 	mgmLeader := strings.TrimSpace(values["ns.mgm.leader"])
 	qdbLeader := strings.TrimSpace(values["ns.qdb.leader"])
 	if mgmLeader == "" || qdbLeader == "" {
@@ -213,27 +218,12 @@ func uniqueEndpoints(nodes []string) []string {
 	return out
 }
 
-// mgmPortFromNsStat fetches the MGM service port by reading master_id from
-// `eos ns stat`.  master_id is of the form "hostname:port" (e.g.
-// "eospilot-ns-02.cern.ch:1094"). Falls back to "1094" on any error.
-func mgmPortFromNsStat(c *Client) string {
+// mgmPortFromMonitoringValues extracts the MGM service port from the
+// master_id key in `eos ns stat -m`. Falls back to the default MGM port.
+func mgmPortFromMonitoringValues(values map[string]string) string {
 	const fallback = "1094"
 
-	out, err := c.runCommand("eos", "-j", "-b", "ns", "stat")
-	if err != nil {
-		return fallback
-	}
-
-	var payload struct {
-		Result []struct {
-			Master string `json:"master_id"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(stripEOSPreamble(out), &payload); err != nil || len(payload.Result) == 0 {
-		return fallback
-	}
-
-	masterID := payload.Result[0].Master // e.g. "eospilot-ns-02.cern.ch:1094"
+	masterID := strings.TrimSpace(values["master_id"])
 	if idx := strings.LastIndex(masterID, ":"); idx != -1 {
 		if port := masterID[idx+1:]; port != "" {
 			return port

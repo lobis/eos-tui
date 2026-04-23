@@ -298,17 +298,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgms = mergeMGMVersionData(msg.mgms, m.mgms)
 		m.mgmsErr = msg.err
 		m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
-		if msg.err == nil && len(m.mgms) > 0 && !m.mgmVersionsLoaded && !m.mgmVersionsLoading {
-			m.mgmVersionsLoading = true
-			return m, loadMGMVersionsCmd(m.client, m.mgms)
+		if msg.err == nil && !m.mgmVersionsLoading {
+			probeTargets := mgmVersionProbeTargets(m.mgms)
+			if len(probeTargets) > 0 {
+				m.mgmVersionsLoaded = false
+				m.mgmVersionsLoading = true
+				return m, loadMGMVersionsCmd(m.client, probeTargets)
+			}
+		}
+		if msg.err == nil {
+			m.mgmVersionsLoaded = !hasMissingMGMVersions(m.mgms)
 		}
 		return m, nil
 
 	case mgmVersionsLoadedMsg:
 		m.mgmVersionsLoading = false
-		m.mgmVersionsLoaded = true
 		m.mgmVersionsErr = msg.err
 		m.mgms = applyMGMVersions(m.mgms, msg.mgmVersions, msg.qdbVersions)
+		m.mgmVersionsLoaded = !hasMissingMGMVersions(m.mgms)
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Loaded MGM/QDB topology with partial versions: %v", msg.err)
 		} else if len(msg.mgmVersions) > 0 || len(msg.qdbVersions) > 0 {
@@ -963,6 +970,27 @@ func mergeMGMVersionData(next, current []eos.MgmRecord) []eos.MgmRecord {
 		return next
 	}
 	return applyMGMVersions(next, existingMGMVersions(current), existingQDBVersions(current))
+}
+
+func mgmVersionProbeTargets(records []eos.MgmRecord) []eos.MgmRecord {
+	targets := make([]eos.MgmRecord, 0, len(records))
+	for _, record := range records {
+		var target eos.MgmRecord
+		if record.Host != "" && record.EOSVersion == "" {
+			target.Host = record.Host
+		}
+		if record.QDBHost != "" && record.QDBVersion == "" {
+			target.QDBHost = record.QDBHost
+		}
+		if target.Host != "" || target.QDBHost != "" {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+func hasMissingMGMVersions(records []eos.MgmRecord) bool {
+	return len(mgmVersionProbeTargets(records)) > 0
 }
 
 func existingMGMVersions(records []eos.MgmRecord) map[string]string {

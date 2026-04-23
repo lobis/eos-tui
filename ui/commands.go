@@ -43,7 +43,6 @@ func loadInfraCmd(c *eos.Client) tea.Cmd {
 		loadFSTsCmd(c),
 		loadMGMsCmd(c),
 		loadFileSystemsCmd(c),
-		loadEOSVersionCmd(c),
 		loadSpacesCmd(c),
 		loadNamespaceStatsCmd(c),
 		loadInspectorCmd(c),
@@ -86,13 +85,6 @@ func reloadMGMVersionsCmd(client *eos.Client) tea.Cmd {
 		}
 		mgmVersions, qdbVersions, err := client.MGMVersions(context.Background(), mgms)
 		return mgmVersionsLoadedMsg{mgmVersions: mgmVersions, qdbVersions: qdbVersions, err: err}
-	}
-}
-
-func loadEOSVersionCmd(client *eos.Client) tea.Cmd {
-	return func() tea.Msg {
-		version, _ := client.EOSVersion(context.Background())
-		return eosVersionLoadedMsg{version: version}
 	}
 }
 

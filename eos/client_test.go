@@ -1296,6 +1296,58 @@ uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.c
 	}
 }
 
+func TestNodeStatsFromMonitoringValues(t *testing.T) {
+	values := parseMonitoringKeyValues([]byte(`
+uid=all gid=all ns.total.files=23502173
+uid=all gid=all ns.total.directories=383968
+uid=all gid=all ns.current.fid=2590610131
+uid=all gid=all ns.current.cid=3465125
+uid=all gid=all ns.memory.virtual=27031158784
+uid=all gid=all ns.memory.resident=13764378624
+uid=all gid=all ns.memory.share=89653248
+uid=all gid=all ns.memory.growth=23214104576
+uid=all gid=all ns.stat.threads=666
+uid=all gid=all ns.fds.all=866
+uid=all gid=all ns.uptime=1523
+`))
+
+	stats := nodeStatsFromMonitoringValues(values)
+
+	if stats.FileCount != 23502173 {
+		t.Fatalf("expected file count, got %d", stats.FileCount)
+	}
+	if stats.DirCount != 383968 {
+		t.Fatalf("expected dir count, got %d", stats.DirCount)
+	}
+	if stats.CurrentFID != 2590610131 || stats.CurrentCID != 3465125 {
+		t.Fatalf("unexpected current IDs: fid=%d cid=%d", stats.CurrentFID, stats.CurrentCID)
+	}
+	if stats.MemVirtual != 27031158784 || stats.MemResident != 13764378624 {
+		t.Fatalf("unexpected memory stats: virtual=%d resident=%d", stats.MemVirtual, stats.MemResident)
+	}
+	if stats.MemShared != 89653248 || stats.MemGrowth != 23214104576 {
+		t.Fatalf("unexpected shared/growth memory stats: shared=%d growth=%d", stats.MemShared, stats.MemGrowth)
+	}
+	if stats.ThreadCount != 666 || stats.FileDescs != 866 {
+		t.Fatalf("unexpected threads/fds: threads=%d fds=%d", stats.ThreadCount, stats.FileDescs)
+	}
+	if stats.Uptime.Seconds() != 1523 {
+		t.Fatalf("expected uptime 1523s, got %s", stats.Uptime)
+	}
+}
+
+func TestMGMPortFromMonitoringValues(t *testing.T) {
+	values := parseMonitoringKeyValues([]byte(`
+uid=all gid=all master_id=eospilot-ns-02.cern.ch:1094
+`))
+	if got := mgmPortFromMonitoringValues(values); got != "1094" {
+		t.Fatalf("expected 1094, got %q", got)
+	}
+	if got := mgmPortFromMonitoringValues(map[string]string{}); got != "1094" {
+		t.Fatalf("expected fallback port, got %q", got)
+	}
+}
+
 // --- entryFromCLI ---
 
 func TestEntryFromCLIRootPath(t *testing.T) {

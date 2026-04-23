@@ -37,4 +37,3 @@ This repository contains a Go TUI for EOS, inspired by k9s.
   inside `renderBody` or any view-render function is a bug.
 - The test `TestColumnHeadersUseConsistentStyle` enforces this rule across all views;
   add new views to the checklist in that test when adding new tabs.
-

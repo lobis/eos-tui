@@ -279,7 +279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgmsLoading = false
 		m.mgms = msg.mgms
 		m.mgmsErr = msg.err
-		m.mgmSelected = clampIndex(m.mgmSelected, len(m.mgms))
+		m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
 		return m, nil
 
 	case infraLoadedMsg:
@@ -304,7 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgmsErr = msg.mgmsErr
 		if msg.mgmsErr == nil {
 			m.mgms = msg.mgms
-			m.mgmSelected = clampIndex(m.mgmSelected, len(m.mgms))
+			m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
 		}
 		m.fileSystemsErr = msg.fsErr
 		if msg.fsErr == nil {

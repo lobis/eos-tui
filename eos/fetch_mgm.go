@@ -94,6 +94,7 @@ func (c *Client) MGMs(ctx context.Context) ([]MgmRecord, error) {
 			Role:       role,
 			Status:     status,
 			EOSVersion: version,
+			QDBVersion: version,
 		})
 	}
 

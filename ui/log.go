@@ -16,8 +16,9 @@ import (
 func (m model) selectedHostForView() string {
 	switch m.activeView {
 	case viewMGM, viewQDB:
-		if m.mgmSelected >= 0 && m.mgmSelected < len(m.mgms) {
-			return m.mgms[m.mgmSelected].Host
+		rows := m.topologySelectableRows()
+		if m.mgmSelected >= 0 && m.mgmSelected < len(rows) {
+			return rows[m.mgmSelected].host
 		}
 	case viewFST:
 		fsts := m.visibleFSTs()
@@ -46,6 +47,36 @@ func (m model) logTargetForView() (logTarget, bool) {
 	const rtlogTag = "info"
 
 	switch m.activeView {
+	case viewMGM, viewQDB:
+		rows := m.topologySelectableRows()
+		if m.mgmSelected < 0 || m.mgmSelected >= len(rows) {
+			return logTarget{}, false
+		}
+		selected := rows[m.mgmSelected]
+		if selected.kind == topologyHostQDB {
+			host := selected.host
+			if host == "" {
+				return logTarget{}, false
+			}
+			return logTarget{
+				title:    "QDB Log",
+				source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
+				host:     host,
+				filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+			}, true
+		}
+		host := selected.host
+		if host == "" {
+			return logTarget{}, false
+		}
+		return logTarget{
+			title:      "MGM Log",
+			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
+			host:       host,
+			rtlogQueue: ".",
+			rtlogTag:   rtlogTag,
+			rtlogSecs:  rtlogSeconds,
+		}, true
 	case viewFST, viewFileSystems:
 		host := m.selectedHostForView()
 		if host == "" {
@@ -71,19 +102,6 @@ func (m model) logTargetForView() (logTarget, bool) {
 			source:     rtlogSourceLabel(queue, rtlogSeconds, rtlogTag),
 			host:       host,
 			rtlogQueue: queue,
-			rtlogTag:   rtlogTag,
-			rtlogSecs:  rtlogSeconds,
-		}, true
-	case viewMGM, viewQDB:
-		host := m.selectedHostForView()
-		if host == "" {
-			return logTarget{}, false
-		}
-		return logTarget{
-			title:      "MGM Log",
-			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
-			host:       host,
-			rtlogQueue: ".",
 			rtlogTag:   rtlogTag,
 			rtlogSecs:  rtlogSeconds,
 		}, true

@@ -1893,8 +1893,8 @@ func TestLegacyQDBNavigationUpDown(t *testing.T) {
 	// Should not go beyond list end
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
-	if m.mgmSelected != 1 {
-		t.Fatalf("expected mgmSelected clamped at 1, got %d", m.mgmSelected)
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected selection to continue into the qdb rows, got %d", m.mgmSelected)
 	}
 }
 
@@ -1926,10 +1926,11 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	m.activeView = viewMGM
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", EOSVersion: "5.3.29"},
-		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", EOSVersion: "5.3.29"},
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", QDBVersion: "7.0.0"},
+		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", QDBVersion: "7.0.1"},
 	}
 	m.mgmSelected = 1
+	m.eosVersion = "5.3.29"
 
 	view := m.View()
 	for _, needle := range []string{
@@ -1941,10 +1942,33 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 		"qdb02.cern.ch",
 		"leader",
 		"follower",
+		"5.3.29",
+		"7.0.0",
+		"7.0.1",
 	} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected %q in unified MGM/QDB view, got:\n%s", needle, view)
 		}
+	}
+}
+
+func TestMGMNavigationCrossesIntoQDBSection(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01", QDBHost: "qdb01", QDBPort: 7777},
+		{Host: "mgm02", QDBHost: "qdb02", QDBPort: 7777},
+	}
+	m.mgmSelected = 1 // last MGM row
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected selection to move to first QDB row, got %d", m.mgmSelected)
+	}
+	if got := m.selectedHostForView(); got != "qdb01" {
+		t.Fatalf("expected first QDB host selected, got %q", got)
 	}
 }
 
@@ -6713,19 +6737,38 @@ func TestLogTargetForLegacyQDBView(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+	m.mgmSelected = 1
 
 	target, ok := m.logTargetForView()
 	if !ok {
 		t.Fatalf("expected legacy qdb view to resolve a log target")
 	}
-	if target.rtlogQueue != "." {
-		t.Fatalf("expected mgm rtlog queue '.', got %q", target.rtlogQueue)
+	if target.filePath != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
+		t.Fatalf("expected quarkdb log path, got %q", target.filePath)
 	}
-	if target.source != "eos rtlog . 600 info" {
-		t.Fatalf("unexpected mgm source label %q", target.source)
+	if target.source != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
+		t.Fatalf("expected qdb source label to stay on the logfile path, got %q", target.source)
 	}
-	if target.title != "MGM Log" {
-		t.Fatalf("expected MGM Log title, got %q", target.title)
+	if target.title != "QDB Log" {
+		t.Fatalf("expected QDB Log title, got %q", target.title)
+	}
+}
+
+func TestLogTargetForUnifiedViewSelectedQDBHost(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+	m.mgmSelected = 1
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected unified view to resolve a qdb log target")
+	}
+	if target.title != "QDB Log" {
+		t.Fatalf("expected QDB Log title, got %q", target.title)
+	}
+	if target.host != "qdb01.cern.ch" {
+		t.Fatalf("expected qdb host target, got %q", target.host)
 	}
 }
 
@@ -7212,8 +7255,8 @@ func TestLegacyQDBGAndGNavigation(t *testing.T) {
 	}
 
 	m = sendKey(m, runeKey('G'))
-	if m.mgmSelected != 2 {
-		t.Fatalf("expected mgmSelected=2 after G, got %d", m.mgmSelected)
+	if m.mgmSelected != 5 {
+		t.Fatalf("expected mgmSelected=5 after G, got %d", m.mgmSelected)
 	}
 }
 

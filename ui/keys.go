@@ -53,7 +53,7 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateMGMKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.mgms)
+	n := len(m.topologySelectableRows())
 	half := max(1, m.height/6)
 	switch msg.String() {
 	case "up", "k":

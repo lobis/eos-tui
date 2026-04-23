@@ -660,6 +660,8 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 	m.inspectorLoading = false
 	m.vidRecords = []eos.VIDRecord{{Key: "tokensudo", Value: "always"}}
 	m.vidLoading = false
+	m.accessRecords = []eos.AccessRecord{{Category: "user", Rule: "allowed", Value: "lobisapa", RawKey: "user.allowed"}}
+	m.accessLoading = false
 
 	// Detect style application by the escape prefix each style emits.
 	headerStyleMarker := openingANSISequence(m.styles.header.Render("X"))
@@ -682,6 +684,7 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		{"IOTraffic", viewIOShaping},
 		{"Groups", viewGroups},
 		{"VID", viewVID},
+		{"Access", viewAccess},
 	}
 
 	for _, tc := range viewsToCheck {
@@ -2746,6 +2749,7 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		viewIOShaping,
 		viewGroups,
 		viewMGM,
+		viewAccess,
 		viewVID,
 		viewNamespaceStats,
 	}
@@ -3326,11 +3330,11 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	m.width = 120
 	m.height = 30
 
-	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups, viewVID} {
+	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups, viewVID, viewAccess} {
 		m.activeView = v
 		footer := m.renderFooter()
-		if !strings.Contains(footer, "tab/0-8") {
-			t.Errorf("view %d: expected footer to show tab/0-8, got: %s", v, footer)
+		if !strings.Contains(footer, "tab/0-9") {
+			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
 		}
 		if strings.Contains(footer, "tab/1-0") {
 			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
@@ -6131,6 +6135,28 @@ func TestEscClearsActiveFiltersAcrossViews(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "access",
+			setup: func(m model) model {
+				m.activeView = viewAccess
+				m.accessRecords = []eos.AccessRecord{
+					{Category: "user", Rule: "allowed", Value: "lobisapa", RawKey: "user.allowed"},
+					{Category: "group", Rule: "allowed", Value: "it", RawKey: "group.allowed"},
+				}
+				m.accessFilter.filters = map[int]string{int(accessFilterCategory): "user"}
+				m.accessSelected = 0
+				return m
+			},
+			assert: func(t *testing.T, m model) {
+				t.Helper()
+				if len(m.accessFilter.filters) != 0 {
+					t.Fatalf("expected access filters to be cleared")
+				}
+				if m.status != "Access filters cleared" {
+					t.Fatalf("unexpected status %q", m.status)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -6551,6 +6577,83 @@ func TestPopupApplyToGroups(t *testing.T) {
 	// Verify it applied to groupFilter (not fstFilter).
 	if !strings.Contains(m.status, "Group") {
 		t.Errorf("expected status to reference Group, got %q", m.status)
+	}
+}
+
+func TestPopupApplyToAccess(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewAccess
+	m.accessRecords = []eos.AccessRecord{
+		{Category: "user", Rule: "allowed", Value: "lobisapa", RawKey: "user.allowed"},
+		{Category: "group", Rule: "allowed", Value: "it", RawKey: "group.allowed"},
+	}
+	m.accessColumnSelected = int(accessFilterCategory)
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.popup.active {
+		t.Fatalf("expected popup.active=false after enter")
+	}
+	if len(m.accessFilter.filters) != 0 {
+		t.Fatalf("expected access filters empty after applying no-filter row, got %v", m.accessFilter.filters)
+	}
+}
+
+func TestAccessSlashUsesSelectedColumn(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewAccess
+	m.accessRecords = []eos.AccessRecord{{Category: "user", Rule: "allowed", Value: "lobisapa", RawKey: "user.allowed"}}
+	m.accessColumnSelected = int(accessFilterValue)
+
+	m = sendKey(m, runeKey('/'))
+	if !m.popup.active {
+		t.Fatalf("expected popup.active=true after '/'")
+	}
+	if m.popup.view != viewAccess {
+		t.Fatalf("expected popup viewAccess, got %d", m.popup.view)
+	}
+	if m.popup.column != int(accessFilterValue) {
+		t.Fatalf("expected popup column %d, got %d", accessFilterValue, m.popup.column)
+	}
+}
+
+func TestAccessEnterOpensActionPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewAccess
+	m.accessRecords = []eos.AccessRecord{{Category: "user", Rule: "allowed", Value: "lobisapa", RawKey: "user.allowed"}}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.accessAction.active {
+		t.Fatalf("expected access action popup to open")
+	}
+	if len(m.accessAction.actions) != 2 {
+		t.Fatalf("expected 2 actions, got %d", len(m.accessAction.actions))
+	}
+	if got := m.accessAction.actions[0].kind; got != accessActionUnallow {
+		t.Fatalf("expected first action to be unallow, got %d", got)
+	}
+}
+
+func TestAccessStallHotkeyOpensPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewAccess
+
+	m = sendKey(m, runeKey('s'))
+	if !m.accessAction.active {
+		t.Fatalf("expected global stall popup to open")
+	}
+	if len(m.accessAction.actions) != 1 || m.accessAction.actions[0].kind != accessActionSetStall {
+		t.Fatalf("expected single stall action, got %+v", m.accessAction.actions)
+	}
+	if !m.accessAction.focusInput {
+		t.Fatalf("expected stall popup to focus input")
+	}
+	if got := m.accessAction.input.Value(); got != "300" {
+		t.Fatalf("expected default stall value 300, got %q", got)
 	}
 }
 

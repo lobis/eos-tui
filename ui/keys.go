@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -568,6 +569,110 @@ func (m model) updateVIDKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vidSelected = max(0, len(records)-1)
 	}
 
+	return m, nil
+}
+
+func (m model) updateAccessKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	records := m.visibleAccessRecords()
+	half := max(1, m.height/6)
+	switch msg.String() {
+	case "/":
+		m.accessFilter.column = m.accessColumnSelected
+		m.openFilterPopup()
+		return m, nil
+	case "c":
+		delete(m.accessFilter.filters, m.accessColumnSelected)
+		m.accessFilter.column = m.accessColumnSelected
+		m.accessSelected = clampIndex(m.accessSelected, len(m.visibleAccessRecords()))
+		m.status = fmt.Sprintf("Cleared access filter on %s", m.accessFilterColumnLabel())
+	case "left":
+		m.accessColumnSelected = max(0, m.accessColumnSelected-1)
+		m.accessFilter.column = m.accessColumnSelected
+		m.status = fmt.Sprintf("Selected access column: %s", m.accessFilterColumnLabel())
+	case "right":
+		m.accessColumnSelected = min(int(accessFilterValue), m.accessColumnSelected+1)
+		m.accessFilter.column = m.accessColumnSelected
+		m.status = fmt.Sprintf("Selected access column: %s", m.accessFilterColumnLabel())
+	case "enter":
+		return m.startAccessActionPopup()
+	case "s":
+		return m.startAccessStallPopup()
+	case "up", "k":
+		if m.accessSelected > 0 {
+			m.accessSelected--
+		}
+	case "down", "j":
+		if m.accessSelected < len(records)-1 {
+			m.accessSelected++
+		}
+	case "ctrl+u":
+		m.accessSelected = max(0, m.accessSelected-half)
+	case "ctrl+d":
+		m.accessSelected = min(len(records)-1, m.accessSelected+half)
+	case "g":
+		m.accessSelected = 0
+	case "G":
+		m.accessSelected = max(0, len(records)-1)
+	}
+
+	return m, nil
+}
+
+func (m model) updateAccessActionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.accessAction.focusInput {
+		switch msg.String() {
+		case "esc":
+			m.accessAction.active = false
+			m.status = "Access action cancelled"
+			return m, nil
+		case "enter":
+			seconds, err := strconv.Atoi(m.accessAction.input.Value())
+			if err != nil || seconds <= 0 {
+				m.status = "Stall seconds must be a positive integer"
+				return m, nil
+			}
+			m.accessAction.active = false
+			m.status = fmt.Sprintf("Running eos access set stall %d...", seconds)
+			return m, runAccessStallCmd(m.client, seconds)
+		default:
+			var cmd tea.Cmd
+			m.accessAction.input, cmd = m.accessAction.input.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.accessAction.active = false
+		m.status = "Access action cancelled"
+		return m, nil
+	case "g":
+		m.accessAction.selected = 0
+	case "G":
+		m.accessAction.selected = max(0, len(m.accessAction.actions)-1)
+	case "up", "k":
+		if m.accessAction.selected > 0 {
+			m.accessAction.selected--
+		}
+	case "down", "j":
+		if m.accessAction.selected < len(m.accessAction.actions)-1 {
+			m.accessAction.selected++
+		}
+	case "enter":
+		if len(m.accessAction.actions) == 0 {
+			m.accessAction.active = false
+			return m, nil
+		}
+		action := m.accessAction.actions[m.accessAction.selected]
+		m.accessAction.active = false
+		switch action.kind {
+		case accessActionAllow, accessActionUnallow, accessActionBan, accessActionUnban:
+			m.status = fmt.Sprintf("Running eos access %s...", action.command)
+			return m, runAccessRuleCmd(m.client, accessActionVerb(action.kind), m.accessAction.record.Category, m.accessAction.record.Value)
+		case accessActionSetStall:
+			return m.startAccessStallPopup()
+		}
+	}
 	return m, nil
 }
 

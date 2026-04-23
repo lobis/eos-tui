@@ -106,6 +106,35 @@ func loadVIDCmd(client *eos.Client, mode vidListMode) tea.Cmd {
 	}
 }
 
+func loadAccessCmd(client *eos.Client) tea.Cmd {
+	return func() tea.Msg {
+		records, err := client.AccessList(context.Background())
+		return accessLoadedMsg{records: records, err: err}
+	}
+}
+
+func runAccessRuleCmd(client *eos.Client, op, category, value string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SetAccessRule(context.Background(), op, category, value)
+		return accessActionResultMsg{
+			op:     op,
+			target: fmt.Sprintf("%s %s %s", op, category, value),
+			err:    err,
+		}
+	}
+}
+
+func runAccessStallCmd(client *eos.Client, seconds int) tea.Cmd {
+	return func() tea.Msg {
+		err := client.SetAccessStall(context.Background(), seconds)
+		return accessActionResultMsg{
+			op:     "stall",
+			target: fmt.Sprintf("set stall %ds", seconds),
+			err:    err,
+		}
+	}
+}
+
 func loadNamespaceStatsCmd(client *eos.Client) tea.Cmd {
 	return func() tea.Msg {
 		stats, err := client.NamespaceStats(context.Background())

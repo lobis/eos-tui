@@ -80,6 +80,21 @@ func (m model) visibleGroups() []eos.GroupRecord {
 	return groups
 }
 
+func (m model) visibleAccessRecords() []eos.AccessRecord {
+	records := append([]eos.AccessRecord(nil), m.accessRecords...)
+	if len(m.accessFilter.filters) == 0 {
+		return records
+	}
+
+	filtered := make([]eos.AccessRecord, 0, len(records))
+	for _, record := range records {
+		if m.matchesAccessFilters(record) {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
+}
+
 func (m model) visibleSpaces() []eos.SpaceRecord {
 	spaces := append([]eos.SpaceRecord(nil), m.spaces...)
 	if len(m.spaceFilter.filters) > 0 {
@@ -222,6 +237,30 @@ func (m model) matchesNamespaceFilters(entry eos.Entry) bool {
 	return true
 }
 
+func (m model) matchesAccessFilters(record eos.AccessRecord) bool {
+	for col, filter := range m.accessFilter.filters {
+		if filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.accessFilterValueForColumn(record, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m model) matchesAccessFiltersExcept(record eos.AccessRecord, excludeColumn int) bool {
+	for col, filter := range m.accessFilter.filters {
+		if col == excludeColumn || filter == "" {
+			continue
+		}
+		if !matchesFilterQuery(m.accessFilterValueForColumn(record, col), filter) {
+			return false
+		}
+	}
+	return true
+}
+
 func (m model) matchesNamespaceFiltersExcept(entry eos.Entry, excludeColumn int) bool {
 	for col, filter := range m.nsFilter.filters {
 		if col == excludeColumn || filter == "" {
@@ -353,6 +392,10 @@ func (m model) groupFilterValue(g eos.GroupRecord) string {
 	return m.groupFilterValueForColumn(g, m.groupFilter.column)
 }
 
+func (m model) accessFilterValue(record eos.AccessRecord) string {
+	return m.accessFilterValueForColumn(record, m.accessFilter.column)
+}
+
 func (m model) spaceFilterValue(s eos.SpaceRecord) string {
 	return m.spaceFilterValueForColumn(s, m.spaceFilter.column)
 }
@@ -400,6 +443,19 @@ func (m model) groupFilterValueForColumn(g eos.GroupRecord, column int) string {
 		return fmt.Sprintf("%d", g.NumFiles)
 	default:
 		return g.Name
+	}
+}
+
+func (m model) accessFilterValueForColumn(record eos.AccessRecord, column int) string {
+	switch accessFilterColumn(column) {
+	case accessFilterCategory:
+		return record.Category
+	case accessFilterRule:
+		return record.Rule
+	case accessFilterValue:
+		return record.Value
+	default:
+		return record.Category
 	}
 }
 
@@ -902,6 +958,19 @@ func (m model) spaceFilterColumnLabel() string {
 	}
 }
 
+func (m model) accessFilterColumnLabel() string {
+	switch accessFilterColumn(m.accessFilter.column) {
+	case accessFilterCategory:
+		return "category"
+	case accessFilterRule:
+		return "rule"
+	case accessFilterValue:
+		return "value"
+	default:
+		return "category"
+	}
+}
+
 func (m model) spaceSortColumnLabel() string {
 	switch spaceSortColumn(m.spaceSort.column) {
 	case spaceSortName:
@@ -960,6 +1029,8 @@ func (m model) activeFilterColumnLabel() string {
 		return m.spaceFilterColumnLabel()
 	case viewGroups:
 		return m.groupFilterColumnLabel()
+	case viewAccess:
+		return m.accessFilterColumnLabel()
 	default:
 		return m.fstFilterColumnLabel()
 	}
@@ -984,6 +1055,9 @@ func (m *model) openFilterPopup() {
 	} else if m.activeView == viewGroups {
 		m.popup.column = m.groupsColumnSelected
 		m.popup.input.SetValue(m.groupFilter.filters[m.groupsColumnSelected])
+	} else if m.activeView == viewAccess {
+		m.popup.column = m.accessColumnSelected
+		m.popup.input.SetValue(m.accessFilter.filters[m.accessColumnSelected])
 	} else {
 		m.popup.column = m.fstColumnSelected
 		m.popup.input.SetValue(m.fstFilter.filters[m.fstColumnSelected])
@@ -1078,6 +1152,15 @@ func (m *model) applyPopupSelection() {
 		m.statsDetailSelected = 0
 		m.statsDetailOffsetX = 0
 		m.closeFilterPopup(fmt.Sprintf("Stats detail filters active: %d", len(m.statsFilter.filters)))
+	case viewAccess:
+		m.accessFilter.column = m.popup.column
+		if value == "" {
+			delete(m.accessFilter.filters, m.popup.column)
+		} else {
+			m.accessFilter.filters[m.popup.column] = value
+		}
+		m.accessSelected = clampIndex(0, len(m.visibleAccessRecords()))
+		m.closeFilterPopup(fmt.Sprintf("Access filters active: %d", len(m.accessFilter.filters)))
 	default:
 		m.fstFilter.column = m.popup.column
 		if value == "" {
@@ -1168,6 +1251,17 @@ func (m model) popupValues() []string {
 		}
 	case viewNamespaceStats:
 		for _, value := range m.statsPopupValues() {
+			if !seen[value] {
+				seen[value] = true
+				values = append(values, value)
+			}
+		}
+	case viewAccess:
+		for _, record := range m.accessRecords {
+			if !m.matchesAccessFiltersExcept(record, m.popup.column) {
+				continue
+			}
+			value := m.accessFilterValueForColumn(record, m.popup.column)
 			if !seen[value] {
 				seen[value] = true
 				values = append(values, value)

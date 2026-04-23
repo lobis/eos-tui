@@ -26,8 +26,8 @@ func (m model) renderVIDList(width, height int) string {
 	}
 
 	columns := allocateTableColumns(contentWidth, contentAwareColumns([]tableColumn{
-		{title: "key", min: 18, maxw: 32, weight: 1},
-		{title: "value", min: 12, weight: 3},
+		{title: "key", min: 28, maxw: 96, weight: 5},
+		{title: "value", min: 10, weight: 2},
 	}, dataRows))
 
 	title := m.styles.label.Render("EOS VID  ") + m.renderVIDModeTabs()
@@ -75,7 +75,6 @@ func (m model) renderVIDDetails(width, height int) string {
 	}
 
 	lines = append(lines,
-		"",
 		m.renderSectionTitle("Mutation Syntax", contentWidth),
 		truncate("eos vid set membership <uid> -uids|-gids [<list>]", contentWidth),
 		truncate("eos vid set membership <uid> [+|-]sudo", contentWidth),

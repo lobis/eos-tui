@@ -301,7 +301,14 @@ func (m model) renderLogViewport() string {
 	// Explicitly pad every line to the viewport width so that lipgloss draws
 	// the right border correctly even when lines are shorter than the panel.
 	for i, line := range visible {
-		visible[i] = padVisibleWidth(line, w)
+		padded := padVisibleWidth(line, w)
+		if strings.TrimSpace(padded) == "" {
+			// Keep blank viewport rows as styled spans so the desktop renderer
+			// preserves their full width instead of collapsing them.
+			visible[i] = m.styles.status.Render(padded)
+		} else {
+			visible[i] = padded
+		}
 	}
 
 	return strings.Join(visible, "\n")

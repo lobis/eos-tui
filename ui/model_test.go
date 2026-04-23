@@ -1265,6 +1265,24 @@ func TestOpenLogOverlayEnablesWrapByDefault(t *testing.T) {
 	}
 }
 
+func TestSanitizeLogLinesRemovesControlCharacters(t *testing.T) {
+	lines := sanitizeLogLines([]string{
+		"alpha\r",
+		"beta\x00gamma",
+		"delta\tomega",
+	})
+
+	if got := lines[0]; got != "alpha" {
+		t.Fatalf("expected CR to be stripped, got %q", got)
+	}
+	if got := lines[1]; got != "betagamma" {
+		t.Fatalf("expected control chars to be removed, got %q", got)
+	}
+	if got := lines[2]; got != "delta\tomega" {
+		t.Fatalf("expected tabs to be preserved, got %q", got)
+	}
+}
+
 func TestLogOverlayToggleWrapWithW(t *testing.T) {
 	m := NewModel(nil, "test", "/").(model)
 	m.width = 40

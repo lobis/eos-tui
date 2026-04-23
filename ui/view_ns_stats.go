@@ -24,7 +24,7 @@ type statsTable struct {
 	rows    [][]string
 }
 
-const statsListSummaryWidthCap = 34
+const statsListSummaryWidthCap = 40
 
 func (m model) renderNamespaceStatsView(height int) string {
 	panelHeight := height + 2
@@ -151,7 +151,7 @@ func (m model) inspectorOverviewSection() statsSection {
 		section.summary = "loading"
 		section.lines = []string{"Loading inspector statistics..."}
 	case m.inspectorErr != nil:
-		section.summary = "error"
+		section.summary = inspectorErrorSummary(m.inspectorErr)
 		section.lines = []string{m.inspectorErr.Error()}
 	default:
 		inspector := m.inspectorStats
@@ -173,7 +173,7 @@ func (m model) inspectorLayoutsSection() statsSection {
 		section.summary = "loading"
 		section.lines = []string{"Loading inspector layout data..."}
 	case m.inspectorErr != nil:
-		section.summary = "error"
+		section.summary = inspectorErrorSummary(m.inspectorErr)
 		section.lines = []string{m.inspectorErr.Error()}
 	case len(m.inspectorStats.Layouts) == 0:
 		section.summary = "none"
@@ -198,7 +198,7 @@ func (m model) inspectorUsersSection() statsSection {
 		section.summary = "loading"
 		section.lines = []string{"Loading inspector user cost data..."}
 	case m.inspectorErr != nil:
-		section.summary = "error"
+		section.summary = inspectorErrorSummary(m.inspectorErr)
 		section.lines = []string{m.inspectorErr.Error()}
 	case len(m.inspectorStats.UserCosts) == 0:
 		section.summary = "none"
@@ -222,7 +222,7 @@ func (m model) inspectorGroupsSection() statsSection {
 		section.summary = "loading"
 		section.lines = []string{"Loading inspector group cost data..."}
 	case m.inspectorErr != nil:
-		section.summary = "error"
+		section.summary = inspectorErrorSummary(m.inspectorErr)
 		section.lines = []string{m.inspectorErr.Error()}
 	case len(m.inspectorStats.GroupCosts) == 0:
 		section.summary = "none"
@@ -254,7 +254,7 @@ func (m model) inspectorBinsSection(title string, files, volume []eos.InspectorB
 		section.summary = "loading"
 		section.lines = []string{"Loading inspector age-bucket data..."}
 	case err != nil:
-		section.summary = "error"
+		section.summary = inspectorErrorSummary(err)
 		section.lines = []string{err.Error()}
 	case len(files) == 0 && len(volume) == 0:
 		section.summary = "none"
@@ -264,6 +264,21 @@ func (m model) inspectorBinsSection(title string, files, volume []eos.InspectorB
 		section.table = m.inspectorBinsTable(files, volume)
 	}
 	return section
+}
+
+func inspectorErrorSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "permission denied"), strings.Contains(lower, "unavailable"):
+		return "unavailable"
+	case strings.Contains(lower, "disabled"):
+		return "disabled"
+	default:
+		return "error"
+	}
 }
 
 func (m model) renderStatsSectionList(width, height int, sections []statsSection) string {
@@ -353,18 +368,16 @@ func (m model) renderStatsSectionDetails(width, height int, sections []statsSect
 
 func (m model) statsListNaturalWidth(sections []statsSection) int {
 	sectionWidth := lipgloss.Width("section")
-	summaryWidth := lipgloss.Width("summary")
 	for _, section := range sections {
 		sectionWidth = max(sectionWidth, lipgloss.Width(section.title))
-		summaryWidth = max(summaryWidth, lipgloss.Width(section.summary))
 	}
-	summaryWidth = min(summaryWidth, statsListSummaryWidthCap)
+	summaryWidth := statsListSummaryWidthCap
 	contentWidth := max(lipgloss.Width("General Statistics"), sectionWidth+1+summaryWidth) + 2
 	return contentWidth + 4
 }
 
 func (m model) statsPaneWidths(totalWidth int, sections []statsSection) (listWidth, detailWidth int) {
-	const minListWidth = 52
+	const minListWidth = 58
 	const minDetailWidth = 44
 
 	listNaturalWidth := max(minListWidth, m.statsListNaturalWidth(sections))

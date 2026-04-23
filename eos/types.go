@@ -171,6 +171,13 @@ type VIDRecord struct {
 	Value string
 }
 
+type AccessRecord struct {
+	Category string
+	Rule     string
+	Value    string
+	RawKey   string
+}
+
 type InspectorLayoutSummary struct {
 	Layout        string
 	Type          string

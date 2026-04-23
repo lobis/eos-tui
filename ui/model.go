@@ -60,6 +60,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		groupsLoading:      activeView == viewGroups,
 		ioShapingLoading:   activeView == viewIOShaping,
 		vidLoading:         activeView == viewVID,
+		accessLoading:      activeView == viewAccess,
 		directory: eos.Directory{
 			Path: cleanPath(initialPath),
 		},
@@ -76,6 +77,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		nsFilter:             filterState{filters: map[int]string{}},
 		spaceFilter:          filterState{filters: map[int]string{}},
 		groupFilter:          filterState{filters: map[int]string{}},
+		accessFilter:         filterState{filters: map[int]string{}},
 		statsFilter:          filterState{filters: map[int]string{}},
 		popup: filterPopup{
 			input: input,
@@ -103,6 +105,8 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, loadIOShapingCmd(m.client, m.ioShapingMode), loadIOShapingPoliciesCmd(m.client), ioShapingTickCmd(), ioShapingPolicyTickCmd())
 	case viewVID:
 		cmds = append(cmds, loadVIDCmd(m.client, m.vidMode))
+	case viewAccess:
+		cmds = append(cmds, loadAccessCmd(m.client))
 	}
 	if m.commandLog.active {
 		cmds = append(cmds, loadCommandHistoryCmd(m.client), commandLogTickCmd())
@@ -149,6 +153,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.alert.active = false
 			}
 			return m, nil
+		}
+		if m.accessAction.active {
+			return m.updateAccessActionKeys(msg)
 		}
 		if m.popup.active {
 			return m.updatePopup(msg)
@@ -223,6 +230,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.statsDetailOffsetY = 0
 					m.status = "Returned to stats section list"
 				}
+			case viewAccess:
+				if len(m.accessFilter.filters) > 0 {
+					m.accessFilter.filters = map[int]string{}
+					m.accessSelected = clampIndex(m.accessSelected, len(m.visibleAccessRecords()))
+					m.status = "Access filters cleared"
+				}
 			}
 			return m, nil
 		case "tab":
@@ -241,6 +254,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l":
 			return m.openLogOverlay()
 		case "s":
+			if m.activeView == viewAccess {
+				break
+			}
 			return m.openShell()
 		}
 
@@ -274,6 +290,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateGroupKeys(msg)
 		case viewVID:
 			return m.updateVIDKeys(msg)
+		case viewAccess:
+			return m.updateAccessKeys(msg)
 		}
 	case mgmsLoadedMsg:
 		m.mgmsLoading = false
@@ -340,6 +358,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Cluster summary refresh failed: %v", msg.err)
 		} else {
 			m.nodeStats = msg.stats
+			m.nodeStats.State = m.computeClusterHealth()
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case fstsLoadedMsg:
@@ -396,6 +415,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vidSelected = clampIndex(m.vidSelected, len(m.vidRecords))
 			m.status = fmt.Sprintf("Loaded VID mappings via eos vid ls %s", strings.TrimSpace(msg.mode.flag()))
 		}
+	case accessLoadedMsg:
+		m.accessLoading = false
+		m.accessErr = msg.err
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Access refresh failed: %v", msg.err)
+		} else {
+			m.accessRecords = msg.records
+			m.accessSelected = clampIndex(m.accessSelected, len(m.visibleAccessRecords()))
+			m.status = "Loaded access rules via eos access ls -m"
+		}
+	case accessActionResultMsg:
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("access action failed: %v", msg.err),
+			}
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Applied access action: %s", msg.target)
+		m.accessLoading = true
+		m.accessErr = nil
+		return m, loadAccessCmd(m.client)
 	case namespaceStatsLoadedMsg:
 		m.nsStatsLoading = false
 		m.nsStatsErr = msg.err
@@ -674,6 +715,8 @@ func (m model) View() string {
 	body := m.renderBody(bodyHeight)
 	if m.popup.active {
 		body = m.renderBodyWithPopup(body, bodyTotalHeight)
+	} else if m.accessAction.active {
+		body = m.renderOverlay(body, m.renderAccessActionPopup(), bodyTotalHeight)
 	} else if m.edit.active {
 		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
 	} else if m.nsAttrEdit.active {
@@ -724,6 +767,8 @@ func (m model) startupLoading() bool {
 		return len(m.groups) == 0 && m.groupsLoading
 	case viewVID:
 		return len(m.vidRecords) == 0 && m.vidLoading
+	case viewAccess:
+		return len(m.accessRecords) == 0 && m.accessLoading
 	default:
 		return false
 	}
@@ -774,6 +819,13 @@ func (m model) onViewChanged() (tea.Model, tea.Cmd) {
 			m.vidLoading = true
 			m.vidErr = nil
 			return m, loadVIDCmd(m.client, m.vidMode)
+		}
+		return m, nil
+	case viewAccess:
+		if !m.accessLoading && len(m.accessRecords) == 0 && m.accessErr == nil {
+			m.accessLoading = true
+			m.accessErr = nil
+			return m, loadAccessCmd(m.client)
 		}
 		return m, nil
 	case viewNamespaceStats:
@@ -856,6 +908,11 @@ func (m model) refreshActiveView() (tea.Model, tea.Cmd) {
 		m.vidErr = nil
 		m.status = fmt.Sprintf("Refreshing VID scope %s...", m.vidMode.label())
 		return m, loadVIDCmd(m.client, m.vidMode)
+	case viewAccess:
+		m.accessLoading = true
+		m.accessErr = nil
+		m.status = "Refreshing access rules..."
+		return m, loadAccessCmd(m.client)
 	default:
 		m.fstStatsLoading = true
 		m.fstsLoading = true

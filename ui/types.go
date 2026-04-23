@@ -27,9 +27,10 @@ const (
 	viewIOShaping
 	viewGroups
 	viewVID
+	viewAccess
 )
 
-const viewCount = 11
+const viewCount = 12
 
 type viewTab struct {
 	key   string
@@ -46,6 +47,7 @@ var orderedViewTabs = []viewTab{
 	{key: "6", label: "6 IO Traffic", view: viewIOShaping},
 	{key: "7", label: "7 Groups", view: viewGroups},
 	{key: "8", label: "8 MGM/QDB", view: viewMGM},
+	{key: "9", label: "9 Access", view: viewAccess},
 	{key: "0", label: "0 VID", view: viewVID},
 }
 
@@ -128,6 +130,11 @@ type vidLoadedMsg struct {
 	err     error
 }
 
+type accessLoadedMsg struct {
+	records []eos.AccessRecord
+	err     error
+}
+
 type namespaceStatsLoadedMsg struct {
 	stats eos.NamespaceStats
 	err   error
@@ -168,6 +175,12 @@ type groupSetResultMsg struct {
 	batch  bool
 	count  int
 	failed []string
+}
+
+type accessActionResultMsg struct {
+	op     string
+	target string
+	err    error
 }
 
 type ioShapingLoadedMsg struct {
@@ -452,6 +465,42 @@ type filterState struct {
 const namespaceFilterQueryColumn = 0
 const statsFilterQueryColumn = 0
 
+type accessFilterColumn int
+
+const (
+	accessFilterCategory accessFilterColumn = iota
+	accessFilterRule
+	accessFilterValue
+)
+
+type accessActionKind int
+
+const (
+	accessActionNone accessActionKind = iota
+	accessActionAllow
+	accessActionUnallow
+	accessActionBan
+	accessActionUnban
+	accessActionSetStall
+)
+
+type accessActionOption struct {
+	kind    accessActionKind
+	label   string
+	command string
+}
+
+type accessActionPopup struct {
+	active      bool
+	title       string
+	description string
+	record      eos.AccessRecord
+	actions     []accessActionOption
+	selected    int
+	input       textinput.Model
+	focusInput  bool
+}
+
 type statsPaneFocus int
 
 const (
@@ -675,6 +724,14 @@ type model struct {
 	vidLoading  bool
 	vidErr      error
 	vidSelected int
+
+	accessRecords        []eos.AccessRecord
+	accessLoading        bool
+	accessErr            error
+	accessSelected       int
+	accessColumnSelected int
+	accessFilter         filterState
+	accessAction         accessActionPopup
 
 	namespaceStats            eos.NamespaceStats
 	nsStatsLoading            bool

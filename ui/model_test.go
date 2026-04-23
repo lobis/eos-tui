@@ -1932,7 +1932,16 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	m.mgmSelected = 1
 
 	view := m.View()
-	for _, needle := range []string{"mgm01.cern.ch", "mgm02.cern.ch", "qdb01.cern.ch", "qdb02.cern.ch", "leader", "follower"} {
+	for _, needle := range []string{
+		"Management Nodes (MGM)",
+		"QuarkDB Hosts (QDB)",
+		"mgm01.cern.ch",
+		"mgm02.cern.ch",
+		"qdb01.cern.ch",
+		"qdb02.cern.ch",
+		"leader",
+		"follower",
+	} {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected %q in unified MGM/QDB view, got:\n%s", needle, view)
 		}

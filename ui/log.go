@@ -142,6 +142,7 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 		rtlogSecs:  target.rtlogSecs,
 		title:      titleWithHost,
 		tailing:    true,
+		wrap:       true,
 		loading:    true,
 		vp:         vp,
 		input:      logInput,

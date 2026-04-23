@@ -1119,6 +1119,22 @@ func TestLogOverlayToggleTailingWithT(t *testing.T) {
 	}
 }
 
+func TestOpenLogOverlayEnablesWrapByDefault(t *testing.T) {
+	m := NewModel(&eos.Client{}, "test", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094}}
+
+	updated, _ := m.openLogOverlay()
+	m = updated.(model)
+
+	if !m.log.active {
+		t.Fatalf("expected log overlay to open")
+	}
+	if !m.log.wrap {
+		t.Fatalf("expected line wrapping to be enabled by default")
+	}
+}
+
 func TestLogOverlayToggleWrapWithW(t *testing.T) {
 	m := NewModel(nil, "test", "/").(model)
 	m.width = 40

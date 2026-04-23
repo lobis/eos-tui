@@ -53,7 +53,7 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateMGMKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.mgms)
+	n := len(m.topologySelectableRows())
 	half := max(1, m.height/6)
 	switch msg.String() {
 	case "up", "k":
@@ -72,30 +72,6 @@ func (m model) updateMGMKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mgmSelected = 0
 	case "G":
 		m.mgmSelected = max(0, n-1)
-	}
-	return m, nil
-}
-
-func (m model) updateQDBKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.mgms)
-	half := max(1, m.height/6)
-	switch msg.String() {
-	case "up", "k":
-		if m.qdbSelected > 0 {
-			m.qdbSelected--
-		}
-	case "down", "j":
-		if m.qdbSelected < n-1 {
-			m.qdbSelected++
-		}
-	case "ctrl+u":
-		m.qdbSelected = max(0, m.qdbSelected-half)
-	case "ctrl+d":
-		m.qdbSelected = min(n-1, m.qdbSelected+half)
-	case "g":
-		m.qdbSelected = 0
-	case "G":
-		m.qdbSelected = max(0, n-1)
 	}
 	return m, nil
 }

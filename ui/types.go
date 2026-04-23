@@ -17,7 +17,7 @@ type viewID int
 
 const (
 	viewMGM viewID = iota
-	viewQDB
+	viewQDB        // deprecated: kept for persisted-state migration only
 	viewFST
 	viewFileSystems
 	viewNamespace
@@ -45,8 +45,7 @@ var orderedViewTabs = []viewTab{
 	{key: "5", label: "5 Spaces", view: viewSpaces},
 	{key: "6", label: "6 IO Traffic", view: viewIOShaping},
 	{key: "7", label: "7 Groups", view: viewGroups},
-	{key: "8", label: "8 MGM", view: viewMGM},
-	{key: "9", label: "9 QDB", view: viewQDB},
+	{key: "8", label: "8 MGM/QDB", view: viewMGM},
 	{key: "0", label: "0 VID", view: viewVID},
 }
 
@@ -649,7 +648,6 @@ type model struct {
 	eosVersion string
 
 	mgmSelected int
-	qdbSelected int
 
 	fstSelected       int
 	fstColumnSelected int

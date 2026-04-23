@@ -123,6 +123,22 @@ func TestLoadPersistedUIStateMigratesDeprecatedSpaceStatusView(t *testing.T) {
 	}
 }
 
+func TestLoadPersistedUIStateMigratesDeprecatedQDBView(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	savePersistedUIState(persistedUIState{
+		NamespacePath:     "/eos/dev",
+		ActiveView:        viewQDB,
+		CommandLogVisible: true,
+	})
+
+	state := loadPersistedUIState()
+	if state.ActiveView != viewMGM {
+		t.Fatalf("expected deprecated qdb view to migrate to mgm, got %d", state.ActiveView)
+	}
+}
+
 func TestLoadPersistedUIStateIgnoresCorruptFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

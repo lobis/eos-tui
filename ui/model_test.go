@@ -674,8 +674,7 @@ func TestColumnHeadersUseConsistentStyle(t *testing.T) {
 		name string
 		view viewID
 	}{
-		{"MGM", viewMGM},
-		{"QDB", viewQDB},
+		{"MGM/QDB", viewMGM},
 		{"FST", viewFST},
 		{"FS", viewFileSystems},
 		{"Spaces", viewSpaces},
@@ -933,15 +932,52 @@ func TestBoxedLogOverlayShrinksToShortContent(t *testing.T) {
 	}
 }
 
+func TestShortBoxedLogOverlayUsesFullWidthPaddingRows(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 120
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		title:    "MGM Log",
+		err:      fmt.Errorf("reload failed"),
+	}
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 18 {
+		t.Fatalf("expected 18 rendered lines, got %d", len(lines))
+	}
+
+	firstBorder := -1
+	for i, line := range lines {
+		if strings.Contains(line, "┌") {
+			firstBorder = i
+			break
+		}
+	}
+	if firstBorder <= 0 {
+		t.Fatalf("expected leading padding rows before the boxed log, got:\n%s", rendered)
+	}
+
+	for i := 0; i < firstBorder; i++ {
+		if got := lipgloss.Width(lines[i]); got != m.contentWidth() {
+			t.Fatalf("expected padding row %d to use full width %d, got %d", i, m.contentWidth(), got)
+		}
+		if strings.TrimSpace(lines[i]) != "" {
+			t.Fatalf("expected padding row %d to be blank, got %q", i, lines[i])
+		}
+	}
+}
+
 // TestLogOverlayNeverExceedsContentWidth verifies that renderLogOverlay never
 // produces a line wider than m.contentWidth(), for a range of terminal widths
 // and with potentially overflow-triggering content.  The right panel border
 // must also be present on every content line.
 //
-// Background: in lipgloss v1, Width(w) sets content+padding width; the two
-// border characters are added on top, making the outer box Width+2.  The log
-// overlay must call Width(contentWidth-2) so the outer matches contentWidth
-// and normalizeRenderedBlock does not clip the right border.
+// This guards against regressions where the boxed log viewport is sized
+// inconsistently with the outer panel, which can leave wrapped or clipped
+// border fragments on mostly-empty overlays.
 func TestLogOverlayNeverExceedsContentWidth(t *testing.T) {
 	termWidths := []int{80, 100, 120, 160, 200}
 	contents := []struct {
@@ -1012,6 +1048,99 @@ func TestLogOverlayNeverExceedsContentWidth(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestShortBoxedLogOverlayKeepsStraightSideBorders(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 140
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+		title:    "QDB Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+		wrap:     true,
+	}
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(rendered, "\n")
+	firstBorder := -1
+	lastBorder := -1
+	for i, line := range lines {
+		stripped := ansi.Strip(line)
+		if strings.HasPrefix(stripped, "┌") {
+			firstBorder = i
+		}
+		if strings.HasPrefix(stripped, "└") {
+			lastBorder = i
+			break
+		}
+	}
+	if firstBorder < 0 || lastBorder < 0 || lastBorder <= firstBorder {
+		t.Fatalf("expected a boxed log overlay, got:\n%s", rendered)
+	}
+
+	for i := firstBorder + 1; i < lastBorder; i++ {
+		stripped := ansi.Strip(lines[i])
+		if strings.TrimSpace(stripped) == "" {
+			continue
+		}
+		if !strings.HasPrefix(stripped, "│") {
+			t.Fatalf("expected boxed log row %d to start with a left border, got %q", i, stripped)
+		}
+		trimmed := strings.TrimRight(stripped, " ")
+		if !strings.HasSuffix(trimmed, "│") {
+			t.Fatalf("expected boxed log row %d to end with a right border, got %q", i, stripped)
+		}
+	}
+}
+
+func TestShortBoxedLogViewKeepsStraightSideBorders(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 140
+	m.height = 24
+	m.splash.active = false
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+		title:    "QDB Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+		wrap:     true,
+	}
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	firstBorder := -1
+	lastBorder := -1
+	for i, line := range lines {
+		stripped := ansi.Strip(line)
+		if strings.HasPrefix(strings.TrimLeft(stripped, " "), "┌") && firstBorder < 0 {
+			firstBorder = i
+		}
+		if strings.HasPrefix(strings.TrimLeft(stripped, " "), "└") {
+			lastBorder = i
+		}
+	}
+	if firstBorder < 0 || lastBorder < 0 || lastBorder <= firstBorder {
+		t.Fatalf("expected boxed log view, got:\n%s", view)
+	}
+
+	for i := firstBorder + 1; i < lastBorder; i++ {
+		stripped := ansi.Strip(lines[i])
+		trimmedLeft := strings.TrimLeft(stripped, " ")
+		if strings.TrimSpace(trimmedLeft) == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmedLeft, "│") {
+			t.Fatalf("expected boxed log row %d to start with a left border, got %q", i, stripped)
+		}
+		trimmedRight := strings.TrimRight(trimmedLeft, " ")
+		if !strings.HasSuffix(trimmedRight, "│") {
+			t.Fatalf("expected boxed log row %d to end with a right border, got %q", i, stripped)
 		}
 	}
 }
@@ -1117,6 +1246,40 @@ func TestLogOverlayToggleTailingWithT(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatalf("expected re-enabling log tailing to schedule reload")
+	}
+}
+
+func TestOpenLogOverlayEnablesWrapByDefault(t *testing.T) {
+	m := NewModel(&eos.Client{}, "test", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094}}
+
+	updated, _ := m.openLogOverlay()
+	m = updated.(model)
+
+	if !m.log.active {
+		t.Fatalf("expected log overlay to open")
+	}
+	if !m.log.wrap {
+		t.Fatalf("expected line wrapping to be enabled by default")
+	}
+}
+
+func TestSanitizeLogLinesRemovesControlCharacters(t *testing.T) {
+	lines := sanitizeLogLines([]string{
+		"alpha\r",
+		"beta\x00gamma",
+		"delta\tomega",
+	})
+
+	if got := lines[0]; got != "alpha" {
+		t.Fatalf("expected CR to be stripped, got %q", got)
+	}
+	if got := lines[1]; got != "betagamma" {
+		t.Fatalf("expected control chars to be removed, got %q", got)
+	}
+	if got := lines[2]; got != "delta\tomega" {
+		t.Fatalf("expected tabs to be preserved, got %q", got)
 	}
 }
 
@@ -1760,18 +1923,18 @@ func TestSelectedHostForViewMGM(t *testing.T) {
 	}
 }
 
-func TestSelectedHostForViewQDB(t *testing.T) {
+func TestSelectedHostForLegacyQDBView(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader"},
-		{QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower"},
+		{Host: "mgm01.cern.ch", QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader"},
+		{Host: "mgm02.cern.ch", QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower"},
 	}
-	m.qdbSelected = 1
+	m.mgmSelected = 1
 
 	got := m.selectedHostForView()
-	if got != "qdb02.cern.ch" {
-		t.Errorf("expected qdb02.cern.ch, got %q", got)
+	if got != "mgm02.cern.ch" {
+		t.Errorf("expected mgm02.cern.ch, got %q", got)
 	}
 }
 
@@ -1876,26 +2039,26 @@ func TestMGMNavigationGG(t *testing.T) {
 	}
 }
 
-func TestQDBNavigationUpDown(t *testing.T) {
+func TestLegacyQDBNavigationUpDown(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{QDBHost: "qdb01", QDBPort: 7777, Role: "leader"},
-		{QDBHost: "qdb02", QDBPort: 7777, Role: "follower"},
+		{Host: "mgm01", QDBHost: "qdb01", QDBPort: 7777, Role: "leader"},
+		{Host: "mgm02", QDBHost: "qdb02", QDBPort: 7777, Role: "follower"},
 	}
-	m.qdbSelected = 0
+	m.mgmSelected = 0
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
-	if m.qdbSelected != 1 {
-		t.Fatalf("expected qdbSelected=1 after down, got %d", m.qdbSelected)
+	if m.mgmSelected != 1 {
+		t.Fatalf("expected mgmSelected=1 after down, got %d", m.mgmSelected)
 	}
 
 	// Should not go beyond list end
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = updated.(model)
-	if m.qdbSelected != 1 {
-		t.Fatalf("expected qdbSelected clamped at 1, got %d", m.qdbSelected)
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected selection to continue into the qdb rows, got %d", m.mgmSelected)
 	}
 }
 
@@ -1920,23 +2083,56 @@ func TestMGMViewShowsSelectedRow(t *testing.T) {
 	}
 }
 
-func TestQDBViewShowsSelectedRow(t *testing.T) {
+func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120
 	m.height = 30
-	m.activeView = viewQDB
+	m.activeView = viewMGM
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", EOSVersion: "5.3.29"},
-		{QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", EOSVersion: "5.3.29"},
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", QDBVersion: "7.0.0"},
+		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", QDBVersion: "7.0.1"},
 	}
-	m.qdbSelected = 1
+	m.mgmSelected = 1
+	m.eosVersion = "5.3.29"
 
 	view := m.View()
-	for _, needle := range []string{"qdb01.cern.ch", "qdb02.cern.ch", "leader", "follower"} {
+	for _, needle := range []string{
+		"Management Nodes (MGM)",
+		"QuarkDB Hosts (QDB)",
+		"mgm01.cern.ch",
+		"mgm02.cern.ch",
+		"qdb01.cern.ch",
+		"qdb02.cern.ch",
+		"leader",
+		"follower",
+		"5.3.29",
+		"7.0.0",
+		"7.0.1",
+	} {
 		if !strings.Contains(view, needle) {
-			t.Errorf("expected %q in QDB view, got:\n%s", needle, view)
+			t.Errorf("expected %q in unified MGM/QDB view, got:\n%s", needle, view)
 		}
+	}
+}
+
+func TestMGMNavigationCrossesIntoQDBSection(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01", QDBHost: "qdb01", QDBPort: 7777},
+		{Host: "mgm02", QDBHost: "qdb02", QDBPort: 7777},
+	}
+	m.mgmSelected = 1 // last MGM row
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+
+	if m.mgmSelected != 2 {
+		t.Fatalf("expected selection to move to first QDB row, got %d", m.mgmSelected)
+	}
+	if got := m.selectedHostForView(); got != "qdb01" {
+		t.Fatalf("expected first QDB host selected, got %q", got)
 	}
 }
 
@@ -2526,7 +2722,7 @@ func TestHotkeysFollowNewViewOrdering(t *testing.T) {
 		{'6', viewIOShaping},
 		{'7', viewGroups},
 		{'8', viewMGM},
-		{'9', viewQDB},
+		{'0', viewVID},
 	}
 
 	for _, tc := range cases {
@@ -2550,7 +2746,6 @@ func TestTabCyclesThroughNewViewOrdering(t *testing.T) {
 		viewIOShaping,
 		viewGroups,
 		viewMGM,
-		viewQDB,
 		viewVID,
 		viewNamespaceStats,
 	}
@@ -3064,7 +3259,7 @@ func TestLegendShowsShellAndLogsOnlyForHostViews(t *testing.T) {
 	m.width = 120
 	m.height = 30
 
-	hostViews := []viewID{viewMGM, viewQDB, viewFST, viewFileSystems}
+	hostViews := []viewID{viewMGM, viewFST, viewFileSystems}
 	noHostViews := []viewID{viewSpaces, viewNamespaceStats, viewIOShaping, viewGroups}
 
 	for _, v := range hostViews {
@@ -3117,7 +3312,7 @@ func TestLegendShowsSlashFilterNotF(t *testing.T) {
 	m.width = 120
 	m.height = 30
 
-	for _, v := range []viewID{viewFST, viewFileSystems, viewMGM, viewQDB} {
+	for _, v := range []viewID{viewFST, viewFileSystems, viewMGM} {
 		m.activeView = v
 		footer := m.renderFooter()
 		if strings.Contains(footer, "f/") || strings.Contains(footer, "f filter") {
@@ -3134,8 +3329,8 @@ func TestLegendShowsZeroToNineAndHidesHalfPageHint(t *testing.T) {
 	for _, v := range []viewID{viewMGM, viewFST, viewNamespace, viewIOShaping, viewGroups, viewVID} {
 		m.activeView = v
 		footer := m.renderFooter()
-		if !strings.Contains(footer, "tab/0-9") {
-			t.Errorf("view %d: expected footer to show tab/0-9, got: %s", v, footer)
+		if !strings.Contains(footer, "tab/0-8") {
+			t.Errorf("view %d: expected footer to show tab/0-8, got: %s", v, footer)
 		}
 		if strings.Contains(footer, "tab/1-0") {
 			t.Errorf("view %d: footer should not show tab/1-0, got: %s", v, footer)
@@ -5472,7 +5667,7 @@ func TestSpaceStatusEditEnterContinueAdvancesToConfirm(t *testing.T) {
 	}
 }
 
-func TestQDBNavigationCtrlUCtrlD(t *testing.T) {
+func TestLegacyQDBNavigationCtrlUCtrlD(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewQDB
 	mgms := make([]eos.MgmRecord, 30)
@@ -5480,16 +5675,16 @@ func TestQDBNavigationCtrlUCtrlD(t *testing.T) {
 		mgms[i] = eos.MgmRecord{Host: fmt.Sprintf("h%d", i)}
 	}
 	m.mgms = mgms
-	m.qdbSelected = 15
+	m.mgmSelected = 15
 
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlU})
-	if m.qdbSelected >= 15 {
-		t.Fatalf("expected qdbSelected < 15 after ctrl+u, got %d", m.qdbSelected)
+	if m.mgmSelected >= 15 {
+		t.Fatalf("expected mgmSelected < 15 after ctrl+u, got %d", m.mgmSelected)
 	}
-	prev := m.qdbSelected
+	prev := m.mgmSelected
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlD})
-	if m.qdbSelected <= prev {
-		t.Fatalf("expected qdbSelected > %d after ctrl+d, got %d", prev, m.qdbSelected)
+	if m.mgmSelected <= prev {
+		t.Fatalf("expected mgmSelected > %d after ctrl+d, got %d", prev, m.mgmSelected)
 	}
 }
 
@@ -6284,24 +6479,25 @@ func TestRenderMGMViewWithError(t *testing.T) {
 
 	out := m.renderMGMView(20)
 	plain := ansi.Strip(out)
-	// MGM view shows "loading mgm info..." or "(no mgm nodes found)" but
-	// does not display mgmsErr in the MGM panel. Verify the view renders
-	// without panic and contains the expected title.
-	if !strings.Contains(plain, "management nodes") {
+	if !strings.Contains(plain, "management & quarkdb topology") {
 		t.Errorf("renderMGMView should contain title, got: %s", plain)
+	}
+	if !strings.Contains(plain, "mgm error") {
+		t.Errorf("renderMGMView should show error, got: %s", plain)
 	}
 }
 
-func TestRenderQDBViewWithError(t *testing.T) {
+func TestLegacyQDBViewRendersCombinedError(t *testing.T) {
 	m := newSizedTestModel(t)
+	m.activeView = viewQDB
 	m.mgmsErr = fmt.Errorf("qdb error")
 	m.mgmsLoading = false
 	m.mgms = nil
 
-	out := m.renderQDBView(20)
+	out := m.renderBody(20)
 	plain := ansi.Strip(out)
 	if !strings.Contains(plain, "qdb error") {
-		t.Errorf("renderQDBView should show error, got: %s", plain)
+		t.Errorf("combined MGM/QDB view should show error, got: %s", plain)
 	}
 }
 
@@ -6701,14 +6897,15 @@ func TestLogKeysTTogglesAutoTailing(t *testing.T) {
 	}
 }
 
-func TestLogTargetForViewQDB(t *testing.T) {
+func TestLogTargetForLegacyQDBView(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewQDB
-	m.mgms = []eos.MgmRecord{{QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+	m.mgmSelected = 1
 
 	target, ok := m.logTargetForView()
 	if !ok {
-		t.Fatalf("expected qdb view to resolve a log target")
+		t.Fatalf("expected legacy qdb view to resolve a log target")
 	}
 	if target.filePath != "/var/log/eos/quarkdb/xrdlog.quarkdb" {
 		t.Fatalf("expected quarkdb log path, got %q", target.filePath)
@@ -6718,6 +6915,24 @@ func TestLogTargetForViewQDB(t *testing.T) {
 	}
 	if target.title != "QDB Log" {
 		t.Fatalf("expected QDB Log title, got %q", target.title)
+	}
+}
+
+func TestLogTargetForUnifiedViewSelectedQDBHost(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}}
+	m.mgmSelected = 1
+
+	target, ok := m.logTargetForView()
+	if !ok {
+		t.Fatalf("expected unified view to resolve a qdb log target")
+	}
+	if target.title != "QDB Log" {
+		t.Fatalf("expected QDB Log title, got %q", target.title)
+	}
+	if target.host != "qdb01.cern.ch" {
+		t.Fatalf("expected qdb host target, got %q", target.host)
 	}
 }
 
@@ -7190,22 +7405,22 @@ func TestRenderSelectableHeaderRowWithSortAndFilter(t *testing.T) {
 	}
 }
 
-func TestQDBGAndGNavigation(t *testing.T) {
+func TestLegacyQDBGAndGNavigation(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewQDB
 	m.mgms = []eos.MgmRecord{
-		{QDBHost: "q1"}, {QDBHost: "q2"}, {QDBHost: "q3"},
+		{Host: "m1", QDBHost: "q1"}, {Host: "m2", QDBHost: "q2"}, {Host: "m3", QDBHost: "q3"},
 	}
-	m.qdbSelected = 1
+	m.mgmSelected = 1
 
 	m = sendKey(m, runeKey('g'))
-	if m.qdbSelected != 0 {
-		t.Fatalf("expected qdbSelected=0 after g, got %d", m.qdbSelected)
+	if m.mgmSelected != 0 {
+		t.Fatalf("expected mgmSelected=0 after g, got %d", m.mgmSelected)
 	}
 
 	m = sendKey(m, runeKey('G'))
-	if m.qdbSelected != 2 {
-		t.Fatalf("expected qdbSelected=2 after G, got %d", m.qdbSelected)
+	if m.mgmSelected != 5 {
+		t.Fatalf("expected mgmSelected=5 after G, got %d", m.mgmSelected)
 	}
 }
 

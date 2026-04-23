@@ -34,9 +34,7 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 		activeView = state.ActiveView
 		commandLogVisible = state.CommandLogVisible
 	}
-	if activeView == viewSpaceStatus {
-		activeView = viewSpaces
-	}
+	activeView = normalizePersistedView(activeView)
 	initialPath := rootPath
 	if initialPath == "" {
 		initialPath = state.NamespacePath
@@ -247,10 +245,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.activeView {
-		case viewMGM:
+		case viewMGM, viewQDB:
 			return m.updateMGMKeys(msg)
-		case viewQDB:
-			return m.updateQDBKeys(msg)
 		case viewFST:
 			return m.updateFSTKeys(msg)
 		case viewFileSystems:
@@ -283,6 +279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgmsLoading = false
 		m.mgms = msg.mgms
 		m.mgmsErr = msg.err
+		m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
 		return m, nil
 
 	case infraLoadedMsg:
@@ -307,6 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgmsErr = msg.mgmsErr
 		if msg.mgmsErr == nil {
 			m.mgms = msg.mgms
+			m.mgmSelected = clampIndex(m.mgmSelected, len(m.topologySelectableRows()))
 		}
 		m.fileSystemsErr = msg.fsErr
 		if msg.fsErr == nil {
@@ -660,7 +658,10 @@ func (m model) View() string {
 	availableHeight := max(4, middleHeight-2)
 
 	if m.log.active {
-		body := m.normalizeRenderedBlock(m.renderLogOverlay(middleHeight), middleHeight)
+		body := m.renderLogOverlay(middleHeight)
+		if m.log.plain {
+			body = m.normalizeRenderedBlock(body, middleHeight)
+		}
 		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 	}
 

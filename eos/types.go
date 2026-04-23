@@ -114,6 +114,7 @@ type MgmRecord struct {
 	Status     string
 	Heartbeat  string
 	EOSVersion string
+	QDBVersion string
 }
 
 type FileSystemRecord struct {

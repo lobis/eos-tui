@@ -15,13 +15,10 @@ import (
 // active view, or empty string when no row is selected or the view has no host.
 func (m model) selectedHostForView() string {
 	switch m.activeView {
-	case viewMGM:
-		if m.mgmSelected >= 0 && m.mgmSelected < len(m.mgms) {
-			return m.mgms[m.mgmSelected].Host
-		}
-	case viewQDB:
-		if m.qdbSelected >= 0 && m.qdbSelected < len(m.mgms) {
-			return m.mgms[m.qdbSelected].QDBHost
+	case viewMGM, viewQDB:
+		rows := m.topologySelectableRows()
+		if m.mgmSelected >= 0 && m.mgmSelected < len(rows) {
+			return rows[m.mgmSelected].host
 		}
 	case viewFST:
 		fsts := m.visibleFSTs()
@@ -50,16 +47,35 @@ func (m model) logTargetForView() (logTarget, bool) {
 	const rtlogTag = "info"
 
 	switch m.activeView {
-	case viewQDB:
-		host := m.selectedHostForView()
+	case viewMGM, viewQDB:
+		rows := m.topologySelectableRows()
+		if m.mgmSelected < 0 || m.mgmSelected >= len(rows) {
+			return logTarget{}, false
+		}
+		selected := rows[m.mgmSelected]
+		if selected.kind == topologyHostQDB {
+			host := selected.host
+			if host == "" {
+				return logTarget{}, false
+			}
+			return logTarget{
+				title:    "QDB Log",
+				source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
+				host:     host,
+				filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+			}, true
+		}
+		host := selected.host
 		if host == "" {
 			return logTarget{}, false
 		}
 		return logTarget{
-			title:    "QDB Log",
-			source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
-			host:     host,
-			filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+			title:      "MGM Log",
+			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
+			host:       host,
+			rtlogQueue: ".",
+			rtlogTag:   rtlogTag,
+			rtlogSecs:  rtlogSeconds,
 		}, true
 	case viewFST, viewFileSystems:
 		host := m.selectedHostForView()
@@ -86,19 +102,6 @@ func (m model) logTargetForView() (logTarget, bool) {
 			source:     rtlogSourceLabel(queue, rtlogSeconds, rtlogTag),
 			host:       host,
 			rtlogQueue: queue,
-			rtlogTag:   rtlogTag,
-			rtlogSecs:  rtlogSeconds,
-		}, true
-	case viewMGM:
-		host := m.selectedHostForView()
-		if host == "" {
-			return logTarget{}, false
-		}
-		return logTarget{
-			title:      "MGM Log",
-			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
-			host:       host,
-			rtlogQueue: ".",
 			rtlogTag:   rtlogTag,
 			rtlogSecs:  rtlogSeconds,
 		}, true
@@ -139,6 +142,7 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 		rtlogSecs:  target.rtlogSecs,
 		title:      titleWithHost,
 		tailing:    true,
+		wrap:       true,
 		loading:    true,
 		vp:         vp,
 		input:      logInput,
@@ -263,14 +267,17 @@ func (m model) renderLogOverlay(height int) string {
 	// In lipgloss v1, Width() sets content+padding width; borders are added on
 	// top.  With Padding(0,1) and NormalBorder the border contributes 2 extra
 	// chars (left+right), so the rendered outer width = Width + 2.  We want
-	// outer = m.contentWidth() so that normalizeRenderedBlock doesn't clip the
-	// right border, therefore pass Width(contentWidth - 2).
+	// outer = m.contentWidth() so that the log block fits the body area exactly.
 	panel := m.styles.panel.Width(width - 2).Render(inner)
 	panelHeight := lipgloss.Height(panel)
 	if panelHeight >= height {
 		return panel
 	}
-	return strings.Repeat("\n", height-panelHeight) + panel
+	padding := make([]string, 0, height-panelHeight)
+	for i := 0; i < height-panelHeight; i++ {
+		padding = append(padding, strings.Repeat(" ", width))
+	}
+	return strings.Join(append(padding, strings.Split(panel, "\n")...), "\n")
 }
 
 func (m model) renderLogViewport() string {
@@ -294,7 +301,14 @@ func (m model) renderLogViewport() string {
 	// Explicitly pad every line to the viewport width so that lipgloss draws
 	// the right border correctly even when lines are shorter than the panel.
 	for i, line := range visible {
-		visible[i] = padVisibleWidth(line, w)
+		padded := padVisibleWidth(line, w)
+		if strings.TrimSpace(padded) == "" {
+			// Keep blank viewport rows as styled spans so the desktop renderer
+			// preserves their full width instead of collapsing them.
+			visible[i] = m.styles.status.Render(padded)
+		} else {
+			visible[i] = padded
+		}
 	}
 
 	return strings.Join(visible, "\n")

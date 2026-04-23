@@ -290,9 +290,26 @@ func loadLogCmd(client *eos.Client, target logTarget) tea.Cmd {
 			return logLoadedMsg{filePath: target.source, err: err}
 		}
 		raw := strings.TrimRight(string(out), "\n")
-		lines := strings.Split(raw, "\n")
+		lines := sanitizeLogLines(strings.Split(raw, "\n"))
 		return logLoadedMsg{filePath: target.source, lines: lines}
 	}
+}
+
+func sanitizeLogLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		// Normalize any CRLF/CR output from remote commands and drop other
+		// control characters that can confuse terminal cursor placement.
+		line = strings.TrimRight(line, "\r")
+		line = strings.Map(func(r rune) rune {
+			if r == '\t' || r >= ' ' {
+				return r
+			}
+			return -1
+		}, line)
+		out = append(out, line)
+	}
+	return out
 }
 
 func logTickCmd() tea.Cmd {

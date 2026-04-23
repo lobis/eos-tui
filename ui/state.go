@@ -21,6 +21,17 @@ func defaultPersistedUIState() persistedUIState {
 	}
 }
 
+func normalizePersistedView(view viewID) viewID {
+	switch view {
+	case viewSpaceStatus:
+		return viewSpaces
+	case viewQDB:
+		return viewMGM
+	default:
+		return view
+	}
+}
+
 func loadPersistedUIState() persistedUIState {
 	home, err := persistedUIStateHomeDir()
 	if err != nil {
@@ -39,9 +50,7 @@ func loadPersistedUIState() persistedUIState {
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
-	if state.ActiveView == viewSpaceStatus {
-		state.ActiveView = viewSpaces
-	}
+	state.ActiveView = normalizePersistedView(state.ActiveView)
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
 		state.ActiveView = defaultActiveView()
 	}
@@ -60,9 +69,7 @@ func savePersistedUIState(state persistedUIState) {
 	}
 
 	state.NamespacePath = cleanPath(state.NamespacePath)
-	if state.ActiveView == viewSpaceStatus {
-		state.ActiveView = viewSpaces
-	}
+	state.ActiveView = normalizePersistedView(state.ActiveView)
 	if state.ActiveView < 0 || state.ActiveView >= viewCount {
 		state.ActiveView = defaultActiveView()
 	}
@@ -106,9 +113,7 @@ func savePersistedUIState(state persistedUIState) {
 
 func (m model) persistedUIState() persistedUIState {
 	activeView := m.activeView
-	if activeView == viewSpaceStatus {
-		activeView = viewSpaces
-	}
+	activeView = normalizePersistedView(activeView)
 	return persistedUIState{
 		NamespacePath:     m.directory.Path,
 		ActiveView:        activeView,

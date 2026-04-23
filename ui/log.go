@@ -15,13 +15,9 @@ import (
 // active view, or empty string when no row is selected or the view has no host.
 func (m model) selectedHostForView() string {
 	switch m.activeView {
-	case viewMGM:
+	case viewMGM, viewQDB:
 		if m.mgmSelected >= 0 && m.mgmSelected < len(m.mgms) {
 			return m.mgms[m.mgmSelected].Host
-		}
-	case viewQDB:
-		if m.qdbSelected >= 0 && m.qdbSelected < len(m.mgms) {
-			return m.mgms[m.qdbSelected].QDBHost
 		}
 	case viewFST:
 		fsts := m.visibleFSTs()
@@ -50,17 +46,6 @@ func (m model) logTargetForView() (logTarget, bool) {
 	const rtlogTag = "info"
 
 	switch m.activeView {
-	case viewQDB:
-		host := m.selectedHostForView()
-		if host == "" {
-			return logTarget{}, false
-		}
-		return logTarget{
-			title:    "QDB Log",
-			source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
-			host:     host,
-			filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
-		}, true
 	case viewFST, viewFileSystems:
 		host := m.selectedHostForView()
 		if host == "" {
@@ -89,7 +74,7 @@ func (m model) logTargetForView() (logTarget, bool) {
 			rtlogTag:   rtlogTag,
 			rtlogSecs:  rtlogSeconds,
 		}, true
-	case viewMGM:
+	case viewMGM, viewQDB:
 		host := m.selectedHostForView()
 		if host == "" {
 			return logTarget{}, false

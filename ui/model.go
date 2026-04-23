@@ -658,7 +658,10 @@ func (m model) View() string {
 	availableHeight := max(4, middleHeight-2)
 
 	if m.log.active {
-		body := m.normalizeRenderedBlock(m.renderLogOverlay(middleHeight), middleHeight)
+		body := m.renderLogOverlay(middleHeight)
+		if m.log.plain {
+			body = m.normalizeRenderedBlock(body, middleHeight)
+		}
 		return m.styles.app.Render(header + "\n" + body + "\n" + footer)
 	}
 

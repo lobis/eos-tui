@@ -975,10 +975,9 @@ func TestShortBoxedLogOverlayUsesFullWidthPaddingRows(t *testing.T) {
 // and with potentially overflow-triggering content.  The right panel border
 // must also be present on every content line.
 //
-// Background: in lipgloss v1, Width(w) sets content+padding width; the two
-// border characters are added on top, making the outer box Width+2.  The log
-// overlay must call Width(contentWidth-2) so the outer matches contentWidth
-// and normalizeRenderedBlock does not clip the right border.
+// This guards against regressions where the boxed log viewport is sized
+// inconsistently with the outer panel, which can leave wrapped or clipped
+// border fragments on mostly-empty overlays.
 func TestLogOverlayNeverExceedsContentWidth(t *testing.T) {
 	termWidths := []int{80, 100, 120, 160, 200}
 	contents := []struct {
@@ -1049,6 +1048,99 @@ func TestLogOverlayNeverExceedsContentWidth(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestShortBoxedLogOverlayKeepsStraightSideBorders(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 140
+	m.height = 24
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+		title:    "QDB Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+		wrap:     true,
+	}
+
+	rendered := m.renderLogOverlay(18)
+	lines := strings.Split(rendered, "\n")
+	firstBorder := -1
+	lastBorder := -1
+	for i, line := range lines {
+		stripped := ansi.Strip(line)
+		if strings.HasPrefix(stripped, "┌") {
+			firstBorder = i
+		}
+		if strings.HasPrefix(stripped, "└") {
+			lastBorder = i
+			break
+		}
+	}
+	if firstBorder < 0 || lastBorder < 0 || lastBorder <= firstBorder {
+		t.Fatalf("expected a boxed log overlay, got:\n%s", rendered)
+	}
+
+	for i := firstBorder + 1; i < lastBorder; i++ {
+		stripped := ansi.Strip(lines[i])
+		if strings.TrimSpace(stripped) == "" {
+			continue
+		}
+		if !strings.HasPrefix(stripped, "│") {
+			t.Fatalf("expected boxed log row %d to start with a left border, got %q", i, stripped)
+		}
+		trimmed := strings.TrimRight(stripped, " ")
+		if !strings.HasSuffix(trimmed, "│") {
+			t.Fatalf("expected boxed log row %d to end with a right border, got %q", i, stripped)
+		}
+	}
+}
+
+func TestShortBoxedLogViewKeepsStraightSideBorders(t *testing.T) {
+	m := NewModel(nil, "test", "/").(model)
+	m.width = 140
+	m.height = 24
+	m.splash.active = false
+	m.log = logOverlay{
+		active:   true,
+		filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
+		title:    "QDB Log",
+		allLines: []string{"one", "two"},
+		filtered: []string{"one", "two"},
+		wrap:     true,
+	}
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	firstBorder := -1
+	lastBorder := -1
+	for i, line := range lines {
+		stripped := ansi.Strip(line)
+		if strings.HasPrefix(strings.TrimLeft(stripped, " "), "┌") && firstBorder < 0 {
+			firstBorder = i
+		}
+		if strings.HasPrefix(strings.TrimLeft(stripped, " "), "└") {
+			lastBorder = i
+		}
+	}
+	if firstBorder < 0 || lastBorder < 0 || lastBorder <= firstBorder {
+		t.Fatalf("expected boxed log view, got:\n%s", view)
+	}
+
+	for i := firstBorder + 1; i < lastBorder; i++ {
+		stripped := ansi.Strip(lines[i])
+		trimmedLeft := strings.TrimLeft(stripped, " ")
+		if strings.TrimSpace(trimmedLeft) == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmedLeft, "│") {
+			t.Fatalf("expected boxed log row %d to start with a left border, got %q", i, stripped)
+		}
+		trimmedRight := strings.TrimRight(trimmedLeft, " ")
+		if !strings.HasSuffix(trimmedRight, "│") {
+			t.Fatalf("expected boxed log row %d to end with a right border, got %q", i, stripped)
 		}
 	}
 }

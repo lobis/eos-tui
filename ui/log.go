@@ -267,8 +267,7 @@ func (m model) renderLogOverlay(height int) string {
 	// In lipgloss v1, Width() sets content+padding width; borders are added on
 	// top.  With Padding(0,1) and NormalBorder the border contributes 2 extra
 	// chars (left+right), so the rendered outer width = Width + 2.  We want
-	// outer = m.contentWidth() so that normalizeRenderedBlock doesn't clip the
-	// right border, therefore pass Width(contentWidth - 2).
+	// outer = m.contentWidth() so that the log block fits the body area exactly.
 	panel := m.styles.panel.Width(width - 2).Render(inner)
 	panelHeight := lipgloss.Height(panel)
 	if panelHeight >= height {

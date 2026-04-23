@@ -49,6 +49,34 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 	return out, err
 }
 
+func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...string) ([]byte, error) {
+	host = strings.TrimSpace(host)
+	if host == "" || host == hostOnly(strings.TrimPrefix(c.effectiveSSHTarget(), "root@")) {
+		return c.runCommand(args...)
+	}
+
+	target := ensureRootPrefix(host)
+	remoteCommand := shellJoin(args)
+	c.logCommand(append([]string{"→", target}, args...))
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	effective := c.effectiveSSHTarget()
+	var sshArgs []string
+	if effective == "" {
+		sshArgs = append(c.SSHArgs(true), target, remoteCommand)
+	} else {
+		sshArgs = append(c.SSHArgs(true), "-J", effective, target, remoteCommand)
+	}
+
+	out, err := exec.CommandContext(ctxTimeout, "ssh", sshArgs...).CombinedOutput()
+	if err != nil {
+		c.logResponse(args, out, err)
+	}
+	return out, err
+}
+
 // RTLog queries EOS real-time logs through the CLI instead of tailing a
 // specific logfile path. The queue identifies either the MGM (".") or an FST
 // queue such as /eos/host:port/fst.

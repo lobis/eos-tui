@@ -14,35 +14,40 @@ func (c *Client) NodeStats(ctx context.Context) (NodeStats, error) {
 }
 
 func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
-	// Fetch namespace stats via eos ns stat (plain text format).
+	// Fetch namespace stats via eos ns stat -m. The monitoring format already
+	// contains the counters we need for cluster summary and is also used by the
+	// MGM/QDB topology path, so this avoids an extra plain-text ns stat call.
 	// State (health) is not fetched here; it is derived in the UI from the
 	// already-loaded node and filesystem data, avoiding a redundant call to
 	// `eos status` which internally runs the eos-status shell script and
 	// creates temporary files under /tmp.
-	nsStatOut, err := c.runCommand("eos", "-b", "ns", "stat")
+	nsStatOut, err := c.runCommand("eos", "-b", "ns", "stat", "-m")
 	if err != nil {
-		return NodeStats{}, fmt.Errorf("eos ns stat: %w", err)
+		return NodeStats{}, fmt.Errorf("eos ns stat -m: %w", err)
 	}
 
-	stats := NodeStats{}
-
-	values := parseLabeledValues(string(nsStatOut))
-	stats.FileCount = parseUint(values["Files"])
-	stats.DirCount = parseUint(values["Directories"])
-	stats.CurrentFID = parseUint(values["current file id"])
-	stats.CurrentCID = parseUint(values["current container id"])
-	stats.MemVirtual = parseHumanBytes(values["memory virtual"])
-	stats.MemResident = parseHumanBytes(values["memory resident"])
-	stats.MemShared = parseHumanBytes(values["memory share"])
-	stats.MemGrowth = parseHumanBytes(values["memory growths"])
-	stats.ThreadCount = parseUint(values["threads"])
-	stats.FileDescs = parseUint(values["fds"])
-	stats.Uptime = time.Duration(parseUint(values["uptime"])) * time.Second
+	stats := nodeStatsFromMonitoringValues(parseMonitoringKeyValues(nsStatOut))
 	if stats.Uptime > 0 {
 		stats.BootTime = time.Now().Add(-stats.Uptime)
 	}
 
 	return stats, nil
+}
+
+func nodeStatsFromMonitoringValues(values map[string]string) NodeStats {
+	return NodeStats{
+		FileCount:   parseUint(values["ns.total.files"]),
+		DirCount:    parseUint(values["ns.total.directories"]),
+		CurrentFID:  parseUint(values["ns.current.fid"]),
+		CurrentCID:  parseUint(values["ns.current.cid"]),
+		MemVirtual:  parseUint(values["ns.memory.virtual"]),
+		MemResident: parseUint(values["ns.memory.resident"]),
+		MemShared:   parseUint(values["ns.memory.share"]),
+		MemGrowth:   parseUint(values["ns.memory.growth"]),
+		ThreadCount: parseUint(values["ns.stat.threads"]),
+		FileDescs:   parseUint(values["ns.fds.all"]),
+		Uptime:      time.Duration(parseUint(values["ns.uptime"])) * time.Second,
+	}
 }
 
 func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {

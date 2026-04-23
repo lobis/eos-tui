@@ -864,6 +864,16 @@ func TestParseEOSServerVersion(t *testing.T) {
 			input: "EOS_INSTANCE=eosdev\n",
 			want:  "",
 		},
+		{
+			name:  "dash dash version output",
+			input: "EOS 5.4.2 (2026)\n\nDeveloped by the CERN IT Storage Group\n",
+			want:  "5.4.2",
+		},
+		{
+			name:  "dash dash version older output",
+			input: "EOS 5.4.0 (2020)\n\nDeveloped by the CERN IT storage group\n",
+			want:  "5.4.0",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1225,6 +1235,116 @@ func TestParseNamespaceAttrsNoEquals(t *testing.T) {
 	}
 	if attrs[0].Key != "key" || attrs[0].Value != "value" {
 		t.Fatalf("unexpected attr: %+v", attrs[0])
+	}
+}
+
+func TestParseMonitoringKeyValues(t *testing.T) {
+	input := []byte(`
+uid=all gid=all is_master=true master_id=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.local=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.role=leader
+uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-ip700.cern.ch:1094,eospilot-ns-01.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-02.cern.ch:7777
+uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777
+`)
+	values := parseMonitoringKeyValues(input)
+
+	if got := values["ns.mgm.leader"]; got != "eospilot-ns-02.cern.ch:1094" {
+		t.Fatalf("expected ns.mgm.leader, got %q", got)
+	}
+	if got := values["ns.qdb.followers"]; got != "eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777" {
+		t.Fatalf("expected ns.qdb.followers, got %q", got)
+	}
+	if got := values["master_id"]; got != "eospilot-ns-02.cern.ch:1094" {
+		t.Fatalf("expected master_id, got %q", got)
+	}
+}
+
+func TestParseMGMsFromNSStatMonitoring(t *testing.T) {
+	input := []byte(`
+uid=all gid=all ns.mgm.local=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.role=leader
+uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-ip700.cern.ch:1094,eospilot-ns-01.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-02.cern.ch:7777
+uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.cern.ch:7777
+`)
+
+	mgms, ok := parseMGMsFromNSStatMonitoring(input)
+	if !ok {
+		t.Fatal("expected structured ns stat monitoring output to parse")
+	}
+	if len(mgms) != 3 {
+		t.Fatalf("expected 3 combined records, got %d", len(mgms))
+	}
+
+	if mgms[0].Host != "eospilot-ns-02.cern.ch" || mgms[0].Port != 1094 || mgms[0].Role != "leader" || mgms[0].Status != "online" {
+		t.Fatalf("unexpected MGM leader record: %+v", mgms[0])
+	}
+	if mgms[0].QDBHost != "eospilot-ns-02.cern.ch" || mgms[0].QDBPort != 7777 || mgms[0].QDBRole != "leader" || mgms[0].QDBStatus != "online" {
+		t.Fatalf("unexpected QDB leader record: %+v", mgms[0])
+	}
+	if mgms[1].Host != "eospilot-ns-ip700.cern.ch" || mgms[1].Role != "follower" {
+		t.Fatalf("unexpected first follower record: %+v", mgms[1])
+	}
+	if mgms[1].QDBHost != "eospilot-ns-01.cern.ch" || mgms[1].QDBRole != "follower" {
+		t.Fatalf("unexpected first QDB follower record: %+v", mgms[1])
+	}
+	if mgms[2].Host != "eospilot-ns-01.cern.ch" || mgms[2].QDBHost != "eospilot-ns-ip700.cern.ch" {
+		t.Fatalf("unexpected combined record ordering: %+v", mgms[2])
+	}
+}
+
+func TestNodeStatsFromMonitoringValues(t *testing.T) {
+	values := parseMonitoringKeyValues([]byte(`
+uid=all gid=all ns.total.files=23502173
+uid=all gid=all ns.total.directories=383968
+uid=all gid=all ns.current.fid=2590610131
+uid=all gid=all ns.current.cid=3465125
+uid=all gid=all ns.memory.virtual=27031158784
+uid=all gid=all ns.memory.resident=13764378624
+uid=all gid=all ns.memory.share=89653248
+uid=all gid=all ns.memory.growth=23214104576
+uid=all gid=all ns.stat.threads=666
+uid=all gid=all ns.fds.all=866
+uid=all gid=all ns.uptime=1523
+`))
+
+	stats := nodeStatsFromMonitoringValues(values)
+
+	if stats.FileCount != 23502173 {
+		t.Fatalf("expected file count, got %d", stats.FileCount)
+	}
+	if stats.DirCount != 383968 {
+		t.Fatalf("expected dir count, got %d", stats.DirCount)
+	}
+	if stats.CurrentFID != 2590610131 || stats.CurrentCID != 3465125 {
+		t.Fatalf("unexpected current IDs: fid=%d cid=%d", stats.CurrentFID, stats.CurrentCID)
+	}
+	if stats.MemVirtual != 27031158784 || stats.MemResident != 13764378624 {
+		t.Fatalf("unexpected memory stats: virtual=%d resident=%d", stats.MemVirtual, stats.MemResident)
+	}
+	if stats.MemShared != 89653248 || stats.MemGrowth != 23214104576 {
+		t.Fatalf("unexpected shared/growth memory stats: shared=%d growth=%d", stats.MemShared, stats.MemGrowth)
+	}
+	if stats.ThreadCount != 666 || stats.FileDescs != 866 {
+		t.Fatalf("unexpected threads/fds: threads=%d fds=%d", stats.ThreadCount, stats.FileDescs)
+	}
+	if stats.Uptime.Seconds() != 1523 {
+		t.Fatalf("expected uptime 1523s, got %s", stats.Uptime)
+	}
+}
+
+func TestMGMPortFromMonitoringValues(t *testing.T) {
+	values := parseMonitoringKeyValues([]byte(`
+uid=all gid=all master_id=eospilot-ns-02.cern.ch:1094
+`))
+	if got := mgmPortFromMonitoringValues(values); got != "1094" {
+		t.Fatalf("expected 1094, got %q", got)
+	}
+	if got := mgmPortFromMonitoringValues(map[string]string{}); got != "1094" {
+		t.Fatalf("expected fallback port, got %q", got)
 	}
 }
 

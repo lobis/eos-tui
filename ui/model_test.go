@@ -2093,11 +2093,10 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	m.activeView = viewMGM
 	m.mgmsLoading = false
 	m.mgms = []eos.MgmRecord{
-		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", QDBVersion: "7.0.0"},
-		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", QDBVersion: "7.0.1"},
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online", EOSVersion: "5.3.29", QDBVersion: "7.0.0"},
+		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777, Role: "follower", Status: "online", EOSVersion: "5.3.29", QDBVersion: "7.0.1"},
 	}
 	m.mgmSelected = 1
-	m.eosVersion = "5.3.29"
 
 	view := m.View()
 	for _, needle := range []string{
@@ -2116,6 +2115,224 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 		if !strings.Contains(view, needle) {
 			t.Errorf("expected %q in unified MGM/QDB view, got:\n%s", needle, view)
 		}
+	}
+}
+
+func TestMGMViewShowsDashUntilVersionsAreFetched(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 120
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", QDBRole: "follower", Status: "online", QDBStatus: "online"},
+	}
+
+	view := m.View()
+	for _, needle := range []string{"mgm01.cern.ch", "qdb01.cern.ch", "leader", "follower", "-"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected %q in MGM/QDB view, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestTopologyRowsSortLeaderFirstThenHost(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "eospilot-ns-ip700.cern.ch", Port: 1094, Role: "follower", Status: "online", QDBHost: "eospilot-ns-ip700.cern.ch", QDBPort: 7777, QDBRole: "follower", QDBStatus: "online"},
+		{Host: "eospilot-ns-02.cern.ch", Port: 1094, Role: "leader", Status: "online", QDBHost: "eospilot-ns-02.cern.ch", QDBPort: 7777, QDBRole: "leader", QDBStatus: "online"},
+		{Host: "eospilot-ns-01.cern.ch", Port: 1094, Role: "follower", Status: "online", QDBHost: "eospilot-ns-01.cern.ch", QDBPort: 7777, QDBRole: "follower", QDBStatus: "online"},
+	}
+
+	mgmRows := m.topologyMGMRows()
+	qdbRows := m.topologyQDBRows()
+
+	wantHosts := []string{
+		"eospilot-ns-02.cern.ch",
+		"eospilot-ns-01.cern.ch",
+		"eospilot-ns-ip700.cern.ch",
+	}
+	for i, want := range wantHosts {
+		if mgmRows[i].host != want {
+			t.Fatalf("expected MGM row %d host %q, got %q", i, want, mgmRows[i].host)
+		}
+		if qdbRows[i].host != want {
+			t.Fatalf("expected QDB row %d host %q, got %q", i, want, qdbRows[i].host)
+		}
+	}
+}
+
+func TestMGMsLoadedMsgStartsVersionProbeOnce(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	updated, cmd := m.Update(mgmsLoadedMsg{
+		mgms: []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}},
+	})
+	m = updated.(model)
+
+	if !m.mgmVersionsLoading {
+		t.Fatalf("expected version probe to start after first MGM load")
+	}
+	if cmd == nil {
+		t.Fatalf("expected MGM load to schedule version probing")
+	}
+
+	updated, cmd = m.Update(mgmsLoadedMsg{
+		mgms: []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}},
+	})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatalf("expected repeated MGM loads not to schedule another probe while one is in flight")
+	}
+}
+
+func TestMGMsLoadedMsgPreservesExistingVersions(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, EOSVersion: "5.4.2", QDBVersion: "5.4.1"},
+	}
+
+	updated, _ := m.Update(mgmsLoadedMsg{
+		mgms: []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, Role: "leader", Status: "online"}},
+	})
+	m = updated.(model)
+
+	if got := m.mgms[0].EOSVersion; got != "5.4.2" {
+		t.Fatalf("expected MGM version to be preserved across topology refresh, got %q", got)
+	}
+	if got := m.mgms[0].QDBVersion; got != "5.4.1" {
+		t.Fatalf("expected QDB version to be preserved across topology refresh, got %q", got)
+	}
+}
+
+func TestMGMsLoadedMsgDoesNotReprobeCachedVersions(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", QDBHost: "qdb01.cern.ch", EOSVersion: "5.4.2", QDBVersion: "5.4.1"},
+	}
+
+	updated, cmd := m.Update(mgmsLoadedMsg{
+		mgms: []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}},
+	})
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("expected cached versions to skip reprobe")
+	}
+	if !m.mgmVersionsLoaded {
+		t.Fatalf("expected cached versions to count as loaded")
+	}
+}
+
+func TestMGMsLoadedMsgRetriesOnlyMissingVersions(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", QDBHost: "qdb01.cern.ch", EOSVersion: "5.4.2"},
+	}
+
+	updated, cmd := m.Update(mgmsLoadedMsg{
+		mgms: []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777}},
+	})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected missing version info to schedule a retry probe")
+	}
+	if !m.mgmVersionsLoading {
+		t.Fatalf("expected retry probe to mark versions loading")
+	}
+	if got := m.mgms[0].EOSVersion; got != "5.4.2" {
+		t.Fatalf("expected cached MGM version to be preserved during retry, got %q", got)
+	}
+}
+
+func TestMGMVersionsLoadedMsgAppliesVersionsByHost(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777},
+		{Host: "mgm02.cern.ch", Port: 1094, QDBHost: "qdb02.cern.ch", QDBPort: 7777},
+	}
+	m.mgmVersionsLoading = true
+
+	updated, _ := m.Update(mgmVersionsLoadedMsg{
+		mgmVersions: map[string]string{"mgm01.cern.ch": "5.4.2"},
+		qdbVersions: map[string]string{"qdb02.cern.ch": "5.4.1"},
+	})
+	m = updated.(model)
+
+	if m.mgmVersionsLoading {
+		t.Fatalf("expected version probe loading to clear after results arrive")
+	}
+	if got := m.mgms[0].EOSVersion; got != "5.4.2" {
+		t.Fatalf("expected MGM version to be applied by host, got %q", got)
+	}
+	if got := m.mgms[1].QDBVersion; got != "5.4.1" {
+		t.Fatalf("expected QDB version to be applied by host, got %q", got)
+	}
+}
+
+func TestMGMVersionsLoadedMsgLeavesMissingVersionsRetryable(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.mgms = []eos.MgmRecord{
+		{Host: "mgm01.cern.ch", Port: 1094, QDBHost: "qdb01.cern.ch", QDBPort: 7777, EOSVersion: "5.4.2"},
+	}
+	m.mgmVersionsLoading = true
+
+	updated, _ := m.Update(mgmVersionsLoadedMsg{
+		qdbVersions: map[string]string{},
+		err:         fmt.Errorf("qdb qdb01.cern.ch: timeout"),
+	})
+	m = updated.(model)
+
+	if m.mgmVersionsLoading {
+		t.Fatalf("expected version probe loading to clear after partial failure")
+	}
+	if m.mgmVersionsLoaded {
+		t.Fatalf("expected missing QDB version to remain retryable")
+	}
+	if got := m.mgms[0].EOSVersion; got != "5.4.2" {
+		t.Fatalf("expected cached MGM version to survive partial failure, got %q", got)
+	}
+	if got := m.mgms[0].QDBVersion; got != "" {
+		t.Fatalf("expected missing QDB version to stay empty, got %q", got)
+	}
+}
+
+func TestMGMFooterShowsReloadHint(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+
+	footer := m.renderFooter()
+	for _, needle := range []string{"r refresh", "l logs", "s shell"} {
+		if !strings.Contains(footer, needle) {
+			t.Fatalf("expected footer to contain %q, got:\n%s", needle, footer)
+		}
+	}
+}
+
+func TestMGMRefreshIsIgnoredWhileReloadInFlight(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewMGM
+	m.mgmsLoading = true
+
+	updated, cmd := m.refreshActiveView()
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("expected no command while MGM/QDB reload is already running")
+	}
+	if m.status != "MGM/QDB refresh already in progress..." {
+		t.Fatalf("unexpected status: %q", m.status)
+	}
+
+	m.mgmsLoading = false
+	m.mgmVersionsLoading = true
+	updated, cmd = m.refreshActiveView()
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatalf("expected no command while MGM/QDB version probe is already running")
+	}
+	if m.status != "MGM/QDB refresh already in progress..." {
+		t.Fatalf("unexpected status after version probe guard: %q", m.status)
 	}
 }
 

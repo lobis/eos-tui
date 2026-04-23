@@ -193,7 +193,7 @@ func TestIntegrationAllComponentsLoad(t *testing.T) {
 		err  error
 	}
 
-	results := make(chan result, 6)
+	results := make(chan result, 5)
 
 	go func() {
 		_, err := c.Nodes(ctx)
@@ -215,13 +215,8 @@ func TestIntegrationAllComponentsLoad(t *testing.T) {
 		_, err := c.MGMs(ctx)
 		results <- result{"MGMs", err}
 	}()
-	go func() {
-		_, err := c.EOSVersion(ctx)
-		results <- result{"EOSVersion", err}
-	}()
-
 	failed := false
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 5; i++ {
 		r := <-results
 		if r.err != nil {
 			t.Errorf("%s failed: %v", r.name, r.err)

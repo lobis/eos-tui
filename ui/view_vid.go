@@ -9,7 +9,7 @@ import (
 
 func (m model) renderVIDView(height int) string {
 	naturalListContent := 3 + len(m.vidRecords)
-	const vidDetailLines = 15
+	const vidDetailLines = 13
 	listHeight, detailHeight := adaptiveSplitHeights(height, naturalListContent, vidDetailLines)
 
 	width := m.panelWidth()

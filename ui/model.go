@@ -358,6 +358,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Cluster summary refresh failed: %v", msg.err)
 		} else {
 			m.nodeStats = msg.stats
+			m.nodeStats.State = m.computeClusterHealth()
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 	case fstsLoadedMsg:

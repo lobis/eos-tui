@@ -5315,6 +5315,25 @@ func TestComputeClusterHealth(t *testing.T) {
 	}
 }
 
+func TestNodeStatsLoadedRecomputesClusterHealthFromCachedInfra(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := NewModel(nil, "test", "/").(model)
+	m.fsts = []eos.FstRecord{{Status: "offline"}}
+	m.fileSystems = []eos.FileSystemRecord{{Boot: "booted"}}
+
+	updated, _ := m.Update(nodeStatsLoadedMsg{
+		stats: eos.NodeStats{
+			FileCount: 123,
+			DirCount:  45,
+		},
+	})
+	m = updated.(model)
+
+	if got := m.nodeStats.State; got != "WARN" {
+		t.Fatalf("expected nodeStatsLoaded to recompute health from cached infra, got %q", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Key handler tests (keys.go)
 // ---------------------------------------------------------------------------

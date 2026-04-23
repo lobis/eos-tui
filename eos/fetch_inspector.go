@@ -13,7 +13,18 @@ func (c *Client) Inspector(ctx context.Context) (InspectorStats, error) {
 
 	output, err := c.runCommand("eos", "inspector", "-l", "-m")
 	if err != nil {
-		return InspectorStats{}, fmt.Errorf("eos inspector -l -m: %w", err)
+		msg := strings.TrimSpace(string(output))
+		lower := strings.ToLower(msg)
+		switch {
+		case strings.Contains(lower, "permission denied"):
+			return InspectorStats{}, fmt.Errorf("inspector unavailable on this host: permission denied")
+		case strings.Contains(lower, "inspector disabled"):
+			return InspectorStats{}, fmt.Errorf("inspector disabled")
+		case msg != "":
+			return InspectorStats{}, fmt.Errorf("eos inspector -l -m: %s", msg)
+		default:
+			return InspectorStats{}, fmt.Errorf("eos inspector -l -m: %w", err)
+		}
 	}
 
 	return parseInspectorStats(output), nil

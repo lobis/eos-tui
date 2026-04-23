@@ -3,9 +3,12 @@ package eos
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+var hostnameFunc = os.Hostname
 
 func (c *Client) sshOptions(batchMode bool) []string {
 	options := []string{"-o", "LogLevel=ERROR"}
@@ -51,7 +54,7 @@ func (c *Client) runCommand(args ...string) ([]byte, error) {
 
 func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...string) ([]byte, error) {
 	host = strings.TrimSpace(host)
-	if host == "" || host == hostOnly(strings.TrimPrefix(c.effectiveSSHTarget(), "root@")) {
+	if host == "" || isCurrentExecutionHost(host, c.effectiveSSHTarget()) {
 		return c.runCommand(args...)
 	}
 
@@ -113,10 +116,9 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	tailArgs := []string{"tail", fmt.Sprintf("-n%d", n), filePath}
 
 	effective := c.effectiveSSHTarget() // e.g. "root@eospilot-ns-02.cern.ch"
-	effectiveHost := hostOnly(strings.TrimPrefix(effective, "root@"))
 
 	// Direct case: no specific host, or the host IS the current target.
-	if host == "" || host == effectiveHost {
+	if host == "" || isCurrentExecutionHost(host, effective) {
 		out, err := c.runCommand(tailArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("tail %s: %w (output: %.300s)", filePath, err, out)
@@ -154,9 +156,8 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 // Returns (directTarget, jumpProxy) where jumpProxy may be empty.
 func (c *Client) SSHTargetForHost(host string) (target, jump string) {
 	effective := c.effectiveSSHTarget()
-	effectiveHost := hostOnly(strings.TrimPrefix(effective, "root@"))
 
-	if host == "" || host == effectiveHost {
+	if host == "" || isCurrentExecutionHost(host, effective) {
 		if effective != "" {
 			return effective, ""
 		}
@@ -172,4 +173,58 @@ func (c *Client) SSHTargetForHost(host string) (target, jump string) {
 
 func (c *Client) AcceptNewHostKeys() bool {
 	return c.acceptNewHostKeys
+}
+
+func isCurrentExecutionHost(host, effective string) bool {
+	host = canonicalHost(host)
+	if host == "" {
+		return true
+	}
+
+	effectiveHost := canonicalHost(strings.TrimPrefix(effective, "root@"))
+	if effectiveHost != "" {
+		return host == effectiveHost
+	}
+
+	return matchesLocalHost(host)
+}
+
+func matchesLocalHost(host string) bool {
+	host = canonicalHost(host)
+	if host == "" {
+		return false
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+
+	local, err := hostnameFunc()
+	if err != nil {
+		return false
+	}
+	local = canonicalHost(local)
+	if local == "" {
+		return false
+	}
+
+	return host == local || shortHost(host) == shortHost(local)
+}
+
+func canonicalHost(host string) string {
+	host = strings.TrimSpace(host)
+	host = strings.TrimPrefix(host, "root@")
+	if host == "::1" || host == "[::1]" {
+		return "::1"
+	}
+	host = hostOnly(host)
+	host = strings.TrimSuffix(host, ".")
+	return strings.ToLower(host)
+}
+
+func shortHost(host string) string {
+	host = canonicalHost(host)
+	if idx := strings.Index(host, "."); idx != -1 {
+		return host[:idx]
+	}
+	return host
 }

@@ -905,6 +905,24 @@ func TestSSHTargetForHostLocal(t *testing.T) {
 	}
 }
 
+func TestSSHTargetForHostLocalSameHostUsesLocalShell(t *testing.T) {
+	prev := hostnameFunc
+	hostnameFunc = func() (string, error) { return "eospilot-ns-02.cern.ch", nil }
+	defer func() { hostnameFunc = prev }()
+
+	c := &Client{}
+
+	target, jump := c.SSHTargetForHost("eospilot-ns-02.cern.ch")
+	if target != "" || jump != "" {
+		t.Fatalf("expected local self host to stay local, got target=%q jump=%q", target, jump)
+	}
+
+	target, jump = c.SSHTargetForHost("eospilot-ns-02")
+	if target != "" || jump != "" {
+		t.Fatalf("expected short local self host to stay local, got target=%q jump=%q", target, jump)
+	}
+}
+
 func TestSSHTargetForHostRemoteSameHost(t *testing.T) {
 	// Running via SSH to mgm01.cern.ch; selected host IS the gateway.
 	c := &Client{resolvedSSHTarget: "root@mgm01.cern.ch"}
@@ -965,6 +983,33 @@ func TestHostOnly(t *testing.T) {
 		got := hostOnly(tt.input)
 		if got != tt.want {
 			t.Errorf("hostOnly(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesLocalHost(t *testing.T) {
+	prev := hostnameFunc
+	hostnameFunc = func() (string, error) { return "eospilot-ns-02.cern.ch", nil }
+	defer func() { hostnameFunc = prev }()
+
+	for _, host := range []string{
+		"eospilot-ns-02.cern.ch",
+		"eospilot-ns-02",
+		"localhost",
+		"127.0.0.1",
+		"::1",
+	} {
+		if !matchesLocalHost(host) {
+			t.Fatalf("expected %q to match local host", host)
+		}
+	}
+
+	for _, host := range []string{
+		"eospilot-ns-01.cern.ch",
+		"fst01.cern.ch",
+	} {
+		if matchesLocalHost(host) {
+			t.Fatalf("did not expect %q to match local host", host)
 		}
 	}
 }

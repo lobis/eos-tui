@@ -39,7 +39,7 @@ sudo rpm -i eos-tui.rpm
 go install github.com/lobis/eos-tui@latest
 ```
 
-Requires Go 1.21+. Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH`.
+Requires the Go version declared in `go.mod`. Make sure `$GOPATH/bin` (or `$HOME/go/bin`) is in your `PATH`.
 
 ---
 

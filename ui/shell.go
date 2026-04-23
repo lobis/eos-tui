@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -44,9 +43,6 @@ func (m model) openShell() (tea.Model, tea.Cmd) {
 	cmd.Stderr = os.Stderr
 
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			m.status = fmt.Sprintf("shell exited: %v", err)
-		}
-		return tea.ClearScreen
+		return shellExitedMsg{err: err}
 	})
 }

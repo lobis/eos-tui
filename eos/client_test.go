@@ -1,12 +1,37 @@
 package eos
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+type runnerCall struct {
+	name string
+	args []string
+}
+
+type recordingRunner struct {
+	out   []byte
+	err   error
+	calls []runnerCall
+}
+
+func (r *recordingRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.calls = append(r.calls, runnerCall{name: name, args: append([]string(nil), args...)})
+	if r.err != nil {
+		return r.out, r.err
+	}
+	return r.out, nil
+}
 
 func TestParseLabeledValues(t *testing.T) {
 	input := `
@@ -666,6 +691,77 @@ func TestSessionCommandsKeepsLastNEntries(t *testing.T) {
 	}
 	if got := strings.Join(lines, ","); got != "[2026-04-09 10:00:01] cmd-2,[2026-04-09 10:00:02] cmd-3" {
 		t.Fatalf("unexpected tail result: %s", got)
+	}
+}
+
+func TestSessionCommandsReadsAppendsIncrementally(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "session.log")
+	if err := os.WriteFile(logPath, []byte("[2026-04-09 10:00:00] cmd-1\n"), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	client := &Client{sessionLogPath: logPath}
+	lines, err := client.SessionCommands(10)
+	if err != nil {
+		t.Fatalf("SessionCommands initial error: %v", err)
+	}
+	if got := strings.Join(lines, ","); got != "[2026-04-09 10:00:00] cmd-1" {
+		t.Fatalf("unexpected initial lines: %s", got)
+	}
+
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("open append: %v", err)
+	}
+	if _, err := f.WriteString("[2026-04-09 10:00:01] ERROR (cmd): boom\n[2026-04-09 10:00:02] cmd-2\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append log: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close append: %v", err)
+	}
+
+	lines, err = client.SessionCommands(10)
+	if err != nil {
+		t.Fatalf("SessionCommands append error: %v", err)
+	}
+	if got := strings.Join(lines, ","); got != "[2026-04-09 10:00:00] cmd-1,[2026-04-09 10:00:02] cmd-2" {
+		t.Fatalf("unexpected appended lines: %s", got)
+	}
+}
+
+func TestRunCommandContextUsesCallerCancellation(t *testing.T) {
+	runner := &recordingRunner{out: []byte("EOS_SERVER_VERSION=5.4.0\n")}
+	client := &Client{timeout: time.Minute, runner: runner}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := client.EOSVersion(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner should not record completed command after cancellation, got %#v", runner.calls)
+	}
+}
+
+func TestRunCommandContextUsesInjectedRunner(t *testing.T) {
+	runner := &recordingRunner{out: []byte("EOS_SERVER_VERSION=5.4.0\n")}
+	client := &Client{timeout: time.Minute, runner: runner}
+
+	version, err := client.EOSVersion(context.Background())
+	if err != nil {
+		t.Fatalf("EOSVersion error: %v", err)
+	}
+	if version != "5.4.0" {
+		t.Fatalf("version = %q, want 5.4.0", version)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 runner call, got %d", len(runner.calls))
+	}
+	if runner.calls[0].name != "eos" || strings.Join(runner.calls[0].args, " ") != "version" {
+		t.Fatalf("unexpected runner call: %#v", runner.calls[0])
 	}
 }
 

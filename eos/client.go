@@ -19,6 +19,7 @@ func New(_ context.Context, cfg Config) (*Client, error) {
 		sshTarget:         cfg.SSHTarget,
 		timeout:           timeout,
 		acceptNewHostKeys: cfg.AcceptNewHostKeys,
+		runner:            execCommandRunner{},
 	}
 	c.sessionLogPath = initSessionLog()
 	return c, nil
@@ -98,8 +99,7 @@ func ensureRootPrefix(target string) string {
 // commands are routed directly to the leader host.
 // Returns the resolved hostname (e.g. "eospilot-ns-02.cern.ch").
 func (c *Client) DiscoverMGMMaster(ctx context.Context) (string, error) {
-	_ = ctx
-	output, err := c.runCommand("redis-cli", "-p", "7777", "raft-info")
+	output, err := c.runCommandContext(ctx, "redis-cli", "-p", "7777", "raft-info")
 	if err != nil {
 		return "", fmt.Errorf("raft-info for master discovery: %w", err)
 	}

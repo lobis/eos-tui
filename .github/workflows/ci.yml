@@ -363,6 +363,7 @@ jobs:
 
       - name: Run integration tests
         env:
+          EOS_TEST_INTEGRATION: '1'
           EOS_TEST_SSH_TARGET: eos-mgm
         run: |
           go test -v -timeout 10m -run TestIntegration ./eos/...

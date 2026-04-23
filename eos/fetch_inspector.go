@@ -9,9 +9,7 @@ import (
 )
 
 func (c *Client) Inspector(ctx context.Context) (InspectorStats, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "inspector", "-l", "-m")
+	output, err := c.runCommandContext(ctx, "eos", "inspector", "-l", "-m")
 	if err != nil {
 		msg := strings.TrimSpace(string(output))
 		lower := strings.ToLower(msg)

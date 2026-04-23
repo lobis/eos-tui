@@ -7,9 +7,7 @@ import (
 )
 
 func (c *Client) AccessList(ctx context.Context) ([]AccessRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "access", "ls", "-m")
+	output, err := c.runCommandContext(ctx, "eos", "access", "ls", "-m")
 	if err != nil {
 		return nil, fmt.Errorf("eos access ls -m: %w", err)
 	}
@@ -18,26 +16,22 @@ func (c *Client) AccessList(ctx context.Context) ([]AccessRecord, error) {
 }
 
 func (c *Client) SetAccessRule(ctx context.Context, op, category, value string) error {
-	_ = ctx
-
 	args, err := accessRuleArgs(op, category, value)
 	if err != nil {
 		return err
 	}
-	if _, err := c.runCommand(args...); err != nil {
+	if _, err := c.runCommandContext(ctx, args...); err != nil {
 		return fmt.Errorf("%s %s %s: %w", strings.Join(args[:3], " "), category, value, err)
 	}
 	return nil
 }
 
 func (c *Client) SetAccessStall(ctx context.Context, seconds int) error {
-	_ = ctx
-
 	args, err := accessStallArgs(seconds)
 	if err != nil {
 		return err
 	}
-	if _, err := c.runCommand(args...); err != nil {
+	if _, err := c.runCommandContext(ctx, args...); err != nil {
 		return fmt.Errorf("%s: %w", strings.Join(args, " "), err)
 	}
 	return nil

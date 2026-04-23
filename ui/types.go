@@ -222,6 +222,10 @@ type commandHistoryLoadedMsg struct {
 	err      error
 }
 
+type shellExitedMsg struct {
+	err error
+}
+
 type ioShapingTickMsg struct{}
 type ioShapingPolicyTickMsg struct{}
 type commandLogTickMsg struct{}

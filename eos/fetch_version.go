@@ -7,8 +7,7 @@ import (
 )
 
 func (c *Client) EOSVersion(ctx context.Context) (string, error) {
-	_ = ctx
-	output, err := c.runCommand("eos", "version")
+	output, err := c.runCommandContext(ctx, "eos", "version")
 	if err != nil {
 		return "", fmt.Errorf("eos version: %w", err)
 	}

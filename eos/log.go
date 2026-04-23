@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const maxSessionCommandCacheLines = 1000
+
 func (c *Client) openLogFile() (*os.File, error) {
 	if c.sessionLogPath == "" {
 		return nil, fmt.Errorf("logging disabled")
@@ -27,31 +29,55 @@ func (c *Client) SessionCommands(n int) ([]string, error) {
 		return nil, nil
 	}
 
+	c.sessionCommandMu.Lock()
+	defer c.sessionCommandMu.Unlock()
+
 	f, err := os.Open(c.sessionLogPath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() < c.sessionCommandOffset {
+		c.sessionCommandOffset = 0
+		c.sessionCommandCache = nil
+	}
+	if c.sessionCommandOffset > 0 {
+		if _, err := f.Seek(c.sessionCommandOffset, 0); err != nil {
+			return nil, err
+		}
+	}
+
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-	lines := make([]string, 0, n)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !isSessionCommandLine(line) {
 			continue
 		}
-		if len(lines) == n {
-			copy(lines, lines[1:])
-			lines = lines[:n-1]
+		c.sessionCommandCache = append(c.sessionCommandCache, line)
+		if len(c.sessionCommandCache) > maxSessionCommandCacheLines {
+			copy(c.sessionCommandCache, c.sessionCommandCache[len(c.sessionCommandCache)-maxSessionCommandCacheLines:])
+			c.sessionCommandCache = c.sessionCommandCache[:maxSessionCommandCacheLines]
 		}
-		lines = append(lines, line)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	if info, err := f.Stat(); err == nil {
+		c.sessionCommandOffset = info.Size()
+	}
 
+	lines := c.sessionCommandCache
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	lines = append([]string(nil), lines...)
 	return lines, nil
 }
 

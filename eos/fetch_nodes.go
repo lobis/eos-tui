@@ -9,11 +9,10 @@ import (
 )
 
 func (c *Client) NodeStats(ctx context.Context) (NodeStats, error) {
-	_ = ctx
-	return c.nodeStatsViaCLI()
+	return c.nodeStatsViaCLI(ctx)
 }
 
-func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
+func (c *Client) nodeStatsViaCLI(ctx context.Context) (NodeStats, error) {
 	// Fetch namespace stats via eos ns stat -m. The monitoring format already
 	// contains the counters we need for cluster summary and is also used by the
 	// MGM/QDB topology path, so this avoids an extra plain-text ns stat call.
@@ -21,7 +20,7 @@ func (c *Client) nodeStatsViaCLI() (NodeStats, error) {
 	// already-loaded node and filesystem data, avoiding a redundant call to
 	// `eos status` which internally runs the eos-status shell script and
 	// creates temporary files under /tmp.
-	nsStatOut, err := c.runCommand("eos", "-b", "ns", "stat", "-m")
+	nsStatOut, err := c.runCommandContext(ctx, "eos", "-b", "ns", "stat", "-m")
 	if err != nil {
 		return NodeStats{}, fmt.Errorf("eos ns stat -m: %w", err)
 	}
@@ -51,9 +50,7 @@ func nodeStatsFromMonitoringValues(values map[string]string) NodeStats {
 }
 
 func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "-j", "node", "ls")
+	output, err := c.runCommandContext(ctx, "eos", "-j", "node", "ls")
 	if err != nil {
 		return nil, fmt.Errorf("eos node ls: %w", err)
 	}

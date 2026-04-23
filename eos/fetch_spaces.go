@@ -10,9 +10,7 @@ import (
 )
 
 func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "-j", "-b", "space", "ls")
+	output, err := c.runCommandContext(ctx, "eos", "-j", "-b", "space", "ls")
 	if err != nil {
 		return nil, fmt.Errorf("eos space ls: %w", err)
 	}
@@ -65,9 +63,7 @@ func (c *Client) Spaces(ctx context.Context) ([]SpaceRecord, error) {
 }
 
 func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRecord, error) {
-	_ = ctx
-
-	output, err := c.runCommand("eos", "--json", "-b", "space", "status", name)
+	output, err := c.runCommandContext(ctx, "eos", "--json", "-b", "space", "status", name)
 	if err == nil {
 		records, parseErr := parseSpaceStatusJSON(output)
 		if parseErr == nil && len(records) > 0 {
@@ -79,7 +75,7 @@ func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRec
 	// JSON implementation for `eos space status`. Keep the legacy text parser as
 	// a fallback until those versions are out of support, then remove this block
 	// and the parseSpaceStatusLegacy helper.
-	legacyOutput, legacyErr := c.runCommand("eos", "-b", "space", "status", name)
+	legacyOutput, legacyErr := c.runCommandContext(ctx, "eos", "-b", "space", "status", name)
 	if legacyErr != nil {
 		if err != nil {
 			return nil, fmt.Errorf("eos space status %s: json path failed: %w; legacy fallback failed: %w", name, err, legacyErr)
@@ -91,14 +87,12 @@ func (c *Client) SpaceStatus(ctx context.Context, name string) ([]SpaceStatusRec
 }
 
 func (c *Client) SpaceConfig(ctx context.Context, name string, key, value string) error {
-	_ = ctx
-
 	fullKey := key
 	if !strings.HasPrefix(key, "space.") && !strings.HasPrefix(key, "fs.") {
 		fullKey = "space." + key
 	}
 
-	_, err := c.runCommand("eos", "-b", "space", "config", name, fmt.Sprintf("%s=%s", fullKey, value))
+	_, err := c.runCommandContext(ctx, "eos", "-b", "space", "config", name, fmt.Sprintf("%s=%s", fullKey, value))
 	if err != nil {
 		return fmt.Errorf("eos space config %s %s=%s: %w", name, fullKey, value, err)
 	}

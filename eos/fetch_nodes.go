@@ -57,16 +57,16 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 
 	var payload struct {
 		Result []struct {
-			Type           string `json:"type"`
-			HostPort       string `json:"hostport"`
-			Geotag         string `json:"geotag"`
-			Status         string `json:"status"`
-			HeartbeatDelta int64  `json:"heartbeatdelta"`
-			NoFS           int    `json:"nofs"`
+			Type           string         `json:"type"`
+			HostPort       string         `json:"hostport"`
+			Geotag         flexibleString `json:"geotag"`
+			Status         string         `json:"status"`
+			HeartbeatDelta int64          `json:"heartbeatdelta"`
+			NoFS           int            `json:"nofs"`
 			Cfg            struct {
 				Status string `json:"status"`
 				Stat   struct {
-					Geotag string `json:"geotag"`
+					Geotag flexibleString `json:"geotag"`
 					Sys    struct {
 						Kernel  string `json:"kernel"`
 						RSS     uint64 `json:"rss"`
@@ -109,9 +109,9 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 
 	nodes := make([]FstRecord, 0, len(payload.Result))
 	for _, item := range payload.Result {
-		geotag := item.Geotag
+		geotag := string(item.Geotag)
 		if geotag == "" {
-			geotag = item.Cfg.Stat.Geotag
+			geotag = string(item.Cfg.Stat.Geotag)
 		}
 		h, p := splitHostPort(item.HostPort)
 		nodes = append(nodes, FstRecord{

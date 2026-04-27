@@ -35,9 +35,9 @@ func (m model) renderAccessList(width, height int) string {
 	}
 
 	columns := allocateTableColumns(contentWidth, contentAwareColumns([]tableColumn{
-		{title: "category", min: 10, maxw: 14, weight: 1},
-		{title: "rule", min: 10, maxw: 18, weight: 1},
-		{title: "value", min: 18, weight: 3},
+		{title: "category", min: 10, maxw: 14, weight: 0},
+		{title: "rule", min: 12, maxw: 40, weight: 2},
+		{title: "value", min: 14, weight: 3},
 	}, dataRows))
 
 	title := m.styles.label.Render("EOS Access")

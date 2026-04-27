@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -66,10 +67,14 @@ func (m model) renderIOShapingView(height int) string {
 	}
 
 	if m.ioShapingErr != nil {
+		message := m.ioShapingErr.Error()
+		if errors.Is(m.ioShapingErr, eos.ErrIOShapingUnsupported) {
+			message = "IO traffic shaping is not available on this EOS instance.\nThe `io shaping` subcommand is missing — check `eos io --help` on the MGM."
+		}
 		lines := []string{
 			m.styles.label.Render("IO Traffic Shaping") + indicator,
 			"",
-			m.styles.error.Render(m.ioShapingErr.Error()),
+			m.styles.error.Render(message),
 		}
 		return m.styles.panelDim.Width(width).Render(fitLines(lines, height))
 	}

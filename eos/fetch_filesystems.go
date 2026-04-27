@@ -14,6 +14,10 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 		return nil, fmt.Errorf("eos fs ls: %w", err)
 	}
 
+	return parseFileSystemsJSON(output)
+}
+
+func parseFileSystemsJSON(output []byte) ([]FileSystemRecord, error) {
 	var payload struct {
 		Result []struct {
 			Host         string `json:"host"`
@@ -28,9 +32,9 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 				} `json:"drain"`
 			} `json:"local"`
 			Stat struct {
-				Active string `json:"active"`
-				Boot   string `json:"boot"`
-				Geotag string `json:"geotag"`
+				Active string         `json:"active"`
+				Boot   string         `json:"boot"`
+				Geotag flexibleString `json:"geotag"`
 				Health struct {
 					Status string `json:"status"`
 				} `json:"health"`
@@ -62,7 +66,7 @@ func (c *Client) FileSystems(ctx context.Context) ([]FileSystemRecord, error) {
 			ID:            item.ID,
 			Path:          item.Path,
 			SchedGroup:    item.SchedGroup,
-			Geotag:        item.Stat.Geotag,
+			Geotag:        string(item.Stat.Geotag),
 			Boot:          item.Stat.Boot,
 			ConfigStatus:  item.ConfigStatus,
 			DrainStatus:   item.Local.Drain.Status,

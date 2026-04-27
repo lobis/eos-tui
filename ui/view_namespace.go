@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -352,6 +353,42 @@ func normalizeBlockWidth(block string, width int) string {
 	return strings.Join(rows, "\n")
 }
 
+// namespaceAttrEditPopupContentWidth returns the content width to use inside
+// the edit-attribute popup. It fits to the longest non-wrapping line (titles,
+// path, status hint) and caps at a comfortable maximum so very long
+// attribute values wrap onto multiple lines instead of stretching the popup
+// across the whole terminal.
+func (m model) namespaceAttrEditPopupContentWidth() int {
+	const minWidth = 60
+	const softCap = 96
+	// 2 for the border + 4 for Padding(1, 2) = 6 horizontal overhead.
+	hardCap := max(minWidth, m.contentWidth()-6)
+	cap := min(softCap, hardCap)
+
+	natural := lipgloss.Width("Edit Attribute")
+	natural = max(natural, lipgloss.Width(m.nsAttrEdit.targetPath))
+	natural = max(natural, lipgloss.Width("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
+
+	return min(cap, max(minWidth, natural))
+}
+
+// wrapAttrEntry hard-wraps a "key = value" line at the given inner width and
+// returns the wrapped sub-lines. Continuation lines are indented to align
+// under the value.
+func wrapAttrEntry(line string, innerWidth int) []string {
+	innerWidth = max(10, innerWidth)
+	wrapped := ansi.Hardwrap(line, innerWidth, true)
+	parts := strings.Split(wrapped, "\n")
+	if len(parts) <= 1 {
+		return parts
+	}
+	indent := strings.Repeat(" ", 4)
+	for i := 1; i < len(parts); i++ {
+		parts[i] = indent + parts[i]
+	}
+	return parts
+}
+
 func (m model) renderNamespaceAttrEditPopup() string {
 	if len(m.nsAttrEdit.attrs) == 0 {
 		return m.styles.panel.
@@ -366,9 +403,12 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	if m.nsAttrEdit.recursive {
 		recursiveValue = "Yes"
 	}
+
+	contentWidth := m.namespaceAttrEditPopupContentWidth()
+
 	lines := []string{
 		m.styles.popupTitle.Render("Edit Attribute"),
-		truncate(m.nsAttrEdit.targetPath, 72),
+		truncate(m.nsAttrEdit.targetPath, contentWidth),
 		"",
 	}
 
@@ -376,14 +416,24 @@ func (m model) renderNamespaceAttrEditPopup() string {
 		lines = append(lines,
 			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
 			"",
-			m.renderSectionTitle("Select Key", 72),
+			m.renderSectionTitle("Select Key", contentWidth),
 		)
 		for i, attr := range m.nsAttrEdit.attrs {
-			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
-			if i == m.nsAttrEdit.selected {
-				lines = append(lines, m.styles.selected.Render("▶ "+line))
-			} else {
-				lines = append(lines, "  "+line)
+			full := fmt.Sprintf("%s = %s", attr.Key, attr.Value)
+			parts := wrapAttrEntry(full, contentWidth-2)
+			for j, part := range parts {
+				prefix := "  "
+				if j == 0 {
+					prefix = "▶ "
+					if i != m.nsAttrEdit.selected {
+						prefix = "  "
+					}
+				}
+				rendered := prefix + part
+				if i == m.nsAttrEdit.selected {
+					rendered = m.styles.selected.Render(rendered)
+				}
+				lines = append(lines, rendered)
 			}
 		}
 		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
@@ -399,6 +449,25 @@ func (m model) renderNamespaceAttrEditPopup() string {
 		)
 	}
 
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) renderNamespaceGoToPopup() string {
+	preview := resolveNamespacePath(m.directory.Path, m.nsGoTo.input.Value())
+	lines := []string{
+		m.styles.popupTitle.Render("Go To Path"),
+		fmt.Sprintf("From: %s", m.styles.value.Render(m.directory.Path)),
+		"",
+		m.nsGoTo.input.View(),
+		"",
+		fmt.Sprintf("Resolves to: %s", m.styles.value.Render(preview)),
+		"",
+		m.styles.status.Render("enter open  •  esc cancel  •  absolute path or relative to current"),
+	}
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).

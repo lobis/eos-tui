@@ -343,6 +343,11 @@ type namespaceAttrEdit struct {
 	input      textinput.Model
 }
 
+type namespaceGoTo struct {
+	active bool
+	input  textinput.Model
+}
+
 type ioShapingEditStage int
 
 const (
@@ -774,6 +779,7 @@ type model struct {
 	nsAttrsLoading     bool
 	nsDetailContentMax int
 	nsAttrEdit         namespaceAttrEdit
+	nsGoTo             namespaceGoTo
 
 	spaceStatus         []eos.SpaceStatusRecord
 	spaceStatusLoading  bool

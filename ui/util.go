@@ -31,6 +31,25 @@ func parentPath(current string) string {
 	return path.Dir(current)
 }
 
+// resolveNamespacePath turns user-entered text into an absolute, cleaned
+// EOS namespace path. Absolute inputs (starting with "/") replace the
+// current path; relative inputs are joined onto current. Empty input is
+// treated as "stay where you are".
+func resolveNamespacePath(current, input string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return cleanPath(current)
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return cleanPath(trimmed)
+	}
+	base := current
+	if base == "" {
+		base = "/"
+	}
+	return cleanPath(path.Join(base, trimmed))
+}
+
 func fallback(value, defaultValue string) string {
 	if value == "" {
 		return defaultValue

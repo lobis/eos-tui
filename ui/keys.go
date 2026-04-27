@@ -167,6 +167,8 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		return m.startNamespaceAttrEdit()
+	case ":":
+		return m.startNamespaceGoTo()
 	case "right":
 		entry, ok := m.selectedNamespaceEntry()
 		if ok && entry.Kind == eos.EntryKindContainer {
@@ -372,6 +374,45 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	default:
 		return m, nil
 	}
+}
+
+func (m model) startNamespaceGoTo() (tea.Model, tea.Cmd) {
+	input := textinput.New()
+	input.Prompt = "path> "
+	input.CharLimit = 4096
+	input.Width = 60
+	input.SetValue(m.directory.Path)
+	input.CursorEnd()
+
+	m.nsGoTo = namespaceGoTo{
+		active: true,
+		input:  input,
+	}
+	return m, m.nsGoTo.input.Focus()
+}
+
+func (m model) updateNamespaceGoToKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.nsGoTo.active = false
+		return m, nil
+	case "enter":
+		target := resolveNamespacePath(m.directory.Path, m.nsGoTo.input.Value())
+		m.nsGoTo.active = false
+		if target == m.directory.Path {
+			m.status = fmt.Sprintf("Already at %s", target)
+			return m, nil
+		}
+		m.nsFilter.filters = map[int]string{}
+		m.nsSelected = 0
+		m.nsLoading = true
+		m.status = fmt.Sprintf("Opening %s...", target)
+		return m, loadDirectoryCmd(m.client, target)
+	}
+
+	var cmd tea.Cmd
+	m.nsGoTo.input, cmd = m.nsGoTo.input.Update(msg)
+	return m, cmd
 }
 
 func (m model) updateSpacesKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

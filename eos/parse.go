@@ -1,11 +1,43 @@
 package eos
 
 import (
+	"bytes"
+	"encoding/json"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
 )
+
+// flexibleString is a JSON-decodable string that also accepts numbers and
+// null. EOS sometimes emits numeric values for fields that are normally
+// strings (e.g. "geotag":83737789 instead of "geotag":"83737789"); decoding
+// such payloads into a plain string field would fail, so use this type for
+// any field where EOS may produce either form.
+type flexibleString string
+
+func (s *flexibleString) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*s = ""
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var str string
+		if err := json.Unmarshal(trimmed, &str); err != nil {
+			return err
+		}
+		*s = flexibleString(str)
+		return nil
+	}
+	// Anything else (number, bool, etc.) — preserve the raw token as text.
+	*s = flexibleString(string(trimmed))
+	return nil
+}
+
+// String exists so that fmt and string conversions read naturally at call
+// sites.
+func (s flexibleString) String() string { return string(s) }
 
 var shellSafeArgPattern = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 

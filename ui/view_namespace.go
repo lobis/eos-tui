@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -353,24 +354,39 @@ func normalizeBlockWidth(block string, width int) string {
 }
 
 // namespaceAttrEditPopupContentWidth returns the content width to use inside
-// the edit-attribute popup. It fits to the longest content line and caps at
-// the terminal width. The attribute list is fixed for the lifetime of a
-// popup session, so the natural width is stable — there is no shrink during
-// navigation.
+// the edit-attribute popup. It fits to the longest non-wrapping line (titles,
+// path, status hint) and caps at a comfortable maximum so very long
+// attribute values wrap onto multiple lines instead of stretching the popup
+// across the whole terminal.
 func (m model) namespaceAttrEditPopupContentWidth() int {
 	const minWidth = 60
+	const softCap = 96
 	// 2 for the border + 4 for Padding(1, 2) = 6 horizontal overhead.
-	maxCap := max(minWidth, m.contentWidth()-6)
+	hardCap := max(minWidth, m.contentWidth()-6)
+	cap := min(softCap, hardCap)
 
 	natural := lipgloss.Width("Edit Attribute")
 	natural = max(natural, lipgloss.Width(m.nsAttrEdit.targetPath))
 	natural = max(natural, lipgloss.Width("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
-	for _, attr := range m.nsAttrEdit.attrs {
-		// "▶ " or "  " prefix is 2 cells wide.
-		natural = max(natural, lipgloss.Width(fmt.Sprintf("%s = %s", attr.Key, attr.Value))+2)
-	}
 
-	return min(maxCap, max(minWidth, natural))
+	return min(cap, max(minWidth, natural))
+}
+
+// wrapAttrEntry hard-wraps a "key = value" line at the given inner width and
+// returns the wrapped sub-lines. Continuation lines are indented to align
+// under the value.
+func wrapAttrEntry(line string, innerWidth int) []string {
+	innerWidth = max(10, innerWidth)
+	wrapped := ansi.Hardwrap(line, innerWidth, true)
+	parts := strings.Split(wrapped, "\n")
+	if len(parts) <= 1 {
+		return parts
+	}
+	indent := strings.Repeat(" ", 4)
+	for i := 1; i < len(parts); i++ {
+		parts[i] = indent + parts[i]
+	}
+	return parts
 }
 
 func (m model) renderNamespaceAttrEditPopup() string {
@@ -403,11 +419,21 @@ func (m model) renderNamespaceAttrEditPopup() string {
 			m.renderSectionTitle("Select Key", contentWidth),
 		)
 		for i, attr := range m.nsAttrEdit.attrs {
-			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), contentWidth-2)
-			if i == m.nsAttrEdit.selected {
-				lines = append(lines, m.styles.selected.Render("▶ "+line))
-			} else {
-				lines = append(lines, "  "+line)
+			full := fmt.Sprintf("%s = %s", attr.Key, attr.Value)
+			parts := wrapAttrEntry(full, contentWidth-2)
+			for j, part := range parts {
+				prefix := "  "
+				if j == 0 {
+					prefix = "▶ "
+					if i != m.nsAttrEdit.selected {
+						prefix = "  "
+					}
+				}
+				rendered := prefix + part
+				if i == m.nsAttrEdit.selected {
+					rendered = m.styles.selected.Render(rendered)
+				}
+				lines = append(lines, rendered)
 			}
 		}
 		lines = append(lines, "", m.styles.status.Render("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))

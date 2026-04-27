@@ -54,6 +54,33 @@ func TestParentPath(t *testing.T) {
 	}
 }
 
+func TestResolveNamespacePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		input   string
+		want    string
+	}{
+		{"empty input keeps current", "/eos/foo", "", "/eos/foo"},
+		{"whitespace input keeps current", "/eos/foo", "   ", "/eos/foo"},
+		{"absolute replaces", "/eos/foo", "/eos/bar/baz", "/eos/bar/baz"},
+		{"absolute is cleaned", "/eos/foo", "/eos//bar/../baz", "/eos/baz"},
+		{"relative joined onto current", "/eos/foo", "bar", "/eos/foo/bar"},
+		{"dot dot walks up", "/eos/foo/bar", "..", "/eos/foo"},
+		{"double dot dot walks up twice", "/eos/foo/bar", "../..", "/eos"},
+		{"current empty treated as root", "", "foo", "/foo"},
+		{"trailing slash trimmed", "/eos", "foo/bar/", "/eos/foo/bar"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveNamespacePath(tt.current, tt.input)
+			if got != tt.want {
+				t.Fatalf("resolveNamespacePath(%q, %q) = %q, want %q", tt.current, tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFallback(t *testing.T) {
 	tests := []struct {
 		name         string

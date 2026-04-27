@@ -352,6 +352,27 @@ func normalizeBlockWidth(block string, width int) string {
 	return strings.Join(rows, "\n")
 }
 
+// namespaceAttrEditPopupContentWidth returns the content width to use inside
+// the edit-attribute popup. It fits to the longest content line and caps at
+// the terminal width. The attribute list is fixed for the lifetime of a
+// popup session, so the natural width is stable — there is no shrink during
+// navigation.
+func (m model) namespaceAttrEditPopupContentWidth() int {
+	const minWidth = 60
+	// 2 for the border + 4 for Padding(1, 2) = 6 horizontal overhead.
+	maxCap := max(minWidth, m.contentWidth()-6)
+
+	natural := lipgloss.Width("Edit Attribute")
+	natural = max(natural, lipgloss.Width(m.nsAttrEdit.targetPath))
+	natural = max(natural, lipgloss.Width("↑↓ select  •  g/G home/end  •  enter edit  •  r toggle recursive  •  esc cancel"))
+	for _, attr := range m.nsAttrEdit.attrs {
+		// "▶ " or "  " prefix is 2 cells wide.
+		natural = max(natural, lipgloss.Width(fmt.Sprintf("%s = %s", attr.Key, attr.Value))+2)
+	}
+
+	return min(maxCap, max(minWidth, natural))
+}
+
 func (m model) renderNamespaceAttrEditPopup() string {
 	if len(m.nsAttrEdit.attrs) == 0 {
 		return m.styles.panel.
@@ -366,9 +387,12 @@ func (m model) renderNamespaceAttrEditPopup() string {
 	if m.nsAttrEdit.recursive {
 		recursiveValue = "Yes"
 	}
+
+	contentWidth := m.namespaceAttrEditPopupContentWidth()
+
 	lines := []string{
 		m.styles.popupTitle.Render("Edit Attribute"),
-		truncate(m.nsAttrEdit.targetPath, 72),
+		truncate(m.nsAttrEdit.targetPath, contentWidth),
 		"",
 	}
 
@@ -376,10 +400,10 @@ func (m model) renderNamespaceAttrEditPopup() string {
 		lines = append(lines,
 			fmt.Sprintf("Recursive: %s", m.styles.value.Render(recursiveValue)),
 			"",
-			m.renderSectionTitle("Select Key", 72),
+			m.renderSectionTitle("Select Key", contentWidth),
 		)
 		for i, attr := range m.nsAttrEdit.attrs {
-			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), 72)
+			line := truncate(fmt.Sprintf("%s = %s", attr.Key, attr.Value), contentWidth-2)
 			if i == m.nsAttrEdit.selected {
 				lines = append(lines, m.styles.selected.Render("▶ "+line))
 			} else {
@@ -399,6 +423,25 @@ func (m model) renderNamespaceAttrEditPopup() string {
 		)
 	}
 
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) renderNamespaceGoToPopup() string {
+	preview := resolveNamespacePath(m.directory.Path, m.nsGoTo.input.Value())
+	lines := []string{
+		m.styles.popupTitle.Render("Go To Path"),
+		fmt.Sprintf("From: %s", m.styles.value.Render(m.directory.Path)),
+		"",
+		m.nsGoTo.input.View(),
+		"",
+		fmt.Sprintf("Resolves to: %s", m.styles.value.Render(preview)),
+		"",
+		m.styles.status.Render("enter open  •  esc cancel  •  absolute path or relative to current"),
+	}
 	return m.styles.panel.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).

@@ -163,6 +163,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.nsAttrEdit.active {
 			return m.updateNamespaceAttrEditKeys(msg)
 		}
+		if m.nsGoTo.active {
+			return m.updateNamespaceGoToKeys(msg)
+		}
 		if m.ioShapingEdit.active {
 			return m.updateIOShapingPolicyEditKeys(msg)
 		}
@@ -751,6 +754,8 @@ func (m model) View() string {
 		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
 	} else if m.nsAttrEdit.active {
 		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
+	} else if m.nsGoTo.active {
+		body = m.renderOverlay(body, m.renderNamespaceGoToPopup(), bodyTotalHeight)
 	} else if m.ioShapingEdit.active {
 		body = m.renderOverlay(body, m.renderIOShapingPolicyEditPopup(), bodyTotalHeight)
 	} else if m.groupDrain.active {

@@ -85,7 +85,7 @@ func (m model) renderFooter() string {
 	case viewNamespaceStats:
 		keys = "tab/0-9  •  ↑↓/jk sections/rows  •  ←→ pane/col  •  / filter col  •  g/G top/bottom  •  r refresh  •  L commands  •  q quit"
 	case viewNamespace:
-		keys = "tab/0-9  •  ↑↓/jk  •  g/G top/bottom  •  → open  •  enter attrs  •  backspace back  •  L commands  •  q quit"
+		keys = "tab/0-9  •  ↑↓/jk  •  g/G top/bottom  •  → open  •  : goto  •  enter attrs  •  backspace back  •  L commands  •  q quit"
 	case viewSpaces:
 		if m.spaceStatusActive {
 			keys = "tab/0-9  •  ↑↓/jk  •  enter edit  •  esc/backspace/← back  •  r refresh  •  L commands  •  q quit"

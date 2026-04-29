@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -326,12 +327,26 @@ func loadLogCmd(client *eos.Client, target logTarget) tea.Cmd {
 			out, err = client.TailLogOnHost(context.Background(), target.host, target.filePath, 2000)
 		}
 		if err != nil {
+			if errors.Is(err, eos.ErrLogFileNotFound) {
+				return logLoadedMsg{
+					filePath: target.source,
+					lines:    []string{missingLogFileMessage(target)},
+					notice:   "log file is not present",
+				}
+			}
 			return logLoadedMsg{filePath: target.source, err: err}
 		}
 		raw := strings.TrimRight(string(out), "\n")
 		lines := sanitizeLogLines(strings.Split(raw, "\n"))
 		return logLoadedMsg{filePath: target.source, lines: lines}
 	}
+}
+
+func missingLogFileMessage(target logTarget) string {
+	if target.host == "" {
+		return fmt.Sprintf("%s is not present on this host.", target.filePath)
+	}
+	return fmt.Sprintf("%s is not present on %s.", target.filePath, target.host)
 }
 
 func sanitizeLogLines(lines []string) []string {

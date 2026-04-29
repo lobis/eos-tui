@@ -2,6 +2,7 @@ package eos
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,9 @@ import (
 )
 
 var hostnameFunc = os.Hostname
+
+// ErrLogFileNotFound marks optional log-file targets that are absent on a host.
+var ErrLogFileNotFound = errors.New("log file not found")
 
 type execCommandRunner struct{}
 
@@ -64,6 +68,11 @@ func (c *Client) runCommandContext(ctx context.Context, args ...string) ([]byte,
 	}
 
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = fmt.Errorf("%w: %v", ctxErr, err)
+		}
+	}
+	if err != nil {
 		c.logResponse(args, out, err)
 	}
 	return out, err
@@ -79,6 +88,9 @@ func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...stri
 	remoteCommand := shellJoin(args)
 	c.logCommand(append([]string{"→", target}, args...))
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -95,6 +107,11 @@ func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...stri
 		runner = execCommandRunner{}
 	}
 	out, err := runner.CombinedOutput(ctxTimeout, "ssh", sshArgs...)
+	if err != nil {
+		if ctxErr := ctxTimeout.Err(); ctxErr != nil {
+			err = fmt.Errorf("%w: %v", ctxErr, err)
+		}
+	}
 	if err != nil {
 		c.logResponse(args, out, err)
 	}
@@ -142,6 +159,9 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	if host == "" || isCurrentExecutionHost(host, effective) {
 		out, err := c.runCommandContext(ctx, tailArgs...)
 		if err != nil {
+			if isTailLogNotFoundOutput(out) {
+				return nil, fmt.Errorf("%w: %s", ErrLogFileNotFound, filePath)
+			}
 			return nil, fmt.Errorf("tail %s: %w (output: %.300s)", filePath, err, out)
 		}
 		return out, nil
@@ -171,9 +191,18 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	}
 	if err != nil {
 		c.logResponse(tailArgs, out, err)
+		if isTailLogNotFoundOutput(out) {
+			return nil, fmt.Errorf("%w: %s on %s", ErrLogFileNotFound, filePath, host)
+		}
 		return nil, fmt.Errorf("tail %s on %s: %w (output: %.300s)", filePath, host, err, out)
 	}
 	return out, nil
+}
+
+func isTailLogNotFoundOutput(out []byte) bool {
+	text := string(out)
+	return strings.Contains(text, "No such file or directory") &&
+		(strings.Contains(text, "cannot open") || strings.Contains(text, "No such file"))
 }
 
 // SSHTargetForHost returns the ssh arguments needed to open an interactive

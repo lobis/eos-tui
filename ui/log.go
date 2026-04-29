@@ -42,7 +42,53 @@ func rtlogSourceLabel(queue string, seconds int, tag string) string {
 	return fmt.Sprintf("eos rtlog %s %d %s", queue, seconds, tag)
 }
 
-func (m model) logTargetForView() (logTarget, bool) {
+func mgmLogTargets(host string) []logTarget {
+	const rtlogSeconds = 600
+	const rtlogTag = "info"
+
+	return []logTarget{
+		{
+			title:      "MGM Log",
+			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
+			host:       host,
+			rtlogQueue: ".",
+			rtlogTag:   rtlogTag,
+			rtlogSecs:  rtlogSeconds,
+		},
+		{
+			title:    "MGM xrdlog",
+			source:   "/var/log/eos/mgm/xrdlog.mgm",
+			host:     host,
+			filePath: "/var/log/eos/mgm/xrdlog.mgm",
+		},
+		{
+			title:    "MGM Traffic Shaping",
+			source:   "/var/log/eos/mgm/TrafficShaping.log",
+			host:     host,
+			filePath: "/var/log/eos/mgm/TrafficShaping.log",
+		},
+		{
+			title:    "MGM Balancer",
+			source:   "/var/log/eos/mgm/Balancer.log",
+			host:     host,
+			filePath: "/var/log/eos/mgm/Balancer.log",
+		},
+		{
+			title:    "MGM Converter",
+			source:   "/var/log/eos/mgm/Converter.log",
+			host:     host,
+			filePath: "/var/log/eos/mgm/Converter.log",
+		},
+		{
+			title:    "MGM Drain",
+			source:   "/var/log/eos/mgm/Drain.log",
+			host:     host,
+			filePath: "/var/log/eos/mgm/Drain.log",
+		},
+	}
+}
+
+func (m model) logTargetsForView() ([]logTarget, bool) {
 	const rtlogSeconds = 600
 	const rtlogTag = "info"
 
@@ -50,75 +96,127 @@ func (m model) logTargetForView() (logTarget, bool) {
 	case viewMGM, viewQDB:
 		rows := m.topologySelectableRows()
 		if m.mgmSelected < 0 || m.mgmSelected >= len(rows) {
-			return logTarget{}, false
+			return nil, false
 		}
 		selected := rows[m.mgmSelected]
 		if selected.kind == topologyHostQDB {
 			host := selected.host
 			if host == "" {
-				return logTarget{}, false
+				return nil, false
 			}
-			return logTarget{
+			return []logTarget{{
 				title:    "QDB Log",
 				source:   "/var/log/eos/quarkdb/xrdlog.quarkdb",
 				host:     host,
 				filePath: "/var/log/eos/quarkdb/xrdlog.quarkdb",
-			}, true
+			}}, true
 		}
 		host := selected.host
 		if host == "" {
-			return logTarget{}, false
+			return nil, false
 		}
-		return logTarget{
-			title:      "MGM Log",
-			source:     rtlogSourceLabel(".", rtlogSeconds, rtlogTag),
-			host:       host,
-			rtlogQueue: ".",
-			rtlogTag:   rtlogTag,
-			rtlogSecs:  rtlogSeconds,
-		}, true
+		return mgmLogTargets(host), true
 	case viewFST, viewFileSystems:
 		host := m.selectedHostForView()
 		if host == "" {
-			return logTarget{}, false
+			return nil, false
 		}
 		port := 0
 		if m.activeView == viewFST {
 			fsts := m.visibleFSTs()
 			if m.fstSelected < 0 || m.fstSelected >= len(fsts) {
-				return logTarget{}, false
+				return nil, false
 			}
 			port = fsts[m.fstSelected].Port
 		} else {
 			fss := m.visibleFileSystems()
 			if m.fsSelected < 0 || m.fsSelected >= len(fss) {
-				return logTarget{}, false
+				return nil, false
 			}
 			port = int(fss[m.fsSelected].Port)
 		}
 		queue := fstRTLogQueue(host, port)
-		return logTarget{
+		return []logTarget{{
 			title:      "FST Log",
 			source:     rtlogSourceLabel(queue, rtlogSeconds, rtlogTag),
 			host:       host,
 			rtlogQueue: queue,
 			rtlogTag:   rtlogTag,
 			rtlogSecs:  rtlogSeconds,
-		}, true
+		}}, true
 	default:
+		return nil, false
+	}
+}
+
+func (m model) logTargetForView() (logTarget, bool) {
+	targets, ok := m.logTargetsForView()
+	if !ok || len(targets) == 0 {
 		return logTarget{}, false
 	}
+	return targets[0], true
+}
+
+func logTitleWithHost(target logTarget) string {
+	if target.host == "" {
+		return target.title
+	}
+	return fmt.Sprintf("%s  [%s]", target.title, target.host)
+}
+
+func (m model) currentLogTarget() logTarget {
+	return logTarget{
+		title:      m.log.title,
+		source:     m.log.source,
+		host:       m.log.host,
+		filePath:   m.log.filePath,
+		rtlogQueue: m.log.rtlogQueue,
+		rtlogTag:   m.log.rtlogTag,
+		rtlogSecs:  m.log.rtlogSecs,
+	}
+}
+
+func (m model) logSourceLabel() string {
+	return fallback(m.log.source, m.log.filePath)
+}
+
+func (m model) setActiveLogTarget(target logTarget, loading bool) model {
+	m.log.host = target.host
+	m.log.filePath = target.filePath
+	m.log.source = target.source
+	m.log.rtlogQueue = target.rtlogQueue
+	m.log.rtlogTag = target.rtlogTag
+	m.log.rtlogSecs = target.rtlogSecs
+	m.log.title = logTitleWithHost(target)
+	m.log.err = nil
+	m.log.notice = ""
+	m.log.loading = loading
+	m.log.allLines = nil
+	m.log.filtered = nil
+	m.log.vp.SetContent("Loading...")
+	return m
+}
+
+func (m model) switchLogSource(delta int) (tea.Model, tea.Cmd) {
+	if len(m.log.logSources) < 2 {
+		return m, nil
+	}
+	m.log.sourceIndex = (m.log.sourceIndex + delta + len(m.log.logSources)) % len(m.log.logSources)
+	target := m.log.logSources[m.log.sourceIndex]
+	m = m.setActiveLogTarget(target, true)
+	return m, loadLogCmd(m.client, target)
 }
 
 func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	if m.client == nil {
 		return m, nil
 	}
-	target, ok := m.logTargetForView()
-	if !ok {
+	targets, ok := m.logTargetsForView()
+	if !ok || len(targets) == 0 {
 		// Views without a supported log target do not open the log overlay.
 		return m, nil
 	}
+	target := targets[0]
 
 	logInput := textinput.New()
 	logInput.Prompt = "grep> "
@@ -127,26 +225,16 @@ func (m model) openLogOverlay() (tea.Model, tea.Cmd) {
 	vp := viewport.New(m.contentWidth()-4, max(4, m.height-10))
 	vp.SetContent("Loading...")
 
-	titleWithHost := target.title
-	if target.host != "" {
-		titleWithHost = fmt.Sprintf("%s  [%s]", target.title, target.host)
-	}
-
 	m.log = logOverlay{
-		active:     true,
-		host:       target.host,
-		filePath:   target.filePath,
-		source:     target.source,
-		rtlogQueue: target.rtlogQueue,
-		rtlogTag:   target.rtlogTag,
-		rtlogSecs:  target.rtlogSecs,
-		title:      titleWithHost,
-		tailing:    true,
-		wrap:       true,
-		loading:    true,
-		vp:         vp,
-		input:      logInput,
+		active:      true,
+		logSources:  targets,
+		sourceIndex: 0,
+		tailing:     true,
+		wrap:        true,
+		vp:          vp,
+		input:       logInput,
 	}
+	m = m.setActiveLogTarget(target, true)
 	return m, tea.Batch(loadLogCmd(m.client, target), logTickCmd())
 }
 
@@ -236,6 +324,8 @@ func (m model) renderLogOverlay(height int) string {
 	totalInfo := fmt.Sprintf("  %d lines", len(m.log.allLines))
 	if m.log.loading {
 		totalInfo = "  loading..."
+	} else if m.log.notice != "" {
+		totalInfo = "  " + m.log.notice
 	} else if m.log.err != nil {
 		if hasCachedContent {
 			totalInfo = "  reload failed; showing cached lines"

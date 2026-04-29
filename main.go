@@ -70,8 +70,8 @@ func main() {
 	if *sshTarget != "" {
 		displayTarget = fmt.Sprintf("ssh %s", *sshTarget)
 
-		// Discover the MGM/QDB master so all subsequent commands go directly
-		// to the leader node rather than through the gateway.
+		// Discover the MGM master so subsequent EOS commands go directly to
+		// the command-serving leader rather than through the gateway.
 		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), *timeout)
 		defer discoverCancel()
 		if resolved, err := client.DiscoverMGMMaster(discoverCtx); err == nil && resolved != "" {

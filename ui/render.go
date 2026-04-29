@@ -75,6 +75,9 @@ func (m model) renderFooter() string {
 		if m.log.filtering {
 			keys = "type to filter  •  enter apply  •  esc cancel  •  ctrl+c close"
 		}
+		if len(m.log.logSources) > 1 && !m.log.filtering {
+			keys = strings.Replace(keys, "r reload", "n/p log source  •  r reload", 1)
+		}
 		return m.styles.status.Render(padVisibleWidth(keys, m.contentWidth()))
 	}
 

@@ -129,8 +129,15 @@ func parseMGMsFromNSStatMonitoring(output []byte) ([]MgmRecord, bool) {
 	return parseMGMsFromMonitoringValues(parseMonitoringKeyValues(output))
 }
 
+func mgmLeaderFromMonitoringValues(values map[string]string) string {
+	if leader := strings.TrimSpace(values["ns.mgm.leader"]); leader != "" {
+		return leader
+	}
+	return strings.TrimSpace(values["master_id"])
+}
+
 func parseMGMsFromMonitoringValues(values map[string]string) ([]MgmRecord, bool) {
-	mgmLeader := strings.TrimSpace(values["ns.mgm.leader"])
+	mgmLeader := mgmLeaderFromMonitoringValues(values)
 	qdbLeader := strings.TrimSpace(values["ns.qdb.leader"])
 	if mgmLeader == "" || qdbLeader == "" {
 		return nil, false

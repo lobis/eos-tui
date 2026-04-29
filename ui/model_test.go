@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -7340,6 +7341,133 @@ func TestLogTargetForViewMGM(t *testing.T) {
 	}
 	if target.title != "MGM Log" {
 		t.Fatalf("expected MGM Log title, got %q", target.title)
+	}
+}
+
+func TestLogTargetsForViewMGMIncludesDedicatedFiles(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{Host: "mgm01.cern.ch", Port: 1094}}
+
+	targets, ok := m.logTargetsForView()
+	if !ok {
+		t.Fatalf("expected mgm view to resolve log targets")
+	}
+	if len(targets) < 3 {
+		t.Fatalf("expected dedicated mgm log files in addition to rtlog, got %#v", targets)
+	}
+	if targets[0].rtlogQueue != "." {
+		t.Fatalf("expected default target to remain eos rtlog '.', got %#v", targets[0])
+	}
+
+	paths := map[string]bool{}
+	for _, target := range targets {
+		paths[target.filePath] = true
+		if target.host != "mgm01.cern.ch" {
+			t.Fatalf("expected all mgm targets to use selected host, got %#v", target)
+		}
+	}
+	if !paths["/var/log/eos/mgm/TrafficShaping.log"] {
+		t.Fatalf("expected TrafficShaping.log target in %#v", targets)
+	}
+}
+
+func TestLogOverlayCyclesMGMLogSources(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:      true,
+		tailing:     true,
+		wrap:        true,
+		host:        "mgm01.cern.ch",
+		source:      "eos rtlog . 600 info",
+		rtlogQueue:  ".",
+		rtlogTag:    "info",
+		rtlogSecs:   600,
+		title:       "MGM Log  [mgm01.cern.ch]",
+		logSources:  mgmLogTargets("mgm01.cern.ch"),
+		sourceIndex: 0,
+		allLines:    []string{"old"},
+		filtered:    []string{"old"},
+		vp:          viewport.New(80, 20),
+		input:       textinput.New(),
+	}
+
+	updated, cmd := m.updateLogKeys(runeKey('n'))
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected source switch to load the next log")
+	}
+	if m.log.filePath != "/var/log/eos/mgm/xrdlog.mgm" {
+		t.Fatalf("expected next source to be xrdlog.mgm, got %q", m.log.filePath)
+	}
+	if m.log.rtlogQueue != "" {
+		t.Fatalf("expected file log target to clear rtlog queue, got %q", m.log.rtlogQueue)
+	}
+	if !m.log.loading {
+		t.Fatalf("expected switched log source to enter loading state")
+	}
+	if len(m.log.allLines) != 0 {
+		t.Fatalf("expected old log lines to be cleared, got %#v", m.log.allLines)
+	}
+
+	updated, _ = m.updateLogKeys(runeKey('n'))
+	m = updated.(model)
+	if m.log.filePath != "/var/log/eos/mgm/TrafficShaping.log" {
+		t.Fatalf("expected second next source to be TrafficShaping.log, got %q", m.log.filePath)
+	}
+
+	updated, _ = m.updateLogKeys(runeKey('p'))
+	m = updated.(model)
+	if m.log.filePath != "/var/log/eos/mgm/xrdlog.mgm" {
+		t.Fatalf("expected previous source to return to xrdlog.mgm, got %q", m.log.filePath)
+	}
+}
+
+func TestLoadLogCmdTreatsMissingFileAsNotice(t *testing.T) {
+	client, err := eos.New(nil, eos.Config{Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	missingPath := filepath.Join(t.TempDir(), "missing.log")
+	msg := loadLogCmd(client, logTarget{
+		title:    "MGM Drain",
+		source:   missingPath,
+		filePath: missingPath,
+	})().(logLoadedMsg)
+
+	if msg.err != nil {
+		t.Fatalf("expected missing log file to be a notice, got error %v", msg.err)
+	}
+	if msg.notice != "log file is not present" {
+		t.Fatalf("expected missing-file notice, got %q", msg.notice)
+	}
+	if len(msg.lines) != 1 || !strings.Contains(msg.lines[0], "is not present") {
+		t.Fatalf("expected neutral missing-file line, got %#v", msg.lines)
+	}
+}
+
+func TestRenderLogOverlayShowsMissingFileNotice(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.log = logOverlay{
+		active:   true,
+		wrap:     true,
+		title:    "MGM Drain  [mgm01.cern.ch]",
+		source:   "/var/log/eos/mgm/Drain.log",
+		notice:   "log file is not present",
+		allLines: []string{"/var/log/eos/mgm/Drain.log is not present on mgm01.cern.ch."},
+		filtered: []string{"/var/log/eos/mgm/Drain.log is not present on mgm01.cern.ch."},
+		vp:       viewport.New(80, 20),
+		input:    textinput.New(),
+	}
+
+	view := m.renderLogOverlay(10)
+	if !strings.Contains(view, "log file is not present") {
+		t.Fatalf("expected notice in rendered log overlay, got:\n%s", view)
+	}
+	if strings.Contains(view, "failed to load log") || strings.Contains(view, "exit status") {
+		t.Fatalf("expected missing log to render without failure text, got:\n%s", view)
 	}
 }
 

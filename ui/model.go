@@ -659,8 +659,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case logLoadedMsg:
+		if m.log.active && msg.filePath != "" && msg.filePath != m.logSourceLabel() {
+			return m, nil
+		}
 		m.log.loading = false
 		m.log.err = msg.err
+		m.log.notice = msg.notice
 		if msg.err == nil {
 			wasAtBottom := m.log.vp.AtBottom()
 			prevOffset := m.log.vp.YOffset
@@ -676,15 +680,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case logTickMsg:
 		if m.log.active && m.log.tailing {
-			return m, tea.Batch(loadLogCmd(m.client, logTarget{
-				title:      m.log.title,
-				source:     m.log.source,
-				host:       m.log.host,
-				filePath:   m.log.filePath,
-				rtlogQueue: m.log.rtlogQueue,
-				rtlogTag:   m.log.rtlogTag,
-				rtlogSecs:  m.log.rtlogSecs,
-			}), logTickCmd())
+			return m, tea.Batch(loadLogCmd(m.client, m.currentLogTarget()), logTickCmd())
 		}
 	case commandHistoryLoadedMsg:
 		m.commandLog.loading = false

@@ -33,6 +33,13 @@ func (r *recordingRunner) CombinedOutput(ctx context.Context, name string, args 
 	return r.out, nil
 }
 
+type deadlineRunner struct{}
+
+func (deadlineRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	<-ctx.Done()
+	return nil, errors.New("signal: killed")
+}
+
 func TestParseLabeledValues(t *testing.T) {
 	input := `
 ALL      Files                            78 [booted] (0s)
@@ -1486,6 +1493,97 @@ uid=all gid=all master_id=eospilot-ns-02.cern.ch:1094
 	}
 	if got := mgmPortFromMonitoringValues(map[string]string{}); got != "1094" {
 		t.Fatalf("expected fallback port, got %q", got)
+	}
+}
+
+func TestDiscoverMGMMasterUsesMGMLeaderFromMonitoring(t *testing.T) {
+	runner := &recordingRunner{out: []byte(`
+uid=all gid=all is_master=true master_id=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.leader=eospilot-ns-02.cern.ch:1094
+uid=all gid=all ns.mgm.followers=eospilot-ns-ip700.cern.ch:1094,eospilot-ns-01.cern.ch:1094
+uid=all gid=all ns.qdb.leader=eospilot-ns-01.cern.ch:7777
+uid=all gid=all ns.qdb.followers=eospilot-ns-ip700.cern.ch:7777,eospilot-ns-02.cern.ch:7777
+`)}
+	c := &Client{
+		sshTarget: "eospilot",
+		timeout:   time.Second,
+		runner:    runner,
+	}
+
+	resolved, err := c.DiscoverMGMMaster(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMGMMaster() error: %v", err)
+	}
+	if resolved != "root@eospilot-ns-02.cern.ch" {
+		t.Fatalf("expected MGM leader target, got %q", resolved)
+	}
+	if got := c.ResolvedSSHTarget(); got != resolved {
+		t.Fatalf("expected resolved target to be stored, got %q", got)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	call := runner.calls[0]
+	if call.name != "ssh" {
+		t.Fatalf("expected discovery to run over ssh, got %q", call.name)
+	}
+	joinedArgs := strings.Join(call.args, " ")
+	if !strings.Contains(joinedArgs, "eospilot") ||
+		!strings.Contains(joinedArgs, "eos") ||
+		!strings.Contains(joinedArgs, "ns") ||
+		!strings.Contains(joinedArgs, "stat") ||
+		!strings.Contains(joinedArgs, "-m") {
+		t.Fatalf("unexpected discovery command: %v", call.args)
+	}
+	if strings.Contains(joinedArgs, "redis-cli") {
+		t.Fatalf("discovery should not use QDB raft leadership for EOS command routing: %v", call.args)
+	}
+}
+
+func TestDiscoverMGMMasterFallsBackToMasterID(t *testing.T) {
+	runner := &recordingRunner{out: []byte(`
+uid=all gid=all is_master=true master_id=legacy-mgm.cern.ch:1094
+`)}
+	c := &Client{
+		sshTarget: "legacy",
+		timeout:   time.Second,
+		runner:    runner,
+	}
+
+	resolved, err := c.DiscoverMGMMaster(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMGMMaster() error: %v", err)
+	}
+	if resolved != "root@legacy-mgm.cern.ch" {
+		t.Fatalf("expected master_id target, got %q", resolved)
+	}
+}
+
+func TestRunCommandContextReportsContextDeadline(t *testing.T) {
+	c := &Client{
+		timeout: time.Nanosecond,
+		runner:  deadlineRunner{},
+	}
+
+	_, err := c.runCommandContext(context.Background(), "eos", "version")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+}
+
+func TestTailLogOnHostReportsMissingFile(t *testing.T) {
+	runner := &recordingRunner{
+		out: []byte("tail: cannot open '/var/log/eos/mgm/Drain.log' for reading: No such file or directory\n"),
+		err: errors.New("exit status 1"),
+	}
+	c := &Client{
+		timeout: time.Second,
+		runner:  runner,
+	}
+
+	_, err := c.TailLog(context.Background(), "/var/log/eos/mgm/Drain.log", 2000)
+	if !errors.Is(err, ErrLogFileNotFound) {
+		t.Fatalf("expected ErrLogFileNotFound, got %v", err)
 	}
 }
 

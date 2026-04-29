@@ -999,30 +999,18 @@ func (m model) updateLogKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "w":
 		m.log.wrap = !m.log.wrap
 		m.refreshLogViewportContent(true)
+	case "n":
+		return m.switchLogSource(1)
+	case "p":
+		return m.switchLogSource(-1)
 	case "t":
 		m.log.tailing = !m.log.tailing
 		if m.log.tailing {
-			return m, tea.Batch(loadLogCmd(m.client, logTarget{
-				title:      m.log.title,
-				source:     m.log.source,
-				host:       m.log.host,
-				filePath:   m.log.filePath,
-				rtlogQueue: m.log.rtlogQueue,
-				rtlogTag:   m.log.rtlogTag,
-				rtlogSecs:  m.log.rtlogSecs,
-			}), logTickCmd())
+			return m, tea.Batch(loadLogCmd(m.client, m.currentLogTarget()), logTickCmd())
 		}
 	case "r":
 		m.log.loading = true
-		return m, loadLogCmd(m.client, logTarget{
-			title:      m.log.title,
-			source:     m.log.source,
-			host:       m.log.host,
-			filePath:   m.log.filePath,
-			rtlogQueue: m.log.rtlogQueue,
-			rtlogTag:   m.log.rtlogTag,
-			rtlogSecs:  m.log.rtlogSecs,
-		})
+		return m, loadLogCmd(m.client, m.currentLogTarget())
 	case "g":
 		m.log.vp.GotoTop()
 	case "G":

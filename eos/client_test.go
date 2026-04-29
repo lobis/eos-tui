@@ -1587,6 +1587,44 @@ func TestTailLogOnHostReportsMissingFile(t *testing.T) {
 	}
 }
 
+func TestQDBAttemptCoupRunsOnSelectedHost(t *testing.T) {
+	runner := &recordingRunner{out: []byte("OK\n")}
+	c := &Client{
+		sshTarget:         "mgm01.cern.ch",
+		resolvedSSHTarget: "root@mgm01.cern.ch",
+		timeout:           time.Second,
+		runner:            runner,
+	}
+
+	out, err := c.QDBAttemptCoup(context.Background(), "qdb01.cern.ch")
+	if err != nil {
+		t.Fatalf("QDBAttemptCoup() error: %v", err)
+	}
+	if string(out) != "OK\n" {
+		t.Fatalf("expected command output, got %q", out)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	call := runner.calls[0]
+	if call.name != "ssh" {
+		t.Fatalf("expected ssh command, got %q", call.name)
+	}
+	joinedArgs := strings.Join(call.args, " ")
+	for _, want := range []string{
+		"-J root@mgm01.cern.ch",
+		"root@qdb01.cern.ch",
+		"redis-cli",
+		"-p",
+		"7777",
+		"raft-attempt-coup",
+	} {
+		if !strings.Contains(joinedArgs, want) {
+			t.Fatalf("expected ssh args to contain %q, got %v", want, call.args)
+		}
+	}
+}
+
 // --- entryFromCLI ---
 
 func TestEntryFromCLIRootPath(t *testing.T) {

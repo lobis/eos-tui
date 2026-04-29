@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/lobis/eos-tui/eos"
 )
@@ -18,6 +19,7 @@ const logRefreshInterval = 500 * time.Millisecond
 const commandLogTailLines = 200
 const startupSplashTickInterval = 120 * time.Millisecond
 const apollonCommandTimeout = 30 * time.Second
+const qdbCoupRefreshDelay = 2 * time.Second
 
 // checkEOSCmd verifies that `eos version` succeeds (locally or via SSH).
 // Must be the first command fired from Init so a helpful fatal popup is shown
@@ -297,6 +299,71 @@ func runApollonDrainCmd(client *eos.Client, fsID uint64, instance string) tea.Cm
 	}
 }
 
+func runQDBCoupCmd(client *eos.Client, host string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return qdbCoupResultMsg{host: host, err: fmt.Errorf("EOS client unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		out, err := client.QDBAttemptCoup(ctx, host)
+		return qdbCoupResultMsg{
+			host:   host,
+			output: cleanQDBCoupOutput(string(out)),
+			err:    err,
+		}
+	}
+}
+
+func delayedLoadMGMsCmd(client *eos.Client, delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(delay)
+		if client == nil {
+			return mgmsLoadedMsg{err: fmt.Errorf("EOS client unavailable")}
+		}
+		mgms, err := client.MGMs(context.Background())
+		return mgmsLoadedMsg{mgms: mgms, err: err}
+	}
+}
+
+func delayedReloadMGMVersionsCmd(client *eos.Client, delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(delay)
+		if client == nil {
+			return mgmVersionsLoadedMsg{err: fmt.Errorf("EOS client unavailable")}
+		}
+		mgms, err := client.MGMs(context.Background())
+		if err != nil {
+			return mgmVersionsLoadedMsg{err: err}
+		}
+		mgmVersions, qdbVersions, err := client.MGMVersions(context.Background(), mgms)
+		return mgmVersionsLoadedMsg{mgmVersions: mgmVersions, qdbVersions: qdbVersions, err: err}
+	}
+}
+
+func cleanQDBCoupOutput(raw string) string {
+	lines := sanitizeLogLines(strings.Split(strings.TrimSpace(raw), "\n"))
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimLeft(line, "| "))
+		if trimmed == "" {
+			continue
+		}
+		if isSSHTransportWarningLine(trimmed) {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.TrimSpace(strings.Join(filtered, "\n"))
+}
+
+func isSSHTransportWarningLine(line string) bool {
+	return strings.Contains(line, "post-quantum key exchange") ||
+		strings.Contains(line, "store now, decrypt later") ||
+		strings.Contains(line, "openssh.com/pq.html")
+}
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
@@ -354,6 +421,7 @@ func sanitizeLogLines(lines []string) []string {
 	for _, line := range lines {
 		// Normalize any CRLF/CR output from remote commands and drop other
 		// control characters that can confuse terminal cursor placement.
+		line = ansi.Strip(line)
 		line = strings.TrimRight(line, "\r")
 		line = strings.Map(func(r rune) rune {
 			if r == '\t' || r >= ' ' {

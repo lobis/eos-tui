@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/lobis/eos-tui/eos"
 )
 
 type topologyHostKind int
@@ -135,6 +141,163 @@ func (m model) selectedTopologyHostRow() (topologyHostKind, int, bool) {
 		}
 	}
 	return selected.kind, local, true
+}
+
+func (m model) selectedTopologyHost() (topologyHostRow, bool) {
+	rows := m.topologySelectableRows()
+	if m.mgmSelected < 0 || m.mgmSelected >= len(rows) {
+		return topologyHostRow{}, false
+	}
+	return rows[m.mgmSelected], true
+}
+
+func qdbCoupRemoteArgs() []string {
+	return []string{"redis-cli", "-p", "7777", "raft-attempt-coup"}
+}
+
+func qdbCoupDisplayCommand(client *eos.Client, host string) string {
+	remoteArgs := qdbCoupRemoteArgs()
+	if client == nil {
+		return eos.ShellDisplayJoin(remoteArgs)
+	}
+
+	target, jump := client.SSHTargetForHost(host)
+	if target == "" {
+		return eos.ShellDisplayJoin(remoteArgs)
+	}
+
+	args := append([]string{"ssh"}, client.SSHArgs(true)...)
+	if jump != "" {
+		args = append(args, "-J", jump)
+	}
+	args = append(args, target)
+	args = append(args, remoteArgs...)
+	return eos.ShellDisplayJoin(args)
+}
+
+func (m model) startQDBCoupConfirm() (tea.Model, tea.Cmd) {
+	row, ok := m.selectedTopologyHost()
+	if !ok {
+		m.status = "Select a QDB host before attempting coup"
+		return m, nil
+	}
+	if row.kind != topologyHostQDB {
+		m.status = "Coup can only be attempted on a selected QDB host"
+		return m, nil
+	}
+
+	m.qdbCoup = qdbCoupConfirm{
+		active:  true,
+		host:    row.host,
+		command: qdbCoupDisplayCommand(m.client, row.host),
+		button:  buttonCancel,
+	}
+	return m, nil
+}
+
+func (m model) renderQDBCoupConfirmPopup() string {
+	cancelBtn := "[ Cancel ]"
+	confirmBtn := "[ Attempt QDB coup ]"
+
+	if m.qdbCoup.button == buttonCancel {
+		cancelBtn = m.styles.selected.Render(cancelBtn)
+	} else {
+		confirmBtn = m.styles.selected.Render(confirmBtn)
+	}
+
+	popupWidth := max(48, min(120, m.contentWidth()-16))
+	commandLines := wrappedQDBPopupLines(m.qdbCoup.command, popupWidth)
+	lines := []string{
+		m.styles.popupTitle.Render("Confirm QDB Raft Coup"),
+		fmt.Sprintf("Host: %s", m.styles.value.Render(m.qdbCoup.host)),
+		"",
+		"This asks the selected QuarkDB node to become raft leader.",
+		"It does not change the EOS MGM leader.",
+		"",
+		"The following command will be executed:",
+		"",
+	}
+	for _, line := range commandLines {
+		lines = append(lines, m.styles.value.Render(line))
+	}
+	lines = append(lines,
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+		"",
+		m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc close"),
+	)
+	for i := range lines {
+		lines[i] = padVisibleWidth(lines[i], popupWidth)
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func (m model) renderQDBCoupResultPopup() string {
+	title := "QDB Raft Coup Result"
+	statusLine := "Command completed successfully."
+	borderColor := lipgloss.Color("86")
+	if m.qdbCoupDone.err != nil {
+		statusLine = fmt.Sprintf("Command failed: %v", m.qdbCoupDone.err)
+		borderColor = lipgloss.Color("196")
+	}
+
+	output := strings.TrimSpace(m.qdbCoupDone.output)
+	if output == "" {
+		output = "(no output)"
+	}
+	popupWidth := max(48, min(120, m.contentWidth()-16))
+	outputLines := wrappedQDBPopupLines(output, popupWidth)
+
+	lines := []string{
+		m.styles.popupTitle.Render(title),
+		fmt.Sprintf("Host: %s", m.styles.value.Render(m.qdbCoupDone.host)),
+		"",
+		statusLine,
+		"",
+		"Command output:",
+		"",
+	}
+	for _, line := range outputLines {
+		lines = append(lines, m.styles.value.Render(line))
+	}
+	lines = append(lines,
+		"",
+		m.styles.status.Render("enter / esc close"),
+	)
+	for i := range lines {
+		lines[i] = padVisibleWidth(lines[i], popupWidth)
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func wrappedQDBPopupLines(text string, width int) []string {
+	lines := sanitizeLogLines(strings.Split(text, "\n"))
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			out = append(out, "")
+			continue
+		}
+		wrapped := ansi.Hardwrap(line, width, true)
+		for _, part := range strings.Split(wrapped, "\n") {
+			out = append(out, ansi.Truncate(part, width, "…"))
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
 }
 
 func (m model) renderTopologyRows(contentWidth, maxRows int, rows []topologyHostRow, selectedKind topologyHostKind, selectedLocal int, sectionKind topologyHostKind) []string {

@@ -7471,6 +7471,204 @@ func TestRenderLogOverlayShowsMissingFileNotice(t *testing.T) {
 	}
 }
 
+func TestQDBCoupHotkeyRequiresSelectedQDBHost(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{
+		Host:      "mgm01.cern.ch",
+		Port:      1094,
+		Role:      "leader",
+		QDBHost:   "qdb01.cern.ch",
+		QDBPort:   7777,
+		QDBRole:   "follower",
+		QDBStatus: "online",
+	}}
+	m.mgmSelected = 0
+
+	updated, cmd := m.updateMGMKeys(runeKey('c'))
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirmation")
+	}
+	if m.qdbCoup.active {
+		t.Fatalf("did not expect coup confirmation for selected MGM row")
+	}
+	if !strings.Contains(m.status, "only be attempted") {
+		t.Fatalf("expected QDB-only status, got %q", m.status)
+	}
+}
+
+func TestQDBCoupHotkeyOpensConfirmationForQDB(t *testing.T) {
+	client, err := eos.New(nil, eos.Config{SSHTarget: "mgm-gateway", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	m := newSizedTestModel(t)
+	m.client = client
+	m.activeView = viewMGM
+	m.mgms = []eos.MgmRecord{{
+		Host:      "mgm01.cern.ch",
+		Port:      1094,
+		Role:      "leader",
+		QDBHost:   "qdb01.cern.ch",
+		QDBPort:   7777,
+		QDBRole:   "follower",
+		QDBStatus: "online",
+	}}
+	m.mgmSelected = 1
+
+	updated, cmd := m.updateMGMKeys(runeKey('c'))
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirmation")
+	}
+	if !m.qdbCoup.active {
+		t.Fatalf("expected QDB coup confirmation to open")
+	}
+	if m.qdbCoup.host != "qdb01.cern.ch" {
+		t.Fatalf("expected selected QDB host, got %q", m.qdbCoup.host)
+	}
+	for _, want := range []string{"ssh", "qdb01.cern.ch", "redis-cli", "raft-attempt-coup"} {
+		if !strings.Contains(m.qdbCoup.command, want) {
+			t.Fatalf("expected confirmation command to contain %q, got %q", want, m.qdbCoup.command)
+		}
+	}
+	if strings.Contains(m.qdbCoup.command, "\\'") {
+		t.Fatalf("expected readable command without escaped nested quotes, got %q", m.qdbCoup.command)
+	}
+}
+
+func TestQDBCoupConfirmationEnterRunsCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.qdbCoup = qdbCoupConfirm{
+		active: true,
+		host:   "qdb01.cern.ch",
+		button: buttonContinue,
+	}
+
+	updated, cmd := m.updateQDBCoupKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.qdbCoup.active {
+		t.Fatalf("expected confirmation popup to close")
+	}
+	if cmd == nil {
+		t.Fatalf("expected QDB coup command after confirming")
+	}
+	if !strings.Contains(m.status, "qdb01.cern.ch") {
+		t.Fatalf("expected status to mention target host, got %q", m.status)
+	}
+}
+
+func TestQDBCoupResultMsgOpensResultPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+
+	updated, cmd := m.Update(qdbCoupResultMsg{
+		host:   "qdb01.cern.ch",
+		output: "vive la revolution",
+	})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected topology refresh command after successful coup")
+	}
+	if !m.qdbCoupDone.active {
+		t.Fatalf("expected QDB coup result popup to open")
+	}
+	if m.qdbCoupDone.host != "qdb01.cern.ch" || m.qdbCoupDone.output != "vive la revolution" {
+		t.Fatalf("unexpected QDB coup result popup: %+v", m.qdbCoupDone)
+	}
+}
+
+func TestCleanQDBCoupOutputRemovesSSHTransportWarning(t *testing.T) {
+	raw := `
+ * WARNING: connection is not using a post-quantum key exchange algorithm.
+This session may be vulnerable to "store now, decrypt later" attacks.
+The server may need to be upgraded. See https://openssh.com/pq.html
+vive la revolution
+`
+	got := cleanQDBCoupOutput(raw)
+	if got != "vive la revolution" {
+		t.Fatalf("expected only redis result, got %q", got)
+	}
+}
+
+func TestQDBCoupResultPopupClosesOnEnter(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.qdbCoupDone = qdbCoupResultPopup{
+		active: true,
+		host:   "qdb01.cern.ch",
+		output: "vive la revolution",
+	}
+
+	updated, _ := m.updateQDBCoupResultKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.qdbCoupDone.active {
+		t.Fatalf("expected QDB coup result popup to close")
+	}
+}
+
+func TestRenderQDBCoupConfirmPopupShowsHostAndCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.qdbCoup = qdbCoupConfirm{
+		active:  true,
+		host:    "qdb01.cern.ch",
+		command: "ssh root@qdb01.cern.ch 'redis-cli' '-p' '7777' 'raft-attempt-coup'",
+		button:  buttonCancel,
+	}
+
+	out := m.renderQDBCoupConfirmPopup()
+	for _, want := range []string{"Confirm QDB Raft Coup", "qdb01.cern.ch", "redis-cli", "raft-attempt-coup", "Attempt QDB coup", "does not change the EOS MGM leader"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected popup to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderQDBCoupResultPopupShowsCommandOutput(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.qdbCoupDone = qdbCoupResultPopup{
+		active: true,
+		host:   "qdb01.cern.ch",
+		output: "vive la revolution",
+	}
+
+	out := m.renderQDBCoupResultPopup()
+	for _, want := range []string{"QDB Raft Coup Result", "qdb01.cern.ch", "Command output", "vive la revolution"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected result popup to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderQDBCoupResultPopupSanitizesSSHWarningAndKeepsBorders(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.qdbCoupDone = qdbCoupResultPopup{
+		active: true,
+		host:   "qdb01.cern.ch",
+		output: cleanQDBCoupOutput("\r| * WARNING: connection is not using a post-quantum key exchange algorithm.\r\n| This session may be vulnerable to \"store now, decrypt later\" attacks.\r\n| The server may need to be upgraded. See https://openssh.com/pq.html\r\nvive la revolution"),
+	}
+
+	out := m.renderQDBCoupResultPopup()
+	plain := ansi.Strip(out)
+	if strings.Contains(plain, "post-quantum") || strings.Contains(plain, "store now") {
+		t.Fatalf("expected SSH transport warning to be filtered, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "vive la revolution") {
+		t.Fatalf("expected redis result in popup, got:\n%s", plain)
+	}
+	for i, line := range strings.Split(plain, "\n") {
+		trimmed := strings.TrimRight(line, " ")
+		if strings.HasPrefix(trimmed, "│") && !strings.HasSuffix(trimmed, "│") {
+			t.Fatalf("popup content line %d missing right border: %q\nfull popup:\n%s", i, trimmed, plain)
+		}
+	}
+}
+
 func TestRenderBodySpaceStatus(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewSpaceStatus

@@ -85,6 +85,8 @@ func (m model) renderFooter() string {
 		m.activeView == viewFST || m.activeView == viewFileSystems
 	var keys string
 	switch m.activeView {
+	case viewMGM, viewQDB:
+		keys = "tab/0-9  •  ↑↓/jk  •  g/G top/bottom  •  c coup  •  r refresh  •  l logs  •  L commands  •  s shell  •  q quit"
 	case viewNamespaceStats:
 		keys = "tab/0-9  •  ↑↓/jk sections/rows  •  ←→ pane/col  •  / filter col  •  g/G top/bottom  •  r refresh  •  L commands  •  q quit"
 	case viewNamespace:

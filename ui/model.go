@@ -178,6 +178,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.apollon.active {
 			return m.updateApollonDrainKeys(msg)
 		}
+		if m.qdbCoup.active {
+			return m.updateQDBCoupKeys(msg)
+		}
+		if m.qdbCoupDone.active {
+			return m.updateQDBCoupResultKeys(msg)
+		}
 		if m.fsEdit.active {
 			return m.updateFSConfigStatusEditKeys(msg)
 		}
@@ -602,6 +608,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = fmt.Sprintf("Apollon drain started for filesystem %d on %s", msg.fsID, msg.instance)
 		return m, loadFileSystemsCmd(m.client)
+	case qdbCoupResultMsg:
+		m.qdbCoupDone = qdbCoupResultPopup{
+			active: true,
+			host:   msg.host,
+			output: msg.output,
+			err:    msg.err,
+		}
+		if msg.err != nil {
+			m.status = fmt.Sprintf("QDB coup failed on %s: %v", msg.host, msg.err)
+			return m, nil
+		}
+		m.status = fmt.Sprintf("QDB raft coup attempted on %s", msg.host)
+		if msg.output != "" {
+			m.status = fmt.Sprintf("QDB raft coup attempted on %s: %s", msg.host, msg.output)
+		}
+		m.mgmsLoading = true
+		m.mgmVersionsLoading = true
+		return m, tea.Batch(
+			delayedLoadMGMsCmd(m.client, qdbCoupRefreshDelay),
+			delayedReloadMGMVersionsCmd(m.client, qdbCoupRefreshDelay),
+		)
 	case ioShapingLoadedMsg:
 		m.ioShapingLoading = false
 		if msg.err != nil {
@@ -758,6 +785,10 @@ func (m model) View() string {
 		body = m.renderOverlay(body, m.renderGroupDrainConfirmPopup(), bodyTotalHeight)
 	} else if m.apollon.active {
 		body = m.renderOverlay(body, m.renderApollonDrainConfirmPopup(), bodyTotalHeight)
+	} else if m.qdbCoup.active {
+		body = m.renderOverlay(body, m.renderQDBCoupConfirmPopup(), bodyTotalHeight)
+	} else if m.qdbCoupDone.active {
+		body = m.renderOverlay(body, m.renderQDBCoupResultPopup(), bodyTotalHeight)
 	} else if m.fsEdit.active {
 		body = m.renderOverlay(body, m.renderFSConfigStatusEditPopup(), bodyTotalHeight)
 	} else if m.alert.active {

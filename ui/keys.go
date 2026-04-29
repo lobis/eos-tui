@@ -73,6 +73,8 @@ func (m model) updateMGMKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mgmSelected = 0
 	case "G":
 		m.mgmSelected = max(0, n-1)
+	case "c":
+		return m.startQDBCoupConfirm()
 	}
 	return m, nil
 }
@@ -930,6 +932,42 @@ func (m model) updateApollonDrainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.apollon.active = false
 		m.status = fmt.Sprintf("Starting Apollon drain for filesystem %d on %s...", fsID, instance)
 		return m, runApollonDrainCmd(m.client, fsID, instance)
+	}
+	return m, nil
+}
+
+func (m model) updateQDBCoupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.qdbCoup.active = false
+		return m, nil
+	case "g":
+		m.qdbCoup.button = buttonCancel
+	case "G":
+		m.qdbCoup.button = buttonContinue
+	case "left", "right", "tab", "shift+tab":
+		if m.qdbCoup.button == buttonCancel {
+			m.qdbCoup.button = buttonContinue
+		} else {
+			m.qdbCoup.button = buttonCancel
+		}
+	case "enter":
+		if m.qdbCoup.button == buttonCancel {
+			m.qdbCoup.active = false
+			return m, nil
+		}
+		host := m.qdbCoup.host
+		m.qdbCoup.active = false
+		m.status = fmt.Sprintf("Attempting QDB raft coup on %s...", host)
+		return m, runQDBCoupCmd(m.client, host)
+	}
+	return m, nil
+}
+
+func (m model) updateQDBCoupResultKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc":
+		m.qdbCoupDone.active = false
 	}
 	return m, nil
 }

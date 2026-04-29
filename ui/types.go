@@ -252,6 +252,12 @@ type apollonDrainResultMsg struct {
 	err      error
 }
 
+type qdbCoupResultMsg struct {
+	host   string
+	output string
+	err    error
+}
+
 type errorAlert struct {
 	active  bool
 	fatal   bool // if true, any keypress quits the program instead of dismissing
@@ -281,6 +287,20 @@ type apollonDrainConfirm struct {
 	instance string
 	command  string
 	button   buttonID
+}
+
+type qdbCoupConfirm struct {
+	active  bool
+	host    string
+	command string
+	button  buttonID
+}
+
+type qdbCoupResultPopup struct {
+	active bool
+	host   string
+	output string
+	err    error
 }
 
 type groupDrainConfirm struct {
@@ -811,6 +831,8 @@ type model struct {
 	edit        spaceStatusEdit
 	fsEdit      fsConfigStatusEdit
 	apollon     apollonDrainConfirm
+	qdbCoup     qdbCoupConfirm
+	qdbCoupDone qdbCoupResultPopup
 	groupDrain  groupDrainConfirm
 	alert       errorAlert
 	log         logOverlay

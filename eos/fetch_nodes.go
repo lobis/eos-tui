@@ -148,3 +148,11 @@ func (c *Client) Nodes(ctx context.Context) ([]FstRecord, error) {
 
 	return nodes, nil
 }
+
+func (c *Client) SetNodeStatus(ctx context.Context, host string, port int, status string) error {
+	target := fmt.Sprintf("%s:%d", host, port)
+	if _, err := c.runCommandContext(ctx, "eos", "node", "set", target, status); err != nil {
+		return fmt.Errorf("eos node set %s %s: %w", target, status, err)
+	}
+	return nil
+}

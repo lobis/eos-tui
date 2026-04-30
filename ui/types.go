@@ -99,6 +99,12 @@ type fstsLoadedMsg struct {
 	err  error
 }
 
+type nodeStatusResultMsg struct {
+	hostPort string
+	status   string
+	err      error
+}
+
 type fileSystemsLoadedMsg struct {
 	fs  []eos.FileSystemRecord
 	err error
@@ -278,6 +284,16 @@ type fsConfigStatusEdit struct {
 	targets  []fileSystemTarget
 	confirm  bool
 	button   buttonID
+}
+
+type nodeStatusConfirm struct {
+	active  bool
+	host    string
+	port    int
+	current string
+	target  string
+	command string
+	button  buttonID
 }
 
 type apollonDrainConfirm struct {
@@ -828,6 +844,7 @@ type model struct {
 	groupFilter filterState
 	groupSort   sortState
 	popup       filterPopup
+	nodeStatus  nodeStatusConfirm
 	edit        spaceStatusEdit
 	fsEdit      fsConfigStatusEdit
 	apollon     apollonDrainConfirm

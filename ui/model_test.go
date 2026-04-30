@@ -3629,6 +3629,168 @@ func TestApollonDrainHotkeyOpensConfirmation(t *testing.T) {
 	}
 }
 
+func TestNodeStatusHotkeyTogglesOnlineNodeOff(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFST
+	m.fstsLoading = false
+	m.fsts = []eos.FstRecord{{
+		Type:            "fst",
+		Host:            "st-120-100gb-astpuc.cern.ch",
+		Port:            1095,
+		Status:          "online",
+		Activated:       "on",
+		FileSystemCount: 1,
+	}}
+	m.fstSelected = 0
+
+	updated, cmd := m.Update(runeKey('o'))
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirmation")
+	}
+	if !m.nodeStatus.active {
+		t.Fatalf("expected node status confirmation popup to open")
+	}
+	if m.nodeStatus.host != "st-120-100gb-astpuc.cern.ch" || m.nodeStatus.port != 1095 {
+		t.Fatalf("unexpected node target: %+v", m.nodeStatus)
+	}
+	if m.nodeStatus.target != "off" {
+		t.Fatalf("expected target status off, got %q", m.nodeStatus.target)
+	}
+	want := "eos node set st-120-100gb-astpuc.cern.ch:1095 off"
+	if m.nodeStatus.command != want {
+		t.Fatalf("unexpected node status command: got %q want %q", m.nodeStatus.command, want)
+	}
+}
+
+func TestNodeStatusHotkeyTogglesOfflineNodeOn(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFST
+	m.fstsLoading = false
+	m.fsts = []eos.FstRecord{{
+		Type:            "fst",
+		Host:            "st-120-100gb-astpuc.cern.ch",
+		Port:            1095,
+		Status:          "offline",
+		Activated:       "off",
+		FileSystemCount: 1,
+	}}
+	m.fstSelected = 0
+
+	updated, cmd := m.Update(runeKey('o'))
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("did not expect command before confirmation")
+	}
+	if !m.nodeStatus.active {
+		t.Fatalf("expected node status confirmation popup to open")
+	}
+	if m.nodeStatus.current != "off" {
+		t.Fatalf("expected current status off, got %q", m.nodeStatus.current)
+	}
+	if m.nodeStatus.target != "on" {
+		t.Fatalf("expected target status on, got %q", m.nodeStatus.target)
+	}
+	want := "eos node set st-120-100gb-astpuc.cern.ch:1095 on"
+	if m.nodeStatus.command != want {
+		t.Fatalf("unexpected node status command: got %q want %q", m.nodeStatus.command, want)
+	}
+}
+
+func TestNodeStatusHotkeyRefusesUnknownState(t *testing.T) {
+	m := NewModel(nil, "local eos cli", "/").(model)
+	m.activeView = viewFST
+	m.fstsLoading = false
+	m.fsts = []eos.FstRecord{{
+		Type:            "fst",
+		Host:            "st-120-100gb-astpuc.cern.ch",
+		Port:            1095,
+		Status:          "unknown",
+		Activated:       "unknown",
+		FileSystemCount: 1,
+	}}
+	m.fstSelected = 0
+
+	updated, cmd := m.Update(runeKey('o'))
+	m = updated.(model)
+
+	if cmd != nil {
+		t.Fatalf("did not expect command for unknown state")
+	}
+	if m.nodeStatus.active {
+		t.Fatalf("did not expect confirmation popup for unknown state")
+	}
+	if !m.alert.active {
+		t.Fatalf("expected alert for unknown state")
+	}
+}
+
+func TestNodeStatusConfirmationEnterRunsCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nodeStatus = nodeStatusConfirm{
+		active: true,
+		host:   "st-120-100gb-astpuc.cern.ch",
+		port:   1095,
+		target: "off",
+		button: buttonContinue,
+	}
+
+	updated, cmd := m.updateNodeStatusKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.nodeStatus.active {
+		t.Fatalf("expected confirmation popup to close")
+	}
+	if cmd == nil {
+		t.Fatalf("expected node status command after confirming")
+	}
+	if !strings.Contains(m.status, "st-120-100gb-astpuc.cern.ch:1095") {
+		t.Fatalf("expected status to mention target node, got %q", m.status)
+	}
+}
+
+func TestNodeStatusResultRefreshesNodesOnSuccess(t *testing.T) {
+	m := newSizedTestModel(t)
+
+	updated, cmd := m.Update(nodeStatusResultMsg{
+		hostPort: "st-120-100gb-astpuc.cern.ch:1095",
+		status:   "off",
+	})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected node refresh command after successful status update")
+	}
+	if !m.fstsLoading {
+		t.Fatalf("expected node list to enter loading state")
+	}
+	if !strings.Contains(m.status, "set off") {
+		t.Fatalf("expected success status, got %q", m.status)
+	}
+}
+
+func TestRenderNodeStatusConfirmPopupShowsCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.nodeStatus = nodeStatusConfirm{
+		active:  true,
+		host:    "st-120-100gb-astpuc.cern.ch",
+		port:    1095,
+		current: "online",
+		target:  "off",
+		command: "eos node set st-120-100gb-astpuc.cern.ch:1095 off",
+		button:  buttonCancel,
+	}
+
+	out := m.renderNodeStatusConfirmPopup()
+	for _, want := range []string{"Confirm Node State Change", "st-120-100gb-astpuc.cern.ch:1095", "online", "off", "eos node set", "Set off"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected popup to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestGroupStatusEditOpensOnEnter(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 	m.activeView = viewGroups

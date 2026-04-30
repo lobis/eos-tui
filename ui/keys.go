@@ -28,6 +28,8 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fstSort = m.nextNodeSortState()
 		m.fstSelected = clampIndex(0, len(m.visibleFSTs()))
 		m.status = fmt.Sprintf("Node sort: %s", m.fstSortStateLabel())
+	case "o":
+		return m.startNodeStatusToggleConfirm()
 	case "c":
 		delete(m.fstFilter.filters, m.fstColumnSelected)
 		m.fstFilter.column = m.fstColumnSelected
@@ -50,6 +52,36 @@ func (m model) updateFSTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fstSelected = max(0, len(fsts)-1)
 	}
 
+	return m, nil
+}
+
+func (m model) updateNodeStatusKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.nodeStatus.active = false
+		return m, nil
+	case "g":
+		m.nodeStatus.button = buttonCancel
+	case "G":
+		m.nodeStatus.button = buttonContinue
+	case "left", "right", "tab", "shift+tab":
+		if m.nodeStatus.button == buttonCancel {
+			m.nodeStatus.button = buttonContinue
+		} else {
+			m.nodeStatus.button = buttonCancel
+		}
+	case "enter":
+		if m.nodeStatus.button == buttonCancel {
+			m.nodeStatus.active = false
+			return m, nil
+		}
+		host := m.nodeStatus.host
+		port := m.nodeStatus.port
+		target := m.nodeStatus.target
+		m.nodeStatus.active = false
+		m.status = fmt.Sprintf("Setting node %s:%d %s...", host, port, target)
+		return m, runNodeStatusCmd(m.client, host, port, target)
+	}
 	return m, nil
 }
 

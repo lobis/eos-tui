@@ -260,6 +260,17 @@ func runFsConfigStatusCmd(client *eos.Client, fsID uint64, value string) tea.Cmd
 	}
 }
 
+func runNodeStatusCmd(client *eos.Client, host string, port int, status string) tea.Cmd {
+	return func() tea.Msg {
+		hostPort := fmt.Sprintf("%s:%d", host, port)
+		if client == nil {
+			return nodeStatusResultMsg{hostPort: hostPort, status: status, err: fmt.Errorf("EOS client unavailable")}
+		}
+		err := client.SetNodeStatus(context.Background(), host, port, status)
+		return nodeStatusResultMsg{hostPort: hostPort, status: status, err: err}
+	}
+}
+
 func runBatchFsConfigStatusCmd(client *eos.Client, targets []fileSystemTarget, value string) tea.Cmd {
 	return func() tea.Msg {
 		failed := make([]string, 0)

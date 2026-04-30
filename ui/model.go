@@ -157,6 +157,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.accessAction.active {
 			return m.updateAccessActionKeys(msg)
 		}
+		if m.nodeStatus.active {
+			return m.updateNodeStatusKeys(msg)
+		}
 		if m.popup.active {
 			return m.updatePopup(msg)
 		}
@@ -404,6 +407,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Connected to %s", m.endpoint)
 		}
 		m.nodeStats.State = m.computeClusterHealth()
+	case nodeStatusResultMsg:
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("node set failed for %s: %v", msg.hostPort, msg.err),
+			}
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Node %s set %s", msg.hostPort, msg.status)
+		m.fstsLoading = true
+		m.fstsErr = nil
+		return m, tea.Batch(loadFSTsCmd(m.client), loadFileSystemsCmd(m.client))
 	case fileSystemsLoadedMsg:
 		m.fileSystemsLoading = false
 		m.fileSystemsErr = msg.err
@@ -773,6 +788,8 @@ func (m model) View() string {
 		body = m.renderBodyWithPopup(body, bodyTotalHeight)
 	} else if m.accessAction.active {
 		body = m.renderOverlay(body, m.renderAccessActionPopup(), bodyTotalHeight)
+	} else if m.nodeStatus.active {
+		body = m.renderOverlay(body, m.renderNodeStatusConfirmPopup(), bodyTotalHeight)
 	} else if m.edit.active {
 		body = m.renderBodyWithEditPopup(body, bodyTotalHeight)
 	} else if m.nsAttrEdit.active {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lobis/eos-tui/eos"
@@ -129,6 +130,93 @@ func (m model) selectedNode() (eos.FstRecord, bool) {
 	}
 
 	return fsts[m.fstSelected], true
+}
+
+func nodeStatusDisplayCommand(host string, port int, status string) string {
+	return eos.ShellDisplayJoin([]string{"eos", "node", "set", fmt.Sprintf("%s:%d", host, port), status})
+}
+
+func (m model) startNodeStatusToggleConfirm() (tea.Model, tea.Cmd) {
+	node, ok := m.selectedNode()
+	if !ok {
+		m.status = "Select a node before changing its state"
+		return m, nil
+	}
+	if node.Host == "" || node.Port == 0 {
+		m.alert = errorAlert{
+			active:  true,
+			message: "Cannot change selected node state: host or port is missing",
+		}
+		return m, nil
+	}
+
+	currentState, targetState, ok := nodeStatusToggleTarget(node)
+	if !ok {
+		m.alert = errorAlert{
+			active:  true,
+			message: fmt.Sprintf("Cannot determine whether %s:%d is currently on or off", node.Host, node.Port),
+		}
+		return m, nil
+	}
+
+	m.nodeStatus = nodeStatusConfirm{
+		active:  true,
+		host:    node.Host,
+		port:    node.Port,
+		current: currentState,
+		target:  targetState,
+		command: nodeStatusDisplayCommand(node.Host, node.Port, targetState),
+		button:  buttonCancel,
+	}
+	return m, nil
+}
+
+func nodeStatusToggleTarget(node eos.FstRecord) (current, target string, ok bool) {
+	current = strings.TrimSpace(fallback(node.Activated, node.Status))
+	normalized := strings.ToLower(current)
+	switch normalized {
+	case "on", "online", "enabled", "active":
+		return current, "off", true
+	case "off", "offline", "disabled", "inactive":
+		return current, "on", true
+	default:
+		return current, "", false
+	}
+}
+
+func (m model) renderNodeStatusConfirmPopup() string {
+	cancelBtn := "[ Cancel ]"
+	confirmBtn := fmt.Sprintf("[ Set %s ]", m.nodeStatus.target)
+
+	if m.nodeStatus.button == buttonCancel {
+		cancelBtn = m.styles.selected.Render(cancelBtn)
+	} else {
+		confirmBtn = m.styles.selected.Render(confirmBtn)
+	}
+
+	width := max(48, min(110, m.contentWidth()-16))
+	lines := []string{
+		m.styles.popupTitle.Render("Confirm Node State Change"),
+		fmt.Sprintf("Node:   %s", m.styles.value.Render(fmt.Sprintf("%s:%d", m.nodeStatus.host, m.nodeStatus.port))),
+		fmt.Sprintf("Status: %s -> %s", m.nodeStatus.current, m.styles.value.Render(m.nodeStatus.target)),
+		"",
+		"The following command will be executed:",
+		"",
+		m.styles.value.Render(m.nodeStatus.command),
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, cancelBtn, "  ", confirmBtn),
+		"",
+		m.styles.status.Render("g cancel  •  G confirm  •  enter apply  •  esc close"),
+	}
+	for i := range lines {
+		lines[i] = padVisibleWidth(lines[i], width)
+	}
+
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) renderFstHeaderRow(columns []tableColumn) string {

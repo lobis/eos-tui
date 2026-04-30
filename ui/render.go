@@ -105,6 +105,8 @@ func (m model) renderFooter() string {
 		keys = "tab/0-9  •  ↑↓/jk  •  ←→ scope  •  g/G top/bottom  •  r refresh  •  L commands  •  q quit"
 	case viewAccess:
 		keys = "tab/0-9  •  ↑↓/jk  •  ←→ col  •  / filter  •  c clear  •  enter action  •  s stall prompt  •  r refresh  •  L commands  •  q quit"
+	case viewFST:
+		keys = "tab/0-9  •  ↑↓/jk  •  ←→  •  S sort  •  / filter  •  c clear  •  o on/off  •  r  •  l logs  •  s shell  •  L commands"
 	case viewFileSystems:
 		keys = "tab/0-9  •  ↑↓/jk  •  ←→  •  S  •  /  •  enter cfg  •  A all cfg  •  x apollon  •  l logs  •  L commands  •  s shell"
 	default:

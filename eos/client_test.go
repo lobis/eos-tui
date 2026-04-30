@@ -1625,6 +1625,29 @@ func TestQDBAttemptCoupRunsOnSelectedHost(t *testing.T) {
 	}
 }
 
+func TestSetNodeStatusRunsEOSNodeSet(t *testing.T) {
+	runner := &recordingRunner{out: []byte("success\n")}
+	c := &Client{
+		timeout: time.Second,
+		runner:  runner,
+	}
+
+	if err := c.SetNodeStatus(context.Background(), "st-120-100gb-astpuc.cern.ch", 1095, "off"); err != nil {
+		t.Fatalf("SetNodeStatus() error: %v", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	call := runner.calls[0]
+	if call.name != "eos" {
+		t.Fatalf("expected eos command, got %q", call.name)
+	}
+	want := []string{"node", "set", "st-120-100gb-astpuc.cern.ch:1095", "off"}
+	if strings.Join(call.args, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected node set args: got %v want %v", call.args, want)
+	}
+}
+
 // --- entryFromCLI ---
 
 func TestEntryFromCLIRootPath(t *testing.T) {

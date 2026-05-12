@@ -10,8 +10,12 @@ EOS_CODENAME="${EOS_CODENAME:-eos-tui}"
 SRC_DIR="${SRC_DIR:-github-release}"
 TAG="${CI_COMMIT_TAG:-${RELEASE_TAG:-}}"
 
+if [ -z "${TAG}" ] && [ -f "${SRC_DIR}/release.json" ]; then
+    TAG="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${SRC_DIR}/release.json" | head -n 1)"
+fi
+
 if [ -z "${TAG}" ]; then
-    echo "ERROR: no release tag set (CI_COMMIT_TAG / RELEASE_TAG)"
+    echo "ERROR: no release tag set (CI_COMMIT_TAG / RELEASE_TAG / ${SRC_DIR}/release.json)"
     exit 1
 fi
 

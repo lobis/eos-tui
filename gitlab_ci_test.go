@@ -19,6 +19,43 @@ func TestGitLabReleaseFetchDoesNotInstallConflictingCoreutils(t *testing.T) {
 	}
 }
 
+func TestGitLabPublishJobUsesStorageCIRunner(t *testing.T) {
+	data, err := os.ReadFile(".gitlab-ci.yml")
+	if err != nil {
+		t.Fatalf("read .gitlab-ci.yml: %v", err)
+	}
+	if !strings.Contains(string(data), "docker_node") {
+		t.Fatal("publish job should use docker_node, matching the Storage CI publishing pattern")
+	}
+}
+
+func TestGitLabPublishMatchesEOSExporterSudoInvocation(t *testing.T) {
+	data, err := os.ReadFile(".gitlab-ci.yml")
+	if err != nil {
+		t.Fatalf("read .gitlab-ci.yml: %v", err)
+	}
+	ci := string(data)
+	if !strings.Contains(ci, "sudo -u stci -H ./gitlab-ci/publish_artifacts.sh") {
+		t.Fatal("publish job should keep the plain eos_exporter-style sudo invocation")
+	}
+	if strings.Contains(ci, "sudo -u stci -H env") {
+		t.Fatal("publish job should not depend on CI environment being passed through sudo")
+	}
+}
+
+func TestGitLabPublishCanRecoverTagFromReleaseMetadata(t *testing.T) {
+	data, err := os.ReadFile("gitlab-ci/publish_artifacts.sh")
+	if err != nil {
+		t.Fatalf("read publish script: %v", err)
+	}
+	script := string(data)
+	for _, want := range []string{`"${SRC_DIR}/release.json"`, `"tag_name"`} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("publish script must recover missing sudo-stripped tag from release metadata using %s", want)
+		}
+	}
+}
+
 func TestGitHubReleaseChecksumsExcludeChecksumFile(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {

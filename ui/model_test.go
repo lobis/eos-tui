@@ -2119,6 +2119,70 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	}
 }
 
+func TestUnifiedMGMViewShowsFullBuildVersions(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 180
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{
+			Host:       "mgm01.cern.ch",
+			Port:       1094,
+			Role:       "leader",
+			Status:     "online",
+			EOSVersion: "5.4.2-20260507225351gite07497239",
+			QDBHost:    "qdb01.cern.ch",
+			QDBPort:    7777,
+			QDBRole:    "leader",
+			QDBStatus:  "online",
+			QDBVersion: "5.4.2-20260429174732git29f83ccc8",
+		},
+	}
+
+	view := m.View()
+	for _, needle := range []string{
+		"5.4.2-20260507225351gite07497239",
+		"5.4.2-20260429174732git29f83ccc8",
+	} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected full build version %q in MGM/QDB view, got:\n%s", needle, view)
+		}
+	}
+}
+
+func TestUnifiedMGMViewKeepsVersionColumnAtRightEdge(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 180
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{
+			Host:       "eospilot-ns-02.cern.ch",
+			Port:       1094,
+			Role:       "leader",
+			Status:     "online",
+			EOSVersion: "5.4.2-20260507225351gite07497239",
+		},
+	}
+
+	view := ansi.Strip(m.View())
+	var header string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "host") && strings.Contains(line, "version") {
+			header = line
+			break
+		}
+	}
+	if header == "" {
+		t.Fatalf("expected topology header in view, got:\n%s", view)
+	}
+	if versionColumn := strings.Index(header, "version"); versionColumn < 120 {
+		t.Fatalf("expected version column near the right edge, got column %d in header %q", versionColumn, header)
+	}
+}
+
 func TestMGMViewShowsDashUntilVersionsAreFetched(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120
@@ -6297,10 +6361,12 @@ func TestNamespaceAttrEditToggleRecursiveInSelectStage(t *testing.T) {
 	}
 }
 
-func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
+func TestNamespaceAttrEditInputStageAllowsTypingR(t *testing.T) {
 	m := newSizedTestModel(t)
 	input := textinput.New()
 	input.SetValue("value")
+	input.CursorEnd()
+	input.Focus()
 	m.nsAttrEdit = namespaceAttrEdit{
 		active:     true,
 		stage:      attrEditStageInput,
@@ -6310,8 +6376,11 @@ func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
 	}
 
 	m = sendKey(m, runeKey('r'))
-	if !m.nsAttrEdit.recursive {
-		t.Fatalf("expected recursive=true after toggling in input stage")
+	if m.nsAttrEdit.recursive {
+		t.Fatalf("did not expect recursive to toggle while typing in input stage")
+	}
+	if got := m.nsAttrEdit.input.Value(); got != "valuer" {
+		t.Fatalf("expected r to be typed into the value input, got %q", got)
 	}
 }
 

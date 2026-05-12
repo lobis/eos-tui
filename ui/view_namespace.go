@@ -445,7 +445,7 @@ func (m model) renderNamespaceAttrEditPopup() string {
 			"",
 			m.nsAttrEdit.input.View(),
 			"",
-			m.styles.status.Render("enter apply  •  r toggle recursive  •  esc cancel"),
+			m.styles.status.Render("enter apply  •  esc cancel  •  recursive can be toggled before editing"),
 		)
 	}
 

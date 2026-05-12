@@ -33,6 +33,29 @@ func (r *recordingRunner) CombinedOutput(ctx context.Context, name string, args 
 	return r.out, nil
 }
 
+type scriptedResponse struct {
+	out []byte
+	err error
+}
+
+type scriptedRunner struct {
+	responses []scriptedResponse
+	calls     []runnerCall
+}
+
+func (r *scriptedRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.calls = append(r.calls, runnerCall{name: name, args: append([]string(nil), args...)})
+	if len(r.responses) == 0 {
+		return nil, errors.New("unexpected command")
+	}
+	response := r.responses[0]
+	r.responses = r.responses[1:]
+	return response.out, response.err
+}
+
 type deadlineRunner struct{}
 
 func (deadlineRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -985,6 +1008,113 @@ func TestParseEOSServerVersion(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseEOSServerBuildVersionIncludesRelease(t *testing.T) {
+	input := "EOS_INSTANCE=eospilot\nEOS_SERVER_VERSION=5.4.2 EOS_SERVER_RELEASE=20260507225351gite07497239\n"
+	if got := parseEOSServerBuildVersion([]byte(input)); got != "5.4.2-20260507225351gite07497239" {
+		t.Fatalf("expected full build version, got %q", got)
+	}
+}
+
+func TestParseEOSServerPackageVersionStripsRPMPlatformSuffix(t *testing.T) {
+	input := "5.4.2-20260429174732git29f83ccc8.el9\n"
+	if got := parseEOSServerPackageVersion([]byte(input)); got != "5.4.2-20260429174732git29f83ccc8" {
+		t.Fatalf("expected package build version, got %q", got)
+	}
+}
+
+func TestParseEOSServerPackageVersionSkipsSSHWarning(t *testing.T) {
+	input := "* WARNING: connection is not using a post-quantum key exchange algorithm.\n" +
+		"This session may be vulnerable to \"store now, decrypt later\" attacks.\n" +
+		"5.4.2-20260429174732git29f83ccc8.el9\n"
+	if got := parseEOSServerPackageVersion([]byte(input)); got != "5.4.2-20260429174732git29f83ccc8" {
+		t.Fatalf("expected package build version after warning, got %q", got)
+	}
+}
+
+func TestEOSVersionOnHostUsesPackageVersionFirst(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	got, err := c.eosVersionOnHost(context.Background(), "")
+	if err != nil {
+		t.Fatalf("eosVersionOnHost() error: %v", err)
+	}
+	if got != "5.4.2-20260429174732git29f83ccc8" {
+		t.Fatalf("expected package build version, got %q", got)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	if runner.calls[0].name != "rpm" || strings.Join(runner.calls[0].args, " ") != "-q --qf %{VERSION}-%{RELEASE}\\n eos-server" {
+		t.Fatalf("expected rpm package probe first, got %+v", runner.calls[0])
+	}
+}
+
+func TestEOSVersionOnHostFallsBackToEOSVersion(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("package eos-server is not installed\n"), err: errors.New("exit status 1")},
+		{out: []byte("EOS_INSTANCE=eospilot\nEOS_SERVER_VERSION=5.4.2 EOS_SERVER_RELEASE=20260507225351gite07497239\n")},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	got, err := c.eosVersionOnHost(context.Background(), "")
+	if err != nil {
+		t.Fatalf("eosVersionOnHost() error: %v", err)
+	}
+	if got != "5.4.2-20260507225351gite07497239" {
+		t.Fatalf("expected eos version build fallback, got %q", got)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("expected two commands, got %d", len(runner.calls))
+	}
+	if runner.calls[1].name != "eos" || strings.Join(runner.calls[1].args, " ") != "version" {
+		t.Fatalf("expected eos version fallback, got %+v", runner.calls[1])
+	}
+}
+
+func TestEOSVersionOnHostFallsBackToDashVersion(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("package eos-server is not installed\n"), err: errors.New("exit status 1")},
+		{out: []byte("error: MGM root://localhost not online/reachable\n"), err: errors.New("exit status 64")},
+		{out: []byte("EOS 5.4.2 (2026)\n\nDeveloped by the CERN IT Storage Group\n")},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	got, err := c.eosVersionOnHost(context.Background(), "")
+	if err != nil {
+		t.Fatalf("eosVersionOnHost() error: %v", err)
+	}
+	if got != "5.4.2" {
+		t.Fatalf("expected short fallback version, got %q", got)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("expected three commands, got %d", len(runner.calls))
+	}
+	if runner.calls[2].name != "eos" || strings.Join(runner.calls[2].args, " ") != "--version" {
+		t.Fatalf("expected eos --version final fallback, got %+v", runner.calls[2])
+	}
+}
+
+func TestQDBVersionOnHostUsesEOSBuildVersion(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	got, err := c.qdbVersionOnHost(context.Background(), "")
+	if err != nil {
+		t.Fatalf("qdbVersionOnHost() error: %v", err)
+	}
+	if got != "5.4.2-20260429174732git29f83ccc8" {
+		t.Fatalf("expected EOS build version for QDB host, got %q", got)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected no raft-info fallback after EOS build version, got %d commands", len(runner.calls))
 	}
 }
 

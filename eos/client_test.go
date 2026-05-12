@@ -1025,9 +1025,8 @@ func TestParseEOSServerPackageVersionStripsRPMPlatformSuffix(t *testing.T) {
 	}
 }
 
-func TestEOSVersionOnHostFallsBackToPackageVersion(t *testing.T) {
+func TestEOSVersionOnHostUsesPackageVersionFirst(t *testing.T) {
 	runner := &scriptedRunner{responses: []scriptedResponse{
-		{out: []byte("error: MGM root://localhost not online/reachable\n"), err: errors.New("exit status 64")},
 		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},
 	}}
 	c := &Client{timeout: time.Second, runner: runner}
@@ -1039,21 +1038,40 @@ func TestEOSVersionOnHostFallsBackToPackageVersion(t *testing.T) {
 	if got != "5.4.2-20260429174732git29f83ccc8" {
 		t.Fatalf("expected package build version, got %q", got)
 	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	if runner.calls[0].name != "rpm" || strings.Join(runner.calls[0].args, " ") != "-q --qf %{VERSION}-%{RELEASE}\\n eos-server" {
+		t.Fatalf("expected rpm package probe first, got %+v", runner.calls[0])
+	}
+}
+
+func TestEOSVersionOnHostFallsBackToEOSVersion(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("package eos-server is not installed\n"), err: errors.New("exit status 1")},
+		{out: []byte("EOS_INSTANCE=eospilot\nEOS_SERVER_VERSION=5.4.2 EOS_SERVER_RELEASE=20260507225351gite07497239\n")},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	got, err := c.eosVersionOnHost(context.Background(), "")
+	if err != nil {
+		t.Fatalf("eosVersionOnHost() error: %v", err)
+	}
+	if got != "5.4.2-20260507225351gite07497239" {
+		t.Fatalf("expected eos version build fallback, got %q", got)
+	}
 	if len(runner.calls) != 2 {
 		t.Fatalf("expected two commands, got %d", len(runner.calls))
 	}
-	if runner.calls[0].name != "eos" || strings.Join(runner.calls[0].args, " ") != "version" {
-		t.Fatalf("expected eos version first, got %+v", runner.calls[0])
-	}
-	if runner.calls[1].name != "rpm" || strings.Join(runner.calls[1].args, " ") != "-q --qf %{VERSION}-%{RELEASE}\\n eos-server" {
-		t.Fatalf("expected rpm package fallback, got %+v", runner.calls[1])
+	if runner.calls[1].name != "eos" || strings.Join(runner.calls[1].args, " ") != "version" {
+		t.Fatalf("expected eos version fallback, got %+v", runner.calls[1])
 	}
 }
 
 func TestEOSVersionOnHostFallsBackToDashVersion(t *testing.T) {
 	runner := &scriptedRunner{responses: []scriptedResponse{
-		{out: []byte("error: MGM root://localhost not online/reachable\n"), err: errors.New("exit status 64")},
 		{out: []byte("package eos-server is not installed\n"), err: errors.New("exit status 1")},
+		{out: []byte("error: MGM root://localhost not online/reachable\n"), err: errors.New("exit status 64")},
 		{out: []byte("EOS 5.4.2 (2026)\n\nDeveloped by the CERN IT Storage Group\n")},
 	}}
 	c := &Client{timeout: time.Second, runner: runner}
@@ -1075,7 +1093,6 @@ func TestEOSVersionOnHostFallsBackToDashVersion(t *testing.T) {
 
 func TestQDBVersionOnHostUsesEOSBuildVersion(t *testing.T) {
 	runner := &scriptedRunner{responses: []scriptedResponse{
-		{out: []byte("error: MGM root://localhost not online/reachable\n"), err: errors.New("exit status 64")},
 		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},
 	}}
 	c := &Client{timeout: time.Second, runner: runner}
@@ -1087,7 +1104,7 @@ func TestQDBVersionOnHostUsesEOSBuildVersion(t *testing.T) {
 	if got != "5.4.2-20260429174732git29f83ccc8" {
 		t.Fatalf("expected EOS build version for QDB host, got %q", got)
 	}
-	if len(runner.calls) != 2 {
+	if len(runner.calls) != 1 {
 		t.Fatalf("expected no raft-info fallback after EOS build version, got %d commands", len(runner.calls))
 	}
 }

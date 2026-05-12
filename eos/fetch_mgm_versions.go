@@ -90,17 +90,7 @@ func uniqueHosts(selector func(MgmRecord) string, mgms []MgmRecord) []string {
 func (c *Client) eosVersionOnHost(ctx context.Context, host string) (string, error) {
 	var errs []string
 
-	output, err := c.runCommandOnHost(ctx, host, "eos", "version")
-	if err == nil {
-		if version := parseEOSServerBuildVersion(output); version != "" {
-			return version, nil
-		}
-		errs = append(errs, "eos version: no EOS_SERVER_VERSION found")
-	} else {
-		errs = append(errs, fmt.Sprintf("eos version: %v", err))
-	}
-
-	output, err = c.runCommandOnHost(ctx, host, "rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}\\n", "eos-server")
+	output, err := c.runCommandOnHost(ctx, host, "rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}\\n", "eos-server")
 	if err == nil {
 		if version := parseEOSServerPackageVersion(output); version != "" {
 			return version, nil
@@ -108,6 +98,16 @@ func (c *Client) eosVersionOnHost(ctx context.Context, host string) (string, err
 		errs = append(errs, "rpm eos-server: no package version found")
 	} else {
 		errs = append(errs, fmt.Sprintf("rpm eos-server: %v", err))
+	}
+
+	output, err = c.runCommandOnHost(ctx, host, "eos", "version")
+	if err == nil {
+		if version := parseEOSServerBuildVersion(output); version != "" {
+			return version, nil
+		}
+		errs = append(errs, "eos version: no EOS_SERVER_VERSION found")
+	} else {
+		errs = append(errs, fmt.Sprintf("eos version: %v", err))
 	}
 
 	output, err = c.runCommandOnHost(ctx, host, "eos", "--version")

@@ -19,13 +19,13 @@ func TestGitLabReleaseFetchDoesNotInstallConflictingCoreutils(t *testing.T) {
 	}
 }
 
-func TestGitLabPublishJobUsesDefaultRunner(t *testing.T) {
+func TestGitLabPublishJobUsesStorageCIRunner(t *testing.T) {
 	data, err := os.ReadFile(".gitlab-ci.yml")
 	if err != nil {
 		t.Fatalf("read .gitlab-ci.yml: %v", err)
 	}
-	if strings.Contains(string(data), "docker_node") {
-		t.Fatal("publish job must not be pinned to docker_node because that runner pool may be unavailable")
+	if !strings.Contains(string(data), "docker_node") {
+		t.Fatal("publish job should use docker_node, matching the Storage CI publishing pattern")
 	}
 }
 

@@ -16,7 +16,8 @@ fetch_github_release:
   stage: fetch
   image: gitlab-registry.cern.ch/linuxsupport/alma9-base
   script:
-    - dnf install -y --setopt=install_weak_deps=False curl jq coreutils
+    # alma9-base ships coreutils-single; installing full coreutils conflicts with it.
+    - dnf install -y --setopt=install_weak_deps=False curl jq
     - bash gitlab-ci/fetch_github_release.sh
   artifacts:
     paths:

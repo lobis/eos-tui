@@ -393,9 +393,6 @@ func (m model) updateNamespaceAttrEditKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case "esc":
 			m.nsAttrEdit.active = false
 			return m, nil
-		case "r":
-			m.nsAttrEdit.recursive = !m.nsAttrEdit.recursive
-			return m, nil
 		case "enter":
 			attr := m.nsAttrEdit.attrs[m.nsAttrEdit.selected]
 			m.nsAttrEdit.active = false

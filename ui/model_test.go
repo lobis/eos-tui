@@ -6297,10 +6297,12 @@ func TestNamespaceAttrEditToggleRecursiveInSelectStage(t *testing.T) {
 	}
 }
 
-func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
+func TestNamespaceAttrEditInputStageAllowsTypingR(t *testing.T) {
 	m := newSizedTestModel(t)
 	input := textinput.New()
 	input.SetValue("value")
+	input.CursorEnd()
+	input.Focus()
 	m.nsAttrEdit = namespaceAttrEdit{
 		active:     true,
 		stage:      attrEditStageInput,
@@ -6310,8 +6312,11 @@ func TestNamespaceAttrEditToggleRecursiveInInputStage(t *testing.T) {
 	}
 
 	m = sendKey(m, runeKey('r'))
-	if !m.nsAttrEdit.recursive {
-		t.Fatalf("expected recursive=true after toggling in input stage")
+	if m.nsAttrEdit.recursive {
+		t.Fatalf("did not expect recursive to toggle while typing in input stage")
+	}
+	if got := m.nsAttrEdit.input.Value(); got != "valuer" {
+		t.Fatalf("expected r to be typed into the value input, got %q", got)
 	}
 }
 

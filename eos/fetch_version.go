@@ -32,7 +32,7 @@ func parseEOSServerPackageVersion(output []byte) string {
 		line = strings.TrimSpace(line)
 		line = strings.TrimPrefix(line, "eos-server-")
 		line = strings.TrimSuffix(line, ".x86_64")
-		if line == "" || strings.HasPrefix(line, "package ") {
+		if line == "" || strings.HasPrefix(line, "package ") || !isPackageVersionLine(line) {
 			continue
 		}
 		if before, _, ok := strings.Cut(line, ".el"); ok {
@@ -41,6 +41,13 @@ func parseEOSServerPackageVersion(output []byte) string {
 		return line
 	}
 	return ""
+}
+
+func isPackageVersionLine(line string) bool {
+	if line == "" || line[0] < '0' || line[0] > '9' {
+		return false
+	}
+	return strings.Contains(line, "-")
 }
 
 // parseEOSServerVersion extracts the server version from either `eos version`

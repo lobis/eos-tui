@@ -1025,6 +1025,15 @@ func TestParseEOSServerPackageVersionStripsRPMPlatformSuffix(t *testing.T) {
 	}
 }
 
+func TestParseEOSServerPackageVersionSkipsSSHWarning(t *testing.T) {
+	input := "* WARNING: connection is not using a post-quantum key exchange algorithm.\n" +
+		"This session may be vulnerable to \"store now, decrypt later\" attacks.\n" +
+		"5.4.2-20260429174732git29f83ccc8.el9\n"
+	if got := parseEOSServerPackageVersion([]byte(input)); got != "5.4.2-20260429174732git29f83ccc8" {
+		t.Fatalf("expected package build version after warning, got %q", got)
+	}
+}
+
 func TestEOSVersionOnHostUsesPackageVersionFirst(t *testing.T) {
 	runner := &scriptedRunner{responses: []scriptedResponse{
 		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},

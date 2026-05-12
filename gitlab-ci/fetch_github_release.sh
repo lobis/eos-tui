@@ -29,10 +29,13 @@ CURL_RETRY=(
     --retry-all-errors
 )
 
-CURL_AUTH=()
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-    CURL_AUTH=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-fi
+curl_github() {
+    local args=("${CURL_RETRY[@]}")
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    fi
+    curl "${args[@]}" "$@"
+}
 
 run_with_retry() {
     local attempt=1
@@ -51,7 +54,7 @@ run_with_retry() {
 }
 
 fetch_release_metadata() {
-    curl "${CURL_RETRY[@]}" "${CURL_AUTH[@]}" \
+    curl_github \
         -H "Accept: application/vnd.github+json" \
         "${API_URL}" -o "${OUT_DIR}/release.json"
 }
@@ -59,7 +62,7 @@ fetch_release_metadata() {
 download_asset() {
     local url="$1"
     local name="$2"
-    curl "${CURL_RETRY[@]}" "${CURL_AUTH[@]}" \
+    curl_github \
         -H "Accept: application/octet-stream" \
         "${url}" -o "${OUT_DIR}/${name}.part"
     mv "${OUT_DIR}/${name}.part" "${OUT_DIR}/${name}"
@@ -79,7 +82,10 @@ mkdir -p "${OUT_DIR}"
 echo "Fetching release metadata for ${GITHUB_REPO} ${TAG}"
 run_with_retry fetch_release_metadata
 
-mapfile -t ASSETS < <(jq -r '.assets[] | "\(.name)\t\(.browser_download_url)"' "${OUT_DIR}/release.json")
+ASSETS=()
+while IFS= read -r asset; do
+    ASSETS+=("${asset}")
+done < <(jq -r '.assets[] | "\(.name)\t\(.browser_download_url)"' "${OUT_DIR}/release.json")
 if [ "${#ASSETS[@]}" -eq 0 ]; then
     echo "ERROR: no release assets found for ${TAG}"
     exit 1
@@ -99,7 +105,9 @@ run_with_retry download_raw "README.md" "README.md"
 
 if [ -f "${OUT_DIR}/SHA256SUMS.txt" ]; then
     echo "Verifying SHA256SUMS.txt"
-    (cd "${OUT_DIR}" && sha256sum -c SHA256SUMS.txt)
+    # Older releases may contain a checksum entry for SHA256SUMS.txt itself.
+    # That entry is not stable because the file changes when the entry is added.
+    (cd "${OUT_DIR}" && grep -vE '(^|[[:space:]])SHA256SUMS\.txt$' SHA256SUMS.txt | sha256sum -c -)
 else
     echo "WARNING: SHA256SUMS.txt not present in release; skipping checksum verification."
 fi

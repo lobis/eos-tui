@@ -18,3 +18,43 @@ func TestGitLabReleaseFetchDoesNotInstallConflictingCoreutils(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubReleaseChecksumsExcludeChecksumFile(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+	if !strings.Contains(string(data), "! -name SHA256SUMS.txt") {
+		t.Fatal("release workflow must exclude SHA256SUMS.txt when generating SHA256SUMS.txt")
+	}
+}
+
+func TestGitLabReleaseFetchIgnoresChecksumFileSelfEntry(t *testing.T) {
+	data, err := os.ReadFile("gitlab-ci/fetch_github_release.sh")
+	if err != nil {
+		t.Fatalf("read fetch script: %v", err)
+	}
+	if !strings.Contains(string(data), "SHA256SUMS\\.txt") || !strings.Contains(string(data), "sha256sum -c -") {
+		t.Fatal("fetch script must filter SHA256SUMS.txt self-entry before checksum verification")
+	}
+}
+
+func TestGitLabReleaseFetchDoesNotExpandEmptyAuthArray(t *testing.T) {
+	data, err := os.ReadFile("gitlab-ci/fetch_github_release.sh")
+	if err != nil {
+		t.Fatalf("read fetch script: %v", err)
+	}
+	if strings.Contains(string(data), "CURL_AUTH[@]") {
+		t.Fatal("fetch script must not expand an empty CURL_AUTH array under set -u")
+	}
+}
+
+func TestGitLabReleaseFetchAvoidsMapfileForLocalBashCompatibility(t *testing.T) {
+	data, err := os.ReadFile("gitlab-ci/fetch_github_release.sh")
+	if err != nil {
+		t.Fatalf("read fetch script: %v", err)
+	}
+	if strings.Contains(string(data), "mapfile") {
+		t.Fatal("fetch script must avoid mapfile so it can be reproduced with older local Bash versions")
+	}
+}

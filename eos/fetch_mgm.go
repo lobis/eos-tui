@@ -98,15 +98,16 @@ func (c *Client) mgmsFromRaftInfo(ctx context.Context, mgmPort string) ([]MgmRec
 		qh, qp := splitHostPort(node)
 
 		mgms = append(mgms, MgmRecord{
-			Host:       h,
-			Port:       p,
-			QDBHost:    qh,
-			QDBPort:    qp,
-			Role:       role,
-			QDBRole:    role,
-			Status:     status,
-			QDBStatus:  status,
-			EOSVersion: version,
+			Host:      h,
+			Port:      p,
+			QDBHost:   qh,
+			QDBPort:   qp,
+			Role:      role,
+			QDBRole:   role,
+			Status:    status,
+			QDBStatus: status,
+			// raft-info reports the QuarkDB version. The MGM version is probed
+			// separately with EOS commands so these columns cannot be confused.
 			QDBVersion: version,
 		})
 	}

@@ -124,10 +124,6 @@ func (c *Client) eosVersionOnHost(ctx context.Context, host string) (string, err
 }
 
 func (c *Client) qdbVersionOnHost(ctx context.Context, host string) (string, error) {
-	if version, err := c.eosVersionOnHost(ctx, host); err == nil && version != "" {
-		return version, nil
-	}
-
 	output, err := c.runCommandOnHost(ctx, host, "redis-cli", "-p", "7777", "raft-info")
 	if err != nil {
 		return "", fmt.Errorf("redis-cli raft-info: %w", err)

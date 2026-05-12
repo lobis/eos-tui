@@ -2119,6 +2119,38 @@ func TestUnifiedMGMViewShowsQDBColumns(t *testing.T) {
 	}
 }
 
+func TestUnifiedMGMViewShowsFullBuildVersions(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 180
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{
+			Host:       "mgm01.cern.ch",
+			Port:       1094,
+			Role:       "leader",
+			Status:     "online",
+			EOSVersion: "5.4.2-20260507225351gite07497239",
+			QDBHost:    "qdb01.cern.ch",
+			QDBPort:    7777,
+			QDBRole:    "leader",
+			QDBStatus:  "online",
+			QDBVersion: "5.4.2-20260429174732git29f83ccc8",
+		},
+	}
+
+	view := m.View()
+	for _, needle := range []string{
+		"5.4.2-20260507225351gite07497239",
+		"5.4.2-20260429174732git29f83ccc8",
+	} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected full build version %q in MGM/QDB view, got:\n%s", needle, view)
+		}
+	}
+}
+
 func TestMGMViewShowsDashUntilVersionsAreFetched(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120

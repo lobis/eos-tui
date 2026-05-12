@@ -301,13 +301,24 @@ func wrappedQDBPopupLines(text string, width int) []string {
 }
 
 func (m model) renderTopologyRows(contentWidth, maxRows int, rows []topologyHostRow, selectedKind topologyHostKind, selectedLocal int, sectionKind topologyHostKind) []string {
-	columns := allocateTableColumns(contentWidth, []tableColumn{
+	dataRows := make([][]string, len(rows))
+	for i, row := range rows {
+		dataRows[i] = []string{
+			row.host,
+			fmt.Sprintf("%d", row.port),
+			row.role,
+			row.status,
+			row.version,
+		}
+	}
+
+	columns := allocateTableColumns(contentWidth, contentAwareColumns([]tableColumn{
 		{title: "host", min: 15, weight: 1},
 		{title: "port", min: 4, weight: 0, right: true},
 		{title: "role", min: 10, weight: 0},
 		{title: "status", min: 10, weight: 0},
-		{title: "version", min: 10, weight: 0},
-	})
+		{title: "version", min: 10, weight: 1},
+	}, dataRows))
 
 	lines := []string{
 		m.renderSimpleHeaderRow(columns, []string{"host", "port", "role", "status", "version"}),
@@ -322,14 +333,7 @@ func (m model) renderTopologyRows(contentWidth, maxRows int, rows []topologyHost
 	}
 
 	for _, idx := range visibleTableIndices(len(rows), sectionSelected, maxRows) {
-		rowData := rows[idx]
-		row := formatTableRow(columns, []string{
-			rowData.host,
-			fmt.Sprintf("%d", rowData.port),
-			rowData.role,
-			rowData.status,
-			rowData.version,
-		})
+		row := formatTableRow(columns, dataRows[idx])
 		if idx == sectionSelected {
 			row = m.styles.selected.Width(contentWidth).Render(row)
 		}

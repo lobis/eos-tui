@@ -2151,6 +2151,38 @@ func TestUnifiedMGMViewShowsFullBuildVersions(t *testing.T) {
 	}
 }
 
+func TestUnifiedMGMViewKeepsVersionColumnAtRightEdge(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.width = 180
+	m.height = 30
+	m.activeView = viewMGM
+	m.mgmsLoading = false
+	m.mgms = []eos.MgmRecord{
+		{
+			Host:       "eospilot-ns-02.cern.ch",
+			Port:       1094,
+			Role:       "leader",
+			Status:     "online",
+			EOSVersion: "5.4.2-20260507225351gite07497239",
+		},
+	}
+
+	view := ansi.Strip(m.View())
+	var header string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "host") && strings.Contains(line, "version") {
+			header = line
+			break
+		}
+	}
+	if header == "" {
+		t.Fatalf("expected topology header in view, got:\n%s", view)
+	}
+	if versionColumn := strings.Index(header, "version"); versionColumn < 120 {
+		t.Fatalf("expected version column near the right edge, got column %d in header %q", versionColumn, header)
+	}
+}
+
 func TestMGMViewShowsDashUntilVersionsAreFetched(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120

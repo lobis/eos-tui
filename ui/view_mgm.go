@@ -317,7 +317,7 @@ func (m model) renderTopologyRows(contentWidth, maxRows int, rows []topologyHost
 		{title: "port", min: 4, weight: 0, right: true},
 		{title: "role", min: 10, weight: 0},
 		{title: "status", min: 10, weight: 0},
-		{title: "version", min: 10, weight: 1},
+		{title: "version", min: 10, weight: 0},
 	}, dataRows))
 
 	lines := []string{

@@ -1100,9 +1100,16 @@ func TestEOSVersionOnHostFallsBackToDashVersion(t *testing.T) {
 	}
 }
 
-func TestQDBVersionOnHostUsesEOSBuildVersion(t *testing.T) {
+func TestQDBVersionOnHostUsesRaftInfoVersion(t *testing.T) {
 	runner := &scriptedRunner{responses: []scriptedResponse{
-		{out: []byte("5.4.2-20260429174732git29f83ccc8.el9\n")},
+		{out: []byte(`LEADER eospilot-ns-02.cern.ch:7777
+----------
+MYSELF eospilot-ns-02.cern.ch:7777
+VERSION 5.4.2.1
+STATUS LEADER
+----------
+NODES eospilot-ns-02.cern.ch:7777
+`)},
 	}}
 	c := &Client{timeout: time.Second, runner: runner}
 
@@ -1110,11 +1117,14 @@ func TestQDBVersionOnHostUsesEOSBuildVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("qdbVersionOnHost() error: %v", err)
 	}
-	if got != "5.4.2-20260429174732git29f83ccc8" {
-		t.Fatalf("expected EOS build version for QDB host, got %q", got)
+	if got != "5.4.2.1" {
+		t.Fatalf("expected raft-info QDB version, got %q", got)
 	}
 	if len(runner.calls) != 1 {
-		t.Fatalf("expected no raft-info fallback after EOS build version, got %d commands", len(runner.calls))
+		t.Fatalf("expected one raft-info command, got %d commands", len(runner.calls))
+	}
+	if runner.calls[0].name != "redis-cli" || strings.Join(runner.calls[0].args, " ") != "-p 7777 raft-info" {
+		t.Fatalf("expected redis-cli raft-info, got %+v", runner.calls[0])
 	}
 }
 
@@ -1571,6 +1581,35 @@ uid=all gid=all ns.qdb.followers=eospilot-ns-01.cern.ch:7777,eospilot-ns-ip700.c
 	}
 	if mgms[2].Host != "eospilot-ns-01.cern.ch" || mgms[2].QDBHost != "eospilot-ns-ip700.cern.ch" {
 		t.Fatalf("unexpected combined record ordering: %+v", mgms[2])
+	}
+}
+
+func TestMGMsRaftFallbackDoesNotUseQDBVersionForMGM(t *testing.T) {
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{out: []byte("uid=all gid=all master_id=eospilot-ns-02.cern.ch:1094\n")},
+		{out: []byte(`LEADER eospilot-ns-02.cern.ch:7777
+----------
+MYSELF eospilot-ns-02.cern.ch:7777
+VERSION 5.4.2.1
+STATUS LEADER
+----------
+NODES eospilot-ns-02.cern.ch:7777
+`)},
+	}}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	mgms, err := c.MGMs(context.Background())
+	if err != nil {
+		t.Fatalf("MGMs() error: %v", err)
+	}
+	if len(mgms) != 1 {
+		t.Fatalf("expected one MGM record, got %d", len(mgms))
+	}
+	if got := mgms[0].EOSVersion; got != "" {
+		t.Fatalf("expected MGM version to stay empty until eos version probe, got %q", got)
+	}
+	if got := mgms[0].QDBVersion; got != "5.4.2.1" {
+		t.Fatalf("expected QDB version from raft-info, got %q", got)
 	}
 }
 

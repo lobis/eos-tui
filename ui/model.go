@@ -169,6 +169,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.nsGoTo.active {
 			return m.updateNamespaceGoToKeys(msg)
 		}
+		if m.nsMkdir.active {
+			return m.updateNamespaceMkdirKeys(msg)
+		}
 		if m.ioShapingEdit.active {
 			return m.updateIOShapingPolicyEditKeys(msg)
 		}
@@ -544,6 +547,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Updated attributes on %s", msg.path)
 		}
 		return m.startNamespaceAttrLoad(true)
+	case namespaceMkdirResultMsg:
+		m.nsMkdir.active = false
+		if msg.err != nil {
+			m.alert = errorAlert{
+				active:  true,
+				message: fmt.Sprintf("mkdir failed: %v", msg.err),
+			}
+			return m, nil
+		}
+		m.nsFilter.filters = map[int]string{}
+		m.nsSelected = 0
+		m.nsLoading = true
+		m.status = fmt.Sprintf("Created directory %s", msg.path)
+		return m, loadDirectoryCmd(m.client, m.directory.Path)
 	case spaceStatusLoadedMsg:
 		if msg.space != m.spaceStatusTarget {
 			return m, nil
@@ -796,6 +813,8 @@ func (m model) View() string {
 		body = m.renderOverlay(body, m.renderNamespaceAttrEditPopup(), bodyTotalHeight)
 	} else if m.nsGoTo.active {
 		body = m.renderOverlay(body, m.renderNamespaceGoToPopup(), bodyTotalHeight)
+	} else if m.nsMkdir.active {
+		body = m.renderOverlay(body, m.renderNamespaceMkdirPopup(), bodyTotalHeight)
 	} else if m.ioShapingEdit.active {
 		body = m.renderOverlay(body, m.renderIOShapingPolicyEditPopup(), bodyTotalHeight)
 	} else if m.groupDrain.active {

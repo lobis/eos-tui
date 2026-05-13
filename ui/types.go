@@ -169,6 +169,11 @@ type namespaceAttrSetResultMsg struct {
 	err       error
 }
 
+type namespaceMkdirResultMsg struct {
+	path string
+	err  error
+}
+
 type spaceStatusLoadedMsg struct {
 	space   string
 	records []eos.SpaceStatusRecord
@@ -381,6 +386,11 @@ type namespaceAttrEdit struct {
 }
 
 type namespaceGoTo struct {
+	active bool
+	input  textinput.Model
+}
+
+type namespaceMkdir struct {
 	active bool
 	input  textinput.Model
 }
@@ -820,6 +830,7 @@ type model struct {
 	nsDetailContentMax int
 	nsAttrEdit         namespaceAttrEdit
 	nsGoTo             namespaceGoTo
+	nsMkdir            namespaceMkdir
 
 	spaceStatus         []eos.SpaceStatusRecord
 	spaceStatusLoading  bool

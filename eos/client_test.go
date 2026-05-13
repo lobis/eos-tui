@@ -941,6 +941,22 @@ func TestAttrSetArgs(t *testing.T) {
 	}
 }
 
+func TestMkdirRunsEOSMkdir(t *testing.T) {
+	runner := &recordingRunner{}
+	c := &Client{timeout: time.Second, runner: runner}
+
+	if err := c.Mkdir(context.Background(), "/eos/test/new-dir"); err != nil {
+		t.Fatalf("Mkdir() error: %v", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one command, got %d", len(runner.calls))
+	}
+	call := runner.calls[0]
+	if call.name != "eos" || strings.Join(call.args, " ") != "mkdir /eos/test/new-dir" {
+		t.Fatalf("expected eos mkdir command, got %+v", call)
+	}
+}
+
 func TestRTLogCommand(t *testing.T) {
 	got := shellDisplayJoin([]string{"eos", "rtlog", "/eos/fst01.cern.ch:1095/fst", "600", "info"})
 	want := "eos rtlog /eos/fst01.cern.ch:1095/fst 600 info"

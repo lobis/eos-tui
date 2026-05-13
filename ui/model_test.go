@@ -6317,6 +6317,82 @@ func TestNamespaceRightEntersSubdirectory(t *testing.T) {
 	}
 }
 
+func TestNamespaceNOpensNewDirectoryPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsLoaded = true
+
+	m = sendKey(m, runeKey('n'))
+	if !m.nsMkdir.active {
+		t.Fatalf("expected new-directory popup to open")
+	}
+	if got := m.nsMkdir.input.Prompt; got != "name> " {
+		t.Fatalf("unexpected mkdir input prompt %q", got)
+	}
+}
+
+func TestNamespaceMkdirEnterRunsCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	input := textinput.New()
+	input.SetValue("new-dir")
+	input.Focus()
+	m.nsMkdir = namespaceMkdir{active: true, input: input}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.nsMkdir.active {
+		t.Fatalf("expected new-directory popup to close after submit")
+	}
+	if cmd == nil {
+		t.Fatalf("expected mkdir command")
+	}
+	if !strings.Contains(m.status, "Creating directory /eos/test/new-dir") {
+		t.Fatalf("unexpected mkdir status %q", m.status)
+	}
+}
+
+func TestNamespaceMkdirResultRefreshesDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsMkdir.active = true
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "old"}
+	m.nsSelected = 3
+
+	updated, cmd := m.Update(namespaceMkdirResultMsg{path: "/eos/test/new-dir"})
+	m = updated.(model)
+
+	if m.nsMkdir.active {
+		t.Fatalf("expected mkdir popup to be closed")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected namespace reload after mkdir")
+	}
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear after mkdir")
+	}
+	if m.nsSelected != 0 {
+		t.Fatalf("expected selection to reset after mkdir, got %d", m.nsSelected)
+	}
+	if cmd == nil {
+		t.Fatalf("expected directory reload command")
+	}
+}
+
+func TestNamespaceFooterAdvertisesMkdirHotkey(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "n mkdir") {
+		t.Fatalf("expected namespace footer to advertise mkdir hotkey, got: %s", footer)
+	}
+}
+
 func TestNamespaceAttrEditNavUpDown(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.nsAttrEdit = namespaceAttrEdit{

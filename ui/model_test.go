@@ -6317,18 +6317,30 @@ func TestNamespaceRightEntersSubdirectory(t *testing.T) {
 	}
 }
 
-func TestNamespaceNOpensNewDirectoryPopup(t *testing.T) {
+func TestNamespaceMOpensNewDirectoryPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsLoaded = true
+
+	m = sendKey(m, runeKey('m'))
+	if !m.nsMkdir.active {
+		t.Fatalf("expected new-directory popup to open")
+	}
+	if got := m.nsMkdir.input.Prompt; got != "name> " {
+		t.Fatalf("unexpected mkdir input prompt %q", got)
+	}
+}
+
+func TestNamespaceNDoesNotOpenNewDirectoryPopup(t *testing.T) {
 	m := newSizedTestModel(t)
 	m.activeView = viewNamespace
 	m.directory = eos.Directory{Path: "/eos/test"}
 	m.nsLoaded = true
 
 	m = sendKey(m, runeKey('n'))
-	if !m.nsMkdir.active {
-		t.Fatalf("expected new-directory popup to open")
-	}
-	if got := m.nsMkdir.input.Prompt; got != "name> " {
-		t.Fatalf("unexpected mkdir input prompt %q", got)
+	if m.nsMkdir.active {
+		t.Fatalf("did not expect n to open new-directory popup")
 	}
 }
 
@@ -6388,7 +6400,7 @@ func TestNamespaceFooterAdvertisesMkdirHotkey(t *testing.T) {
 	m.activeView = viewNamespace
 
 	footer := m.renderFooter()
-	if !strings.Contains(footer, "n mkdir") {
+	if !strings.Contains(footer, "m mkdir") {
 		t.Fatalf("expected namespace footer to advertise mkdir hotkey, got: %s", footer)
 	}
 }

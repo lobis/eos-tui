@@ -201,7 +201,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		return m.startNamespaceAttrEdit()
-	case "n":
+	case "m":
 		return m.startNamespaceMkdir()
 	case ":":
 		return m.startNamespaceGoTo()

@@ -475,6 +475,25 @@ func (m model) renderNamespaceGoToPopup() string {
 		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
+func (m model) renderNamespaceMkdirPopup() string {
+	preview := resolveNamespacePath(m.directory.Path, m.nsMkdir.input.Value())
+	lines := []string{
+		m.styles.popupTitle.Render("New Directory"),
+		fmt.Sprintf("Parent: %s", m.styles.value.Render(m.directory.Path)),
+		"",
+		m.nsMkdir.input.View(),
+		"",
+		fmt.Sprintf("Creates: %s", m.styles.value.Render(preview)),
+		"",
+		m.styles.status.Render("enter create  •  esc cancel  •  absolute path or relative to current"),
+	}
+	return m.styles.panel.
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
 func (m model) selectedNamespaceEntry() (eos.Entry, bool) {
 	entries := m.visibleNamespaceEntries()
 	if len(entries) == 0 || m.nsSelected < 0 || m.nsSelected >= len(entries) {

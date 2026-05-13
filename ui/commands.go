@@ -183,6 +183,13 @@ func runNamespaceAttrSetCmd(client *eos.Client, path, key, value string, recursi
 	}
 }
 
+func runNamespaceMkdirCmd(client *eos.Client, path string) tea.Cmd {
+	return func() tea.Msg {
+		err := client.Mkdir(context.Background(), path)
+		return namespaceMkdirResultMsg{path: path, err: err}
+	}
+}
+
 func loadSpaceStatusCmd(client *eos.Client, space string) tea.Cmd {
 	return func() tea.Msg {
 		records, err := client.SpaceStatus(context.Background(), space)

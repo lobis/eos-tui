@@ -199,8 +199,10 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Opening %s...", parent)
 			return m, loadDirectoryCmd(m.client, parent)
 		}
-	case "enter":
+	case "enter", "a":
 		return m.startNamespaceAttrEdit()
+	case "m":
+		return m.startNamespaceMkdir()
 	case ":":
 		return m.startNamespaceGoTo()
 	case "right":
@@ -443,6 +445,40 @@ func (m model) updateNamespaceGoToKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.nsGoTo.input, cmd = m.nsGoTo.input.Update(msg)
+	return m, cmd
+}
+
+func (m model) startNamespaceMkdir() (tea.Model, tea.Cmd) {
+	input := textinput.New()
+	input.Prompt = "name> "
+	input.CharLimit = 4096
+	input.Width = 48
+
+	m.nsMkdir = namespaceMkdir{
+		active: true,
+		input:  input,
+	}
+	return m, m.nsMkdir.input.Focus()
+}
+
+func (m model) updateNamespaceMkdirKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.nsMkdir.active = false
+		return m, nil
+	case "enter":
+		target := resolveNamespacePath(m.directory.Path, m.nsMkdir.input.Value())
+		if target == "" || target == m.directory.Path {
+			m.status = "Enter a new directory name"
+			return m, nil
+		}
+		m.nsMkdir.active = false
+		m.status = fmt.Sprintf("Creating directory %s...", target)
+		return m, runNamespaceMkdirCmd(m.client, target)
+	}
+
+	var cmd tea.Cmd
+	m.nsMkdir.input, cmd = m.nsMkdir.input.Update(msg)
 	return m, cmd
 }
 
@@ -1007,7 +1043,11 @@ func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeFilterPopup("Filter selection cancelled")
 		return m, nil
 	case "enter":
+		view := m.popup.view
 		m.applyPopupSelection()
+		if view == viewNamespace {
+			return m.startNamespaceAttrLoad(false)
+		}
 		return m, nil
 	case "up", "down", "pgup", "pgdown", "home", "end":
 		var cmd tea.Cmd

@@ -3345,6 +3345,157 @@ func TestNamespaceEnterOpensAttributeEditor(t *testing.T) {
 	}
 }
 
+func TestNamespaceFilterReloadsAttrsForVisibleSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.client = &eos.Client{}
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/user/l",
+		Self: eos.Entry{Name: "l", Path: "/eos/user/l", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "alpha", Path: "/eos/user/l/alpha", Kind: eos.EntryKindContainer},
+			{Name: "lobisapa", Path: "/eos/user/l/lobisapa", Kind: eos.EntryKindContainer},
+		},
+	}
+	m.nsLoaded = true
+	m.nsAttrsTargetPath = "/eos/user/l/alpha"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{{Key: "user.comment", Value: "alpha"}}
+
+	m = sendKey(m, runeKey('/'))
+	for _, r := range "lobisa" {
+		m = sendKey(m, runeKey(r))
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected filter apply to load attrs for the visible selection")
+	}
+	if got := m.nsAttrsTargetPath; got != "/eos/user/l/lobisapa" {
+		t.Fatalf("expected attr target to follow filtered selection, got %q", got)
+	}
+}
+
+func TestNamespaceEnterAttrsWorksAfterFiltering(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.client = &eos.Client{}
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/user/l",
+		Self: eos.Entry{Name: "l", Path: "/eos/user/l", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "alpha", Path: "/eos/user/l/alpha", Kind: eos.EntryKindContainer},
+			{Name: "lobisapa", Path: "/eos/user/l/lobisapa", Kind: eos.EntryKindContainer},
+		},
+	}
+	m.nsLoaded = true
+	m.nsAttrsTargetPath = "/eos/user/l/alpha"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{{Key: "user.comment", Value: "alpha"}}
+
+	m = sendKey(m, runeKey('/'))
+	for _, r := range "lobisa" {
+		m = sendKey(m, runeKey(r))
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(namespaceAttrsLoadedMsg{
+		path:  "/eos/user/l/lobisapa",
+		attrs: []eos.NamespaceAttr{{Key: "user.comment", Value: "lobisapa"}},
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected enter to open attrs after filtering")
+	}
+	if got := m.nsAttrEdit.targetPath; got != "/eos/user/l/lobisapa" {
+		t.Fatalf("expected attr editor to target filtered selection, got %q", got)
+	}
+}
+
+func TestNamespaceAOpensAttributeEditor(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+	}
+
+	updated, _ := m.Update(runeKey('a'))
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected namespace attr editor to open on a")
+	}
+	if m.nsAttrEdit.targetPath != "/eos/dev/file-a" {
+		t.Fatalf("expected attr editor target path to match selection, got %q", m.nsAttrEdit.targetPath)
+	}
+}
+
+func TestNamespaceEnterAttributeEditorLifecycle(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "user.comment", Value: "old"},
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatalf("did not expect command when opening attr picker")
+	}
+	if !m.nsAttrEdit.active || m.nsAttrEdit.stage != attrEditStageSelect {
+		t.Fatalf("expected attr picker after first enter, got active=%v stage=%d", m.nsAttrEdit.active, m.nsAttrEdit.stage)
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected focus command when entering attr value editor")
+	}
+	if !m.nsAttrEdit.active || m.nsAttrEdit.stage != attrEditStageInput {
+		t.Fatalf("expected attr input stage after second enter, got active=%v stage=%d", m.nsAttrEdit.active, m.nsAttrEdit.stage)
+	}
+	if got := m.nsAttrEdit.input.Value(); got != "old" {
+		t.Fatalf("expected attr input to prefill current value, got %q", got)
+	}
+
+	m.nsAttrEdit.input.SetValue("new")
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected attr set command after final enter")
+	}
+	if m.nsAttrEdit.active {
+		t.Fatalf("expected attr editor to close after final enter")
+	}
+}
+
 func TestNamespaceEnterOpensAttributeEditorForSelectedDirectoryWithCommandPanelOpen(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120
@@ -6314,6 +6465,97 @@ func TestNamespaceRightEntersSubdirectory(t *testing.T) {
 	}
 	if m.nsSelected != 0 {
 		t.Fatalf("expected nsSelected=0 after entering subdir, got %d", m.nsSelected)
+	}
+}
+
+func TestNamespaceMOpensNewDirectoryPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsLoaded = true
+
+	m = sendKey(m, runeKey('m'))
+	if !m.nsMkdir.active {
+		t.Fatalf("expected new-directory popup to open")
+	}
+	if got := m.nsMkdir.input.Prompt; got != "name> " {
+		t.Fatalf("unexpected mkdir input prompt %q", got)
+	}
+}
+
+func TestNamespaceNDoesNotOpenNewDirectoryPopup(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsLoaded = true
+
+	m = sendKey(m, runeKey('n'))
+	if m.nsMkdir.active {
+		t.Fatalf("did not expect n to open new-directory popup")
+	}
+}
+
+func TestNamespaceMkdirEnterRunsCommand(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	input := textinput.New()
+	input.SetValue("new-dir")
+	input.Focus()
+	m.nsMkdir = namespaceMkdir{active: true, input: input}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if m.nsMkdir.active {
+		t.Fatalf("expected new-directory popup to close after submit")
+	}
+	if cmd == nil {
+		t.Fatalf("expected mkdir command")
+	}
+	if !strings.Contains(m.status, "Creating directory /eos/test/new-dir") {
+		t.Fatalf("unexpected mkdir status %q", m.status)
+	}
+}
+
+func TestNamespaceMkdirResultRefreshesDirectory(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{Path: "/eos/test"}
+	m.nsMkdir.active = true
+	m.nsFilter.filters = map[int]string{namespaceFilterQueryColumn: "old"}
+	m.nsSelected = 3
+
+	updated, cmd := m.Update(namespaceMkdirResultMsg{path: "/eos/test/new-dir"})
+	m = updated.(model)
+
+	if m.nsMkdir.active {
+		t.Fatalf("expected mkdir popup to be closed")
+	}
+	if !m.nsLoading {
+		t.Fatalf("expected namespace reload after mkdir")
+	}
+	if len(m.nsFilter.filters) != 0 {
+		t.Fatalf("expected namespace filters to clear after mkdir")
+	}
+	if m.nsSelected != 0 {
+		t.Fatalf("expected selection to reset after mkdir, got %d", m.nsSelected)
+	}
+	if cmd == nil {
+		t.Fatalf("expected directory reload command")
+	}
+}
+
+func TestNamespaceFooterAdvertisesMkdirHotkey(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.activeView = viewNamespace
+
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "m mkdir") {
+		t.Fatalf("expected namespace footer to advertise mkdir hotkey, got: %s", footer)
+	}
+	if !strings.Contains(footer, "enter/a attrs") {
+		t.Fatalf("expected namespace footer to advertise enter/a attr hotkeys, got: %s", footer)
 	}
 }
 

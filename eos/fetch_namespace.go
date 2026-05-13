@@ -111,6 +111,14 @@ func (c *Client) SetAttr(ctx context.Context, rawPath, key, value string, recurs
 	return nil
 }
 
+func (c *Client) Mkdir(ctx context.Context, rawPath string) error {
+	_, err := c.runCommandContext(ctx, "eos", "mkdir", rawPath)
+	if err != nil {
+		return fmt.Errorf("eos mkdir: %w", err)
+	}
+	return nil
+}
+
 func attrSetArgs(rawPath, key, value string, recursive bool) []string {
 	args := []string{"eos", "attr"}
 	if recursive {

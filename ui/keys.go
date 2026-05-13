@@ -199,7 +199,7 @@ func (m model) updateNamespaceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Opening %s...", parent)
 			return m, loadDirectoryCmd(m.client, parent)
 		}
-	case "enter":
+	case "enter", "a":
 		return m.startNamespaceAttrEdit()
 	case "m":
 		return m.startNamespaceMkdir()

@@ -3345,6 +3345,85 @@ func TestNamespaceEnterOpensAttributeEditor(t *testing.T) {
 	}
 }
 
+func TestNamespaceAOpensAttributeEditor(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "sys.acl", Value: "u:1000:rwx"},
+	}
+
+	updated, _ := m.Update(runeKey('a'))
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected namespace attr editor to open on a")
+	}
+	if m.nsAttrEdit.targetPath != "/eos/dev/file-a" {
+		t.Fatalf("expected attr editor target path to match selection, got %q", m.nsAttrEdit.targetPath)
+	}
+}
+
+func TestNamespaceEnterAttributeEditorLifecycle(t *testing.T) {
+	m := NewModel(nil, "local", "/").(model)
+	m.activeView = viewNamespace
+	m.nsLoaded = true
+	m.nsLoading = false
+	m.directory = eos.Directory{
+		Path: "/eos/dev",
+		Self: eos.Entry{Name: "dev", Path: "/eos/dev", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "file-a", Path: "/eos/dev/file-a", Kind: eos.EntryKindFile},
+		},
+	}
+	m.nsAttrsTargetPath = "/eos/dev/file-a"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{
+		{Key: "user.comment", Value: "old"},
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatalf("did not expect command when opening attr picker")
+	}
+	if !m.nsAttrEdit.active || m.nsAttrEdit.stage != attrEditStageSelect {
+		t.Fatalf("expected attr picker after first enter, got active=%v stage=%d", m.nsAttrEdit.active, m.nsAttrEdit.stage)
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected focus command when entering attr value editor")
+	}
+	if !m.nsAttrEdit.active || m.nsAttrEdit.stage != attrEditStageInput {
+		t.Fatalf("expected attr input stage after second enter, got active=%v stage=%d", m.nsAttrEdit.active, m.nsAttrEdit.stage)
+	}
+	if got := m.nsAttrEdit.input.Value(); got != "old" {
+		t.Fatalf("expected attr input to prefill current value, got %q", got)
+	}
+
+	m.nsAttrEdit.input.SetValue("new")
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected attr set command after final enter")
+	}
+	if m.nsAttrEdit.active {
+		t.Fatalf("expected attr editor to close after final enter")
+	}
+}
+
 func TestNamespaceEnterOpensAttributeEditorForSelectedDirectoryWithCommandPanelOpen(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.width = 120
@@ -6402,6 +6481,9 @@ func TestNamespaceFooterAdvertisesMkdirHotkey(t *testing.T) {
 	footer := m.renderFooter()
 	if !strings.Contains(footer, "m mkdir") {
 		t.Fatalf("expected namespace footer to advertise mkdir hotkey, got: %s", footer)
+	}
+	if !strings.Contains(footer, "enter/a attrs") {
+		t.Fatalf("expected namespace footer to advertise enter/a attr hotkeys, got: %s", footer)
 	}
 }
 

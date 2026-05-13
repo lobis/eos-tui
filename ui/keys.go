@@ -1043,7 +1043,11 @@ func (m model) updatePopup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeFilterPopup("Filter selection cancelled")
 		return m, nil
 	case "enter":
+		view := m.popup.view
 		m.applyPopupSelection()
+		if view == viewNamespace {
+			return m.startNamespaceAttrLoad(false)
+		}
 		return m, nil
 	case "up", "down", "pgup", "pgdown", "home", "end":
 		var cmd tea.Cmd

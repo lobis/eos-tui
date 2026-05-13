@@ -3345,6 +3345,78 @@ func TestNamespaceEnterOpensAttributeEditor(t *testing.T) {
 	}
 }
 
+func TestNamespaceFilterReloadsAttrsForVisibleSelection(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.client = &eos.Client{}
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/user/l",
+		Self: eos.Entry{Name: "l", Path: "/eos/user/l", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "alpha", Path: "/eos/user/l/alpha", Kind: eos.EntryKindContainer},
+			{Name: "lobisapa", Path: "/eos/user/l/lobisapa", Kind: eos.EntryKindContainer},
+		},
+	}
+	m.nsLoaded = true
+	m.nsAttrsTargetPath = "/eos/user/l/alpha"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{{Key: "user.comment", Value: "alpha"}}
+
+	m = sendKey(m, runeKey('/'))
+	for _, r := range "lobisa" {
+		m = sendKey(m, runeKey(r))
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatalf("expected filter apply to load attrs for the visible selection")
+	}
+	if got := m.nsAttrsTargetPath; got != "/eos/user/l/lobisapa" {
+		t.Fatalf("expected attr target to follow filtered selection, got %q", got)
+	}
+}
+
+func TestNamespaceEnterAttrsWorksAfterFiltering(t *testing.T) {
+	m := newSizedTestModel(t)
+	m.client = &eos.Client{}
+	m.activeView = viewNamespace
+	m.directory = eos.Directory{
+		Path: "/eos/user/l",
+		Self: eos.Entry{Name: "l", Path: "/eos/user/l", Kind: eos.EntryKindContainer},
+		Entries: []eos.Entry{
+			{Name: "alpha", Path: "/eos/user/l/alpha", Kind: eos.EntryKindContainer},
+			{Name: "lobisapa", Path: "/eos/user/l/lobisapa", Kind: eos.EntryKindContainer},
+		},
+	}
+	m.nsLoaded = true
+	m.nsAttrsTargetPath = "/eos/user/l/alpha"
+	m.nsAttrsLoaded = true
+	m.nsAttrs = []eos.NamespaceAttr{{Key: "user.comment", Value: "alpha"}}
+
+	m = sendKey(m, runeKey('/'))
+	for _, r := range "lobisa" {
+		m = sendKey(m, runeKey(r))
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	updated, _ = m.Update(namespaceAttrsLoadedMsg{
+		path:  "/eos/user/l/lobisapa",
+		attrs: []eos.NamespaceAttr{{Key: "user.comment", Value: "lobisapa"}},
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+
+	if !m.nsAttrEdit.active {
+		t.Fatalf("expected enter to open attrs after filtering")
+	}
+	if got := m.nsAttrEdit.targetPath; got != "/eos/user/l/lobisapa" {
+		t.Fatalf("expected attr editor to target filtered selection, got %q", got)
+	}
+}
+
 func TestNamespaceAOpensAttributeEditor(t *testing.T) {
 	m := NewModel(nil, "local", "/").(model)
 	m.activeView = viewNamespace

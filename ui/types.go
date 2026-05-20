@@ -741,6 +741,9 @@ type model struct {
 	client   *eos.Client
 	endpoint string
 
+	idleTimeout  time.Duration
+	lastActivity time.Time
+
 	width  int
 	height int
 

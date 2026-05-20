@@ -49,7 +49,7 @@ func (c *Client) runCommandContext(ctx context.Context, args ...string) ([]byte,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	ctx, cancel := c.commandContext(ctx)
 	defer cancel()
 	runner := c.runner
 	if runner == nil {
@@ -91,7 +91,7 @@ func (c *Client) runCommandOnHost(ctx context.Context, host string, args ...stri
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)
+	ctxTimeout, cancel := c.commandContext(ctx)
 	defer cancel()
 
 	effective := c.effectiveSSHTarget()
@@ -173,7 +173,7 @@ func (c *Client) TailLogOnHost(ctx context.Context, host, filePath string, n int
 	tailCmd := shellJoin(tailArgs)
 
 	c.logCommand(append([]string{"→", target}, tailArgs...))
-	ctxTimeout, cancel := context.WithTimeout(ctx, c.timeout)
+	ctxTimeout, cancel := c.commandContext(ctx)
 	defer cancel()
 
 	var out []byte

@@ -109,6 +109,36 @@ func TestStartupSplashHidesAfterInitialDataArrives(t *testing.T) {
 	}
 }
 
+func TestIdleTimeoutQuitsOnTick(t *testing.T) {
+	m := NewModelWithOptions(nil, "local eos cli", "/", ModelOptions{
+		IdleTimeout: time.Minute,
+	}).(model)
+	m.lastActivity = time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+
+	_, cmd := m.Update(tickMsg(m.lastActivity.Add(time.Minute)))
+	if cmd == nil {
+		t.Fatalf("expected idle timeout to quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("expected idle timeout command to be tea.Quit")
+	}
+}
+
+func TestKeyInputResetsIdleTimeout(t *testing.T) {
+	m := NewModelWithOptions(nil, "local eos cli", "/", ModelOptions{
+		IdleTimeout: time.Minute,
+	}).(model)
+	oldActivity := time.Date(2000, 1, 1, 10, 0, 0, 0, time.UTC)
+	m.lastActivity = oldActivity
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = updated.(model)
+
+	if !m.lastActivity.After(oldActivity) {
+		t.Fatalf("expected key input to refresh last activity")
+	}
+}
+
 func TestModelRendersLoadedNodeData(t *testing.T) {
 	m := NewModel(nil, "local eos cli", "/").(model)
 

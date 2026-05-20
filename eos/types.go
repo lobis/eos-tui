@@ -17,6 +17,9 @@ type commandRunner interface {
 }
 
 type Client struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// sshTarget is the gateway/initial SSH host supplied by the user (e.g. "eospilot").
 	sshTarget string
 	// resolvedSSHTarget is set after MGM master discovery and becomes the

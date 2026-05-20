@@ -71,6 +71,7 @@ eos-tui
 | `--ssh` | `EOS_TUI_SSH` | _(local)_ | SSH gateway / initial target |
 | `--ssh-accept-new-host-keys` | `EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS` | `false` | Accept new host keys automatically |
 | `--timeout` | `EOS_TUI_TIMEOUT` | `15s` | Per-request timeout |
+| `--idle-timeout` | `EOS_TUI_IDLE_TIMEOUT` | `1h` | Quit after this duration without keyboard input (`0` disables) |
 | `--no-alt-screen` | `EOS_TUI_NO_ALT_SCREEN` | `false` | Disable alternate screen |
 | `--version` | — | — | Print version and exit |
 

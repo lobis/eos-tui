@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -12,7 +13,15 @@ import (
 	"github.com/lobis/eos-tui/eos"
 )
 
+type ModelOptions struct {
+	IdleTimeout time.Duration
+}
+
 func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
+	return NewModelWithOptions(client, endpoint, rootPath, ModelOptions{})
+}
+
+func NewModelWithOptions(client *eos.Client, endpoint, rootPath string, opts ModelOptions) tea.Model {
 	input := textinput.New()
 	input.Prompt = "filter> "
 	input.CharLimit = 256
@@ -42,10 +51,13 @@ func NewModel(client *eos.Client, endpoint, rootPath string) tea.Model {
 	if initialPath == "" {
 		initialPath = "/eos"
 	}
+	now := time.Now()
 
 	return model{
 		client:             client,
 		endpoint:           endpoint,
+		idleTimeout:        opts.IdleTimeout,
+		lastActivity:       now,
 		width:              120,
 		height:             32,
 		activeView:         activeView,
@@ -128,6 +140,11 @@ func (m model) toggleCommandLog() (tea.Model, tea.Cmd) {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseMsg:
+		m.lastActivity = time.Now()
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
@@ -769,6 +786,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, splashTickCmd()
 		}
 	case tickMsg:
+		now := time.Time(msg)
+		if m.idleTimeout > 0 && !m.lastActivity.IsZero() && !now.Before(m.lastActivity.Add(m.idleTimeout)) {
+			m.status = fmt.Sprintf("Idle for %s; exiting", m.idleTimeout)
+			return m, tea.Quit
+		}
 		return m, tea.Batch(tickCmd(), loadInfraCmd(m.client))
 	}
 

@@ -63,6 +63,13 @@ func (deadlineRunner) CombinedOutput(ctx context.Context, name string, args ...s
 	return nil, errors.New("signal: killed")
 }
 
+type contextErrRunner struct{}
+
+func (contextErrRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestParseLabeledValues(t *testing.T) {
 	input := `
 ALL      Files                            78 [booted] (0s)
@@ -773,6 +780,31 @@ func TestRunCommandContextUsesCallerCancellation(t *testing.T) {
 	}
 	if len(runner.calls) != 0 {
 		t.Fatalf("runner should not record completed command after cancellation, got %#v", runner.calls)
+	}
+}
+
+func TestClientCloseCancelsRunningCommand(t *testing.T) {
+	client, err := New(context.Background(), Config{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	client.runner = contextErrRunner{}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := client.runCommandContext(context.Background(), "eos", "version")
+		errCh <- err
+	}()
+
+	client.Close()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("command did not stop after client close")
 	}
 }
 

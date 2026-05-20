@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,6 +31,7 @@ func main() {
 		versionFlag       = flag.Bool("version", false, "print version and exit")
 		sshTarget         = flag.String("ssh", envOrDefaultCompat([]string{"EOS_TUI_SSH", "EOS_TUI_SSH_TARGET"}, ""), "SSH target for running EOS CLI remotely")
 		timeout           = flag.Duration("timeout", envDurationOrDefault("EOS_TUI_TIMEOUT", 15*time.Second), "per-request timeout")
+		idleTimeout       = flag.Duration("idle-timeout", envDurationOrDefault("EOS_TUI_IDLE_TIMEOUT", time.Hour), "quit after this duration without keyboard input (0 disables)")
 		noAltScreen       = flag.Bool("no-alt-screen", envBoolOrDefault("EOS_TUI_NO_ALT_SCREEN", false), "disable alternate screen mode")
 		acceptNewHostKeys = flag.Bool("ssh-accept-new-host-keys", envBoolOrDefault("EOS_TUI_SSH_ACCEPT_NEW_HOST_KEYS", false), "auto-accept first-seen SSH host keys using StrictHostKeyChecking=accept-new")
 	)
@@ -40,6 +44,8 @@ func main() {
 		fmt.Fprintln(flag.CommandLine.Output(), "        SSH target for running EOS CLI remotely")
 		fmt.Fprintln(flag.CommandLine.Output(), "  --timeout duration")
 		fmt.Fprintln(flag.CommandLine.Output(), "        per-request timeout")
+		fmt.Fprintln(flag.CommandLine.Output(), "  --idle-timeout duration")
+		fmt.Fprintln(flag.CommandLine.Output(), "        quit after this duration without keyboard input (0 disables)")
 		fmt.Fprintln(flag.CommandLine.Output(), "  --no-alt-screen")
 		fmt.Fprintln(flag.CommandLine.Output(), "        disable alternate screen mode")
 		fmt.Fprintln(flag.CommandLine.Output(), "  --ssh-accept-new-host-keys")
@@ -52,10 +58,10 @@ func main() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	defer stop()
 
-	client, err := eos.New(ctx, eos.Config{
+	client, err := eos.New(runCtx, eos.Config{
 		SSHTarget:         *sshTarget,
 		Timeout:           *timeout,
 		AcceptNewHostKeys: *acceptNewHostKeys,
@@ -72,7 +78,7 @@ func main() {
 
 		// Discover the MGM master so subsequent EOS commands go directly to
 		// the command-serving leader rather than through the gateway.
-		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), *timeout)
+		discoverCtx, discoverCancel := context.WithTimeout(runCtx, *timeout)
 		defer discoverCancel()
 		if resolved, err := client.DiscoverMGMMaster(discoverCtx); err == nil && resolved != "" {
 			displayTarget = fmt.Sprintf("ssh %s  →  %s", *sshTarget, resolved)
@@ -85,13 +91,19 @@ func main() {
 	if useAltScreen {
 		options = append(options, tea.WithAltScreen())
 	}
+	options = append(options, tea.WithContext(runCtx))
 
 	program := tea.NewProgram(
-		ui.NewModel(client, displayTarget, ""),
+		ui.NewModelWithOptions(client, displayTarget, "", ui.ModelOptions{
+			IdleTimeout: *idleTimeout,
+		}),
 		options...,
 	)
 
 	if _, err := program.Run(); err != nil {
+		if errors.Is(err, tea.ErrProgramKilled) || errors.Is(err, context.Canceled) {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "run TUI: %v\n", err)
 		os.Exit(1)
 	}

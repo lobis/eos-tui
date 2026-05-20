@@ -9,13 +9,19 @@ import (
 	"time"
 )
 
-func New(_ context.Context, cfg Config) (*Client, error) {
+func New(ctx context.Context, cfg Config) (*Client, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	clientCtx, cancel := context.WithCancel(ctx)
 
 	c := &Client{
+		ctx:               clientCtx,
+		cancel:            cancel,
 		sshTarget:         cfg.SSHTarget,
 		timeout:           timeout,
 		acceptNewHostKeys: cfg.AcceptNewHostKeys,
@@ -63,7 +69,32 @@ func initSessionLog() string {
 }
 
 func (c *Client) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
 	return nil
+}
+
+func (c *Client) commandContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	timeout := c.timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	if c.ctx == nil {
+		return cmdCtx, cancel
+	}
+
+	stop := context.AfterFunc(c.ctx, cancel)
+	return cmdCtx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // effectiveSSHTarget returns the host that runCommand will actually SSH to.
